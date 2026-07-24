@@ -1,0 +1,102 @@
+import {
+  convertToModelMessages,
+  safeValidateUIMessages,
+  type LanguageModel,
+  type UIMessage,
+} from "ai";
+import type { Logger } from "pino";
+import { createCodexLanguageModel } from "../agent/codex-provider";
+import { JobSearchAgent } from "../agent/job-search-agent";
+import type { JobSearchProfile } from "../agent/types";
+import { logger as defaultLogger } from "../observability/logger";
+
+type ModelFactory = () => Promise<LanguageModel>;
+
+export const agentLimits = {
+  maxMessages: 20,
+  maxTextCharacters: 8_000,
+  maxTotalCharacters: 24_000,
+} as const;
+
+export class WebRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
+
+function textCharacters(messages: UIMessage[]) {
+  return messages.reduce((total, message) => total + message.parts.reduce(
+    (messageTotal, part) => messageTotal + (part.type === "text" ? part.text.length : 0),
+    0,
+  ), 0);
+}
+
+export async function validateAgentMessages(value: unknown): Promise<UIMessage[]> {
+  if (!Array.isArray(value)) throw new WebRequestError("Messages must be an array.", 400);
+  if (value.length === 0) throw new WebRequestError("At least one message is required.", 400);
+  if (value.length > agentLimits.maxMessages) {
+    throw new WebRequestError(`A conversation is limited to ${agentLimits.maxMessages} messages.`, 400);
+  }
+  const validation = await safeValidateUIMessages({ messages: value });
+  if (!validation.success) throw new WebRequestError("The conversation contains invalid messages.", 400);
+  for (const message of validation.data) {
+    if (message.role !== "user" && message.role !== "assistant") {
+      throw new WebRequestError("Only user and assistant messages are accepted.", 400);
+    }
+    if (message.parts.some(part => part.type !== "text" && part.type !== "step-start")) {
+      throw new WebRequestError("Only text messages and stream step markers are supported.", 400);
+    }
+    if (message.parts.some(part => part.type === "text" && part.text.length > agentLimits.maxTextCharacters)) {
+      throw new WebRequestError(`A message is limited to ${agentLimits.maxTextCharacters} characters.`, 400);
+    }
+  }
+  if (textCharacters(validation.data) > agentLimits.maxTotalCharacters) {
+    throw new WebRequestError("The active conversation is too long. Start a new session.", 400);
+  }
+  return validation.data;
+}
+
+export function safeAgentError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (/codex authentication/i.test(message)) return message;
+  if (/unsupported codex model/i.test(message)) return message;
+  return "The JobSearchAgent could not complete that response. Please try again.";
+}
+
+export function createAgentHandler(
+  profile: JobSearchProfile,
+  modelFactory: ModelFactory = createCodexLanguageModel,
+  logger: Logger = defaultLogger,
+) {
+  return async (request: Request) => {
+    const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+    const contentLength = Number(request.headers.get("content-length") ?? 0);
+    if (contentLength > 128_000) throw new WebRequestError("Request body is too large.", 413);
+
+    let body: { messages?: unknown };
+    try {
+      body = await request.json() as { messages?: unknown };
+    } catch (error) {
+      throw new WebRequestError("Request body must be valid JSON.", 400, { cause: error });
+    }
+
+    const uiMessages = await validateAgentMessages(body.messages);
+    const agent = new JobSearchAgent({
+      profile,
+      model: await modelFactory(),
+      logger: logger.child({ requestId }),
+    });
+    const result = agent.respond(await convertToModelMessages(uiMessages), request.signal);
+    return result.toUIMessageStreamResponse({
+      sendReasoning: false,
+      onError: error => safeAgentError(error),
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  };
+}

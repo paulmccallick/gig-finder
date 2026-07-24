@@ -1,0 +1,17 @@
+.obsidian/
+**/.obsidian/
+.claude/
+.playwright-mcp/
+
+# Generated and temporary files
+tmp/
+temp/
+test-results/
+*.tmp
+*.temp
+*.bak
+*.orig
+*~
+*.swp
+*.swo
+.DS_Store

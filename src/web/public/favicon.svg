@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="8" fill="#071014"/>
+  <path d="M10 18V10h8M46 10h8v8M54 46v8h-8M18 54h-8v-8" fill="none" stroke="#68e0bb" stroke-width="2" opacity=".48"/>
+  <rect x="14" y="14" width="36" height="36" fill="#0b171c" stroke="#2d5056" stroke-width="2"/>
+  <path d="M14 22H8M22 14V8" stroke="#68e0bb" stroke-width="2"/>
+  <circle cx="43" cy="21" r="3" fill="#68e0bb"/>
+  <circle cx="43" cy="21" r="6" fill="none" stroke="#68e0bb" stroke-width="1" opacity=".22"/>
+  <text x="32" y="39" fill="#68e0bb" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="600" letter-spacing="1" text-anchor="middle">PM</text>
+</svg>

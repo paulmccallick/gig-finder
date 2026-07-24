@@ -1,0 +1,23 @@
+const root = new URL("../../", import.meta.url).pathname;
+
+const api = Bun.spawn(["bun", "--watch", "src/web/server.ts"], {
+  cwd: root,
+  env: { ...process.env, API_PORT: "3001" },
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
+const client = Bun.spawn(
+  ["bun", "x", "vite", "--config", "src/web/vite.config.ts", "--host", "127.0.0.1"],
+  { cwd: root, stdout: "inherit", stderr: "inherit" },
+);
+
+const stop = () => {
+  api.kill();
+  client.kill();
+};
+
+process.on("SIGINT", stop);
+process.on("SIGTERM", stop);
+await Promise.race([api.exited, client.exited]);
+stop();

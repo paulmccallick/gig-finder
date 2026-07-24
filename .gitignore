@@ -1,0 +1,53 @@
+*.pdf
+*.docx
+.DS_Store
+.claude/
+.playwright-mcp/
+.obsidian/
+**/.obsidian/
+
+# Private user workspace. This is an independent local repository.
+context/
+
+# Temporary files
+tmp/
+temp/
+test-results/
+logs/
+*.tmp
+*.temp
+*.bak
+*.orig
+*~
+*.swp
+*.swo
+
+# Web application dependencies and build output
+node_modules/
+dist/
+
+# Local upstream source used for provider research
+.research/provider-sources/
+.research/codex-vercel-spike/
+
+# Private context skills exposed locally through symlinks
+.agents/skills/beeper-messages
+.agents/skills/job-scout
+
+# Operational databases and SQLite journals
+**/*.sqlite
+**/*.sqlite-*
+**/*.db
+**/*.db-*
+**/backups/
+**/migration/
+
+# Local credentials and auth artifacts
+**/client_secret*.json
+**/credentials.json
+**/*token*.json
+*.pem
+*.key
+*.p12
+*.pfx
+pkcs11.txt
