@@ -16,3 +16,9 @@ Project](https://github.com/users/paulmccallick/projects/5).
 - Add regression tests for changed documented behavior.
 - Run `bun run typecheck`, `bun test`, and `bun run build` for application
   changes. Run `bun run test:e2e` for dashboard behavior changes.
+- Limit scope to the requested feature
+- Apply SOLID principles
+- Be pragmatic - avoid unecessary obfuscation
+- Treat TypeScript types as executable design constraints: flag unchecked
+  external data, unjustified `any` or assertions, incomplete union handling,
+  and public types that permit impossible states.
