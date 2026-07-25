@@ -30,7 +30,7 @@ const reader = {
       nextOffset: null,
     },
   }),
-  getJob: (id) => ({ status: "not_found", id }),
+  getJob: async (id) => ({ status: "not_found", id }),
   listNetworkingContacts: (input) => ({
     items: [],
     page: {
@@ -42,7 +42,7 @@ const reader = {
       nextOffset: null,
     },
   }),
-  getNetworkingContact: (id) => ({ status: "not_found", id }),
+  getNetworkingContact: async (id) => ({ status: "not_found", id }),
   listTasks: (input) => ({
     items: [],
     page: {
@@ -54,11 +54,12 @@ const reader = {
       nextOffset: null,
     },
   }),
-  getTask: (id) => ({ status: "not_found", id }),
+  getTask: async (id) => ({ status: "not_found", id }),
+  getDocument: async (reference) => ({ status: "not_found", id: reference }),
 } satisfies AgentContextReader;
 
 describe("JobSearchAgent tools", () => {
-  test("registers exactly the six approved tools with agent-facing descriptions", () => {
+  test("registers the approved tools with agent-facing descriptions", () => {
     const tools = createJobSearchTools(reader, logger);
     expect(Object.keys(tools)).toEqual([
       "list_jobs",
@@ -67,6 +68,7 @@ describe("JobSearchAgent tools", () => {
       "get_networking_contact",
       "list_tasks",
       "get_task",
+      "get_document",
     ]);
     for (const definition of Object.values(tools)) {
       expect(definition.description?.length).toBeGreaterThan(40);

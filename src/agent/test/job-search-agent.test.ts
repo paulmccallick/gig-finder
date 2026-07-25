@@ -53,7 +53,7 @@ describe("JobSearchAgent instructions", () => {
     );
     expect(buildJobSearchInstructions(testJobSearchProfile, {
       liveDashboardRecords: true,
-    })).toContain("read-only tools for current jobs, networking contacts, and tasks");
+    })).toContain("read-only tools for current jobs, networking contacts, tasks");
   });
 
   test("composes the current user's profile separately", () => {
@@ -172,9 +172,9 @@ describe("agent streaming", () => {
     });
     const reader = {
       listJobs: () => ({ items: [], page: { offset: 0, limit: 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
-      getJob: (id) => ({ status: "not_found", id }),
+      getJob: async (id) => ({ status: "not_found", id }),
       listNetworkingContacts: () => ({ items: [], page: { offset: 0, limit: 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
-      getNetworkingContact: (id) => ({ status: "not_found", id }),
+      getNetworkingContact: async (id) => ({ status: "not_found", id }),
       listTasks: () => ({
         items: [{
           id: "task-1",
@@ -184,13 +184,15 @@ describe("agent streaming", () => {
           priority: "high",
           dueDate: "2026-07-24",
           relatedEntity: { type: "job", id: "job-1", label: "Example" },
+          notes: "Reply with availability",
           createdAt: "2026-07-23",
           updatedAt: "2026-07-23",
           completedAt: null,
         }],
         page: { offset: 0, limit: 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
       }),
-      getTask: (id) => ({ status: "not_found", id }),
+      getTask: async (id) => ({ status: "not_found", id }),
+      getDocument: async (reference) => ({ status: "not_found", id: reference }),
     } satisfies AgentContextReader;
     const logger = {
       debug: () => undefined,

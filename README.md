@@ -61,5 +61,5 @@ restore strategy rather than source control.
 
 This project is under active development. The dashboard and tracker are
 functional, and the agent has read-only access to current jobs, networking
-contacts, and tasks. Durable memory, broader retrieval, and write-capable tools
-remain planned.
+contacts, tasks, and documents explicitly referenced by those records. Durable
+memory, broader retrieval, and write-capable tools remain planned.

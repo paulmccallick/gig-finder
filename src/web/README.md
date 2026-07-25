@@ -41,13 +41,14 @@ LOG_LEVEL=info bun run dev
 
 The agent remains session-only and read-only:
 
-- It can retrieve current jobs, networking contacts, and tasks through six
-  bounded, server-side tools.
+- It can retrieve current jobs, networking contacts, tasks, and documents
+  explicitly referenced by those records through seven bounded, server-side
+  tools.
 - Tool inputs use strict schemas derived from the domain enums, and list tools
   support inclusion, exclusion, search, ordering, and pagination.
 - It cannot mutate tracker data or external systems.
-- It cannot read meetings, history, documents, email, calendar, files, or
-  external services.
+- It cannot browse arbitrary files or read meetings, history, email, calendar,
+  or external services.
 - Messages remain only in React state and disappear on page reload.
 - Durable memory, workflows, broader context retrieval, and write tools are
   separate backlog items.

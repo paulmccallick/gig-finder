@@ -60,11 +60,16 @@ const getInputSchema = z.object({
   id: z.string().trim().min(1),
 }).strict();
 
+const getDocumentInputSchema = z.object({
+  reference: z.string().trim().min(1),
+}).strict();
+
 type SafeInput = {
   offset?: number;
   limit?: number;
   relatedEntityId?: string;
   id?: string;
+  reference?: string;
 };
 
 export interface ToolFailure {
@@ -78,6 +83,7 @@ function safeLogInput(input: SafeInput) {
   );
   return {
     ...(input.id === undefined ? {} : { recordId: input.id }),
+    ...(input.reference === undefined ? {} : { documentReference: input.reference }),
     ...(input.relatedEntityId === undefined ? {} : { relatedEntityId: input.relatedEntityId }),
     ...(input.offset === undefined ? {} : { offset: input.offset }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
@@ -88,9 +94,12 @@ function safeLogInput(input: SafeInput) {
 function loggedExecution<TInput extends SafeInput, TResult>(
   logger: Logger,
   toolName: string,
-  execute: (input: TInput) => TResult,
+  execute: (input: TInput) => TResult | Promise<TResult>,
 ) {
-  return (input: TInput, options: { toolCallId: string }): TResult | ToolFailure => {
+  return async (
+    input: TInput,
+    options: { toolCallId: string },
+  ): Promise<TResult | ToolFailure> => {
     const startedAt = performance.now();
     logger.debug({
       event: "agent.tool.started",
@@ -99,7 +108,7 @@ function loggedExecution<TInput extends SafeInput, TResult>(
       ...safeLogInput(input),
     }, "Starting agent tool");
     try {
-      const result = execute(input);
+      const result = await execute(input);
       const resultSummary = "page" in (result as object)
         ? {
             returned: (result as { page: { returned: number } }).page.returned,
@@ -137,7 +146,7 @@ export function createJobSearchTools(reader: AgentContextReader, logger: Logger)
       execute: loggedExecution(logger, "list_jobs", (input) => reader.listJobs(input)),
     }),
     get_job: tool({
-      description: "Get the complete current structured record for one job using its durable ID. Use this after list_jobs when summary fields are not sufficient. This tool does not retrieve job-description or interview-preparation documents.",
+      description: "Get the complete current structured record for one job using its durable ID. Use this after list_jobs when summary fields are not sufficient. The result includes references for registered job-description and interview-preparation documents; use get_document to read one.",
       inputSchema: getInputSchema,
       execute: loggedExecution(logger, "get_job", ({ id }) => reader.getJob(id)),
     }),
@@ -147,7 +156,7 @@ export function createJobSearchTools(reader: AgentContextReader, logger: Logger)
       execute: loggedExecution(logger, "list_networking_contacts", (input) => reader.listNetworkingContacts(input)),
     }),
     get_networking_contact: tool({
-      description: "Get the complete current structured networking record for one contact using its durable ID. Use this after list_networking_contacts when summary fields are not sufficient.",
+      description: "Get the complete current structured networking record for one contact using its durable ID. Use this after list_networking_contacts when summary fields are not sufficient. The result includes a registered profile-document reference when available; use get_document to read it.",
       inputSchema: getInputSchema,
       execute: loggedExecution(logger, "get_networking_contact", ({ id }) => reader.getNetworkingContact(id)),
     }),
@@ -161,6 +170,15 @@ export function createJobSearchTools(reader: AgentContextReader, logger: Logger)
       inputSchema: getInputSchema,
       execute: loggedExecution(logger, "get_task", ({ id }) => reader.getTask(id)),
     }),
+    get_document: tool({
+      description: "Retrieve one registered job-search document using a reference returned by get_job or get_networking_contact. Use only an exact reference supplied by those tools; this tool cannot browse files or arbitrary paths.",
+      inputSchema: getDocumentInputSchema,
+      execute: loggedExecution(
+        logger,
+        "get_document",
+        ({ reference }) => reader.getDocument(reference),
+      ),
+    }),
   };
 }
 
@@ -172,4 +190,5 @@ export const jobSearchToolSchemas = {
   get_networking_contact: getInputSchema,
   list_tasks: listTasksInputSchema,
   get_task: getInputSchema,
+  get_document: getDocumentInputSchema,
 } as const;

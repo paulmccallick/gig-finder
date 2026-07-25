@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ApplicationAgentDocumentSource,
   JobSearchAgentContext,
   type AgentContextSources,
 } from "../src/agent-context";
@@ -117,6 +118,15 @@ describe("JobSearchAgentContext", () => {
       "applied-future",
     ]);
     expect(context.listJobs({
+      overdueOnly: false,
+      offset: 0,
+      limit: 20,
+    }).items.map(({ id }) => id)).toEqual([
+      "applied-overdue",
+      "screen",
+      "applied-future",
+    ]);
+    expect(context.listJobs({
       stages: ["applied", "screening", "closed"],
       excludeStages: ["closed"],
       fitRatings: ["strong", "good"],
@@ -127,6 +137,20 @@ describe("JobSearchAgentContext", () => {
       items: [{ id: "applied-overdue" }],
       page: { returned: 1, total: 2, hasMore: true, nextOffset: 1 },
     });
+  });
+
+  test("broadens curated defaults when another job filter is supplied", () => {
+    const context = reader([
+      job("active"),
+      job("rejected", { stage: "closed", outcome: "rejected", nextAction: null }),
+    ]);
+    expect(context.listJobs({}).items.map(({ id }) => id)).toEqual(["active"]);
+    expect(context.listJobs({ outcomes: ["rejected"] }).items.map(({ id }) => id)).toEqual([
+      "rejected",
+    ]);
+    expect(context.listJobs({ query: "rejected" }).items.map(({ id }) => id)).toEqual([
+      "rejected",
+    ]);
   });
 
   test("filters contacts with inclusion and exclusion arrays", () => {
@@ -142,9 +166,13 @@ describe("JobSearchAgentContext", () => {
       excludeStatuses: ["paused"],
       priorities: ["high", "medium"],
     }).items.map(({ id }) => id)).toEqual(["active-high", "due"]);
+    expect(context.listNetworkingContacts({ overdueOnly: true }).items.map(({ id }) => id)).toEqual([
+      "active-high",
+      "due",
+    ]);
   });
 
-  test("filters tasks and omits private notes from summaries", () => {
+  test("filters tasks and returns searchable notes", () => {
     const context = reader([], [], [
       task("open-overdue", { dueDate: "2026-07-22", priority: "high" }),
       task("progress", { status: "in_progress", type: "networking_follow_up" }),
@@ -157,13 +185,64 @@ describe("JobSearchAgentContext", () => {
       types: ["application", "networking_follow_up"],
     });
     expect(result.items.map(({ id }) => id)).toEqual(["open-overdue", "progress"]);
-    expect(result.items[0]).not.toHaveProperty("notes");
+    expect(result.items[0]?.notes).toBe("Private task notes");
+    expect(context.listTasks({ query: "private task" }).items).toHaveLength(3);
   });
 
-  test("returns discriminated get results for current records and misses", () => {
+  test("returns allowlisted detail records and misses", async () => {
     const context = reader([job("job-1")], [contact("contact-1")], [task("task-1")]);
-    expect(context.getJob("job-1")).toMatchObject({ status: "ok", record: { id: "job-1" } });
-    expect(context.getNetworkingContact("missing")).toEqual({ status: "not_found", id: "missing" });
-    expect(context.getTask("task-1")).toMatchObject({ status: "ok", record: { id: "task-1" } });
+    const jobResult = await context.getJob("job-1");
+    expect(jobResult).toMatchObject({ status: "ok", record: { id: "job-1", documents: [] } });
+    expect(jobResult.status === "ok" ? jobResult.record : {}).not.toHaveProperty("roleDirectory");
+    expect(await context.getNetworkingContact("missing")).toEqual({ status: "not_found", id: "missing" });
+    expect(await context.getTask("task-1")).toMatchObject({
+      status: "ok",
+      record: { id: "task-1", notes: "Private task notes", documents: [] },
+    });
+  });
+
+  test("lists stable document references and resolves only registered documents", async () => {
+    const documentSource = new ApplicationAgentDocumentSource({
+      jobs: {
+        get: (id) => id === "job-1"
+          ? job("job-1", { hasJobDescription: true, hasInterviewPrep: true })
+          : null,
+        description: async () => "Job description content",
+        prep: async () => [{ name: "screen.md", content: "Interview notes" }],
+      },
+      people: {
+        get: (id) => id === "contact-1" ? { hasLocalProfile: true } : null,
+        profile: async () => "Contact profile content",
+      },
+    });
+    const source = <T extends { id: string }>(records: T[]) => ({
+      list: () => records,
+      get: (id: string) => records.find((record) => record.id === id) ?? null,
+    });
+    const context = new JobSearchAgentContext({
+      jobs: source([job("job-1", { hasJobDescription: true, hasInterviewPrep: true })]),
+      networking: source([contact("contact-1", { hasLocalProfile: true })]),
+      tasks: source([]),
+      documents: documentSource,
+    });
+    const detail = await context.getJob("job-1");
+    expect(detail.status === "ok" ? detail.record.documents : []).toEqual([
+      expect.objectContaining({
+        reference: "job:job-1:job_description",
+        title: "Job description",
+      }),
+      expect.objectContaining({
+        reference: "job:job-1:interview_prep:screen.md",
+        title: "screen.md",
+      }),
+    ]);
+    expect(await context.getDocument("job:job-1:interview_prep:screen.md")).toMatchObject({
+      status: "ok",
+      record: { content: "Interview notes" },
+    });
+    expect(await context.getDocument("job:job-1:interview_prep:missing.md")).toEqual({
+      status: "not_found",
+      id: "job:job-1:interview_prep:missing.md",
+    });
   });
 });

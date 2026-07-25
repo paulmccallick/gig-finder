@@ -68,7 +68,7 @@ describe("typed CRUD repositories", () => {
     store.jobs.get("missing"); store.jobs.list();
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(0);
   });
-  test("agent context tools cannot change operational or audit state", () => {
+  test("agent context tools cannot change operational or audit state", async () => {
     store.change(context("Create records"), (tx) => {
       tx.jobs.create(job);
       tx.people.create(person);
@@ -88,11 +88,11 @@ describe("typed CRUD repositories", () => {
     const before = database.serialize();
 
     app.agentContext.listJobs({ stages: ["applied"], limit: 10 });
-    app.agentContext.getJob(job.id);
+    await app.agentContext.getJob(job.id);
     app.agentContext.listNetworkingContacts({ statuses: ["not_contacted"] });
-    app.agentContext.getNetworkingContact(networking.id);
+    await app.agentContext.getNetworkingContact(networking.id);
     app.agentContext.listTasks({ statuses: ["open"] });
-    app.agentContext.getTask(task.id);
+    await app.agentContext.getTask(task.id);
 
     expect(database.serialize()).toEqual(before);
   });

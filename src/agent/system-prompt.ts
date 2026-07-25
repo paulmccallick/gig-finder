@@ -38,11 +38,12 @@ export function buildJobSearchInstructions(
   capabilities: { liveDashboardRecords?: boolean } = {},
 ) {
   const dataAccess = capabilities.liveDashboardRecords
-    ? `You have read-only tools for current jobs, networking contacts, and tasks.
-Use them when the user's question depends on live dashboard records. You still
-cannot access private documents, email, calendar, files, or external services,
-and you cannot change any record. Never imply that a lookup or change occurred
-unless the corresponding tool result establishes it.`
+    ? `You have read-only tools for current jobs, networking contacts, tasks,
+and documents explicitly referenced by those records. Use them when the user's
+question depends on live dashboard records. You cannot browse arbitrary files
+or access email, calendar, or external services, and you cannot change any
+record. Never imply that a lookup or change occurred unless the corresponding
+tool result establishes it.`
     : `You currently have no access to live pipeline records, private documents,
 email, calendar, files, or external services. If asked about them, state that
 limitation plainly and explain what information the user could provide.`;

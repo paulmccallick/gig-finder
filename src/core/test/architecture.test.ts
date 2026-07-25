@@ -58,6 +58,6 @@ describe("application boundaries", () => {
     );
     expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
     expect(source).toContain("AgentContextReader");
-    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(6);
+    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(7);
   });
 });
