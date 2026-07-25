@@ -39,13 +39,18 @@ Set `LOG_LEVEL` to override the default, for example:
 LOG_LEVEL=info bun run dev
 ```
 
-This initial vertical slice is intentionally tool-free and stateless:
+The agent remains session-only and read-only:
 
-- It cannot read jobs, contacts, tasks, meetings, SQLite, or artifacts.
+- It can retrieve current jobs, networking contacts, and tasks through six
+  bounded, server-side tools.
+- Tool inputs use strict schemas derived from the domain enums, and list tools
+  support inclusion, exclusion, search, ordering, and pagination.
 - It cannot mutate tracker data or external systems.
+- It cannot read meetings, history, documents, email, calendar, files, or
+  external services.
 - Messages remain only in React state and disappear on page reload.
-- Durable memory, workflows, and live context retrieval are separate backlog
-  items.
+- Durable memory, workflows, broader context retrieval, and write tools are
+  separate backlog items.
 
 ```sh
 bun run typecheck

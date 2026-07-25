@@ -1,4 +1,5 @@
 import {
+  isStepCount,
   streamText,
   type ModelMessage,
 } from "ai";
@@ -36,8 +37,12 @@ export class JobSearchAgent {
     log.debug(interaction, "Starting model interaction");
     const result = streamText({
       model,
-      instructions: buildJobSearchInstructions(this.options.profile),
+      instructions: buildJobSearchInstructions(this.options.profile, {
+        liveDashboardRecords: this.options.tools !== undefined,
+      }),
       messages,
+      tools: this.options.tools,
+      stopWhen: isStepCount(5),
       abortSignal: signal,
       maxRetries: 1,
       providerOptions: {

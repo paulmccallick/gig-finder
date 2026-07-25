@@ -14,7 +14,12 @@ const context = resolveJobSearchContext(repoRoot);
 const {application:jobSearch}=openLocalApplication({database:context.database,artifacts:context.artifacts});
 const port = Number(process.env.API_PORT ?? 3001);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
-const agentHandler = createAgentHandler(loadJobSearchProfile(context.profile));
+const agentHandler = createAgentHandler(
+  loadJobSearchProfile(context.profile),
+  undefined,
+  logger,
+  jobSearch.agentContext,
+);
 
 Bun.serve({
   port,

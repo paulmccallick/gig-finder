@@ -1,5 +1,7 @@
 export const contactPriorities = ["high", "medium", "low", "unranked"] as const;
 export type ContactPriority = (typeof contactPriorities)[number];
+export const relationshipStrengths = ["strong", "warm", "limited", "unknown"] as const;
+export type RelationshipStrength = (typeof relationshipStrengths)[number];
 
 export const contactStatuses = [
   "not_contacted", "outreach_planned", "outreach_sent", "awaiting_response",
@@ -16,7 +18,7 @@ export interface NetworkContact {
   profileStatus: "missing" | "verified";
   hasLocalProfile?: boolean;
   connectedOn: string | null;
-  relationship: { type: string; strength: "strong" | "warm" | "limited" | "unknown"; introducedBy: string | null; notes: string | null };
+  relationship: { type: string; strength: RelationshipStrength; introducedBy: string | null; notes: string | null };
   priority: ContactPriority;
   status: ContactStatus;
   outreach: { lastContacted: string | null; lastContactMethod: string | null; lastContactSummary: string | null; nextAction: string | null; nextActionDue: string | null };

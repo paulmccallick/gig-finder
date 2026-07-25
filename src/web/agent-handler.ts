@@ -8,6 +8,8 @@ import type { Logger } from "pino";
 import { createCodexLanguageModel } from "../agent/codex-provider";
 import { JobSearchAgent } from "../agent/job-search-agent";
 import type { JobSearchProfile } from "../agent/types";
+import { createJobSearchTools } from "../agent/job-search-tools";
+import type { AgentContextReader } from "../core/src";
 import { logger as defaultLogger } from "../observability/logger";
 
 type ModelFactory = () => Promise<LanguageModel>;
@@ -41,7 +43,25 @@ export async function validateAgentMessages(value: unknown): Promise<UIMessage[]
   if (value.length > agentLimits.maxMessages) {
     throw new WebRequestError(`A conversation is limited to ${agentLimits.maxMessages} messages.`, 400);
   }
-  const validation = await safeValidateUIMessages({ messages: value });
+  const sanitized = value.map((message) => {
+    if (
+      typeof message !== "object"
+      || message === null
+      || !("role" in message)
+      || message.role !== "assistant"
+      || !("parts" in message)
+      || !Array.isArray(message.parts)
+    ) return message;
+    return {
+      ...message,
+      parts: message.parts.filter((part: unknown) => {
+        if (typeof part !== "object" || part === null || !("type" in part)) return true;
+        return typeof part.type !== "string"
+          || (!part.type.startsWith("tool-") && part.type !== "dynamic-tool");
+      }),
+    };
+  });
+  const validation = await safeValidateUIMessages({ messages: sanitized });
   if (!validation.success) throw new WebRequestError("The conversation contains invalid messages.", 400);
   for (const message of validation.data) {
     if (message.role !== "user" && message.role !== "assistant") {
@@ -71,6 +91,7 @@ export function createAgentHandler(
   profile: JobSearchProfile,
   modelFactory: ModelFactory = createCodexLanguageModel,
   logger: Logger = defaultLogger,
+  contextReader?: AgentContextReader,
 ) {
   return async (request: Request) => {
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -85,10 +106,12 @@ export function createAgentHandler(
     }
 
     const uiMessages = await validateAgentMessages(body.messages);
+    const agentLogger = logger.child({ requestId });
     const agent = new JobSearchAgent({
       profile,
       model: await modelFactory(),
-      logger: logger.child({ requestId }),
+      logger: agentLogger,
+      tools: contextReader ? createJobSearchTools(contextReader, agentLogger) : undefined,
     });
     const result = agent.respond(await convertToModelMessages(uiMessages), request.signal);
     return result.toUIMessageStreamResponse({

@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DataError, DataStore, migrateDatabase, openDatabase, RevisionConflictError } from "../src";
 import type { ChangeContext,JobData,MeetingData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
+import { JobSearchApplication } from "../../core/src/application";
+import type { ArtifactPort } from "../../core/src/ports";
+import { AuditReader } from "../src/audit";
 
 let database: Database;
 let store: DataStore;
@@ -64,6 +67,34 @@ describe("typed CRUD repositories", () => {
   test("read operations never create change records", () => {
     store.jobs.get("missing"); store.jobs.list();
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(0);
+  });
+  test("agent context tools cannot change operational or audit state", () => {
+    store.change(context("Create records"), (tx) => {
+      tx.jobs.create(job);
+      tx.people.create(person);
+      tx.networking.create(networking);
+      tx.tasks.create(task);
+    });
+    const artifacts = {
+      personProfile: async () => "",
+      jobDescription: async () => "",
+      interviewPrep: async () => [],
+      personProfileExists: async () => false,
+      jobDescriptionExists: async () => false,
+      interviewPrepExists: async () => false,
+      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+    } satisfies ArtifactPort;
+    const app = new JobSearchApplication(store, new AuditReader(database), artifacts);
+    const before = database.serialize();
+
+    app.agentContext.listJobs({ stages: ["applied"], limit: 10 });
+    app.agentContext.getJob(job.id);
+    app.agentContext.listNetworkingContacts({ statuses: ["not_contacted"] });
+    app.agentContext.getNetworkingContact(networking.id);
+    app.agentContext.listTasks({ statuses: ["open"] });
+    app.agentContext.getTask(task.id);
+
+    expect(database.serialize()).toEqual(before);
   });
 });
 

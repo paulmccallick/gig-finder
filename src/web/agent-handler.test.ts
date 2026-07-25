@@ -64,6 +64,31 @@ describe("agent web adapter", () => {
     await expect(validateAgentMessages(conversation)).resolves.toEqual(conversation);
   });
 
+  test("removes server tool parts before reusing assistant history", async () => {
+    const messages = await validateAgentMessages([
+      userMessage("What is open?"),
+      {
+        id: "assistant-tool-message",
+        role: "assistant",
+        parts: [
+          { type: "step-start" },
+          {
+            type: "tool-list_tasks",
+            toolCallId: "tool-call-1",
+            state: "output-available",
+            input: { statuses: ["open"] },
+            output: { items: [] },
+          },
+          { type: "text", text: "No open tasks." },
+        ],
+      },
+    ]);
+    expect(messages[1]?.parts).toEqual([
+      { type: "step-start" },
+      { type: "text", text: "No open tasks." },
+    ]);
+  });
+
   test("rejects invalid UI conversations with web request errors", async () => {
     await expect(validateAgentMessages([])).rejects.toMatchObject({
       message: "At least one message is required.",

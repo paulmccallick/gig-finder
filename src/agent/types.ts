@@ -30,4 +30,5 @@ export interface JobSearchAgentOptions {
   profile: JobSearchProfile;
   model: import("ai").LanguageModel;
   logger?: import("pino").Logger;
+  tools?: import("./job-search-tools").JobSearchTools;
 }
