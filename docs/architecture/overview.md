@@ -25,19 +25,14 @@ flowchart LR
 
 ## Persistence and history
 
-- Each mutable entity has a live table and a companion `*_history` table in the
-  [SQLite schema](../../src/sqlite/src/schema.ts).
-- Before an update, deletion, or restoration, the full live row—including its current revision—is
+- Each mutable entity table has a companion `*_history` table in the
+  [SQLite schema](../../src/sqlite/src/schema.ts)
+- Before an update or delete, the current row is
   inserted into history with the operation and `change_id`.
-- The live mutation then increments `revision`; optimistic concurrency rejects writes based on a stale
-  revision, while deletion and restoration toggle `is_deleted`.
-- One transaction writes the change envelope, history snapshot, live row, business events, and
-  deduplicated source evidence.
-- Normal reads use live, non-deleted rows; audit services query prior revisions and their associated
-  changes, events, and evidence.
+- Each record has a revision number
+- Soft deletes use `is_deleted`
 
-By default, Pino writes rotating structured logs under the private context
-workspace.
+## Context Files
 
 Private paths default below `context/`. `JOB_SEARCH_CONTEXT_ROOT` changes that
 root; `JOB_SEARCH_PROFILE`, `JOB_SEARCH_DATABASE`, `JOB_SEARCH_ARTIFACTS`,
