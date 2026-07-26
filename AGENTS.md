@@ -1,29 +1,18 @@
 # Codex Project Guide
 
-This repository contains a generic, local-first job-search agent application.
-User profiles, job-search records, documents, logs, backups, and other private
-context belong outside application source control.
+Read the relevant files in `docs/product/` and `docs/architecture/` before
+changing behavior or contracts. Update them in the same change. If code and
+documentation conflict, stop and flag it.
 
-## Project layout
-
-- `src/core/`: domain models, ports, and application services.
-- `src/sqlite/`: SQLite persistence, migrations, and context path resolution.
-- `src/cli/`: command-line input adaptation.
-- `src/agent/`: agent instructions, profile schema, and model runtime.
-- `src/web/`: Bun HTTP API and Vite/React dashboard.
-- `context/`: ignored local user workspace and, optionally, an independent
-  private Git repository.
+The backlog is the [Job Search Agent GitHub
+Project](https://github.com/users/paulmccallick/projects/5).
 
 ## Development rules
 
 - Use Bun for package management, scripts, and tests.
-- Keep HTTP concerns in `src/web`, domain behavior in `src/core`, and SQLite
-  details in `src/sqlite`.
-- Access operational state through application services rather than direct SQL.
 - Never add real personal information, credentials, job-search records,
   documents, logs, SQLite files, or backups to this repository.
 - Use synthetic fixtures in tests and examples.
-- Preserve the separation between generic agent policy and user-provided
-  context.
+- Add regression tests for changed documented behavior.
 - Run `bun run typecheck`, `bun test`, and `bun run build` for application
   changes. Run `bun run test:e2e` for dashboard behavior changes.
