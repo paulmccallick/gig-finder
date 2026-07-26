@@ -50,4 +50,14 @@ describe("application boundaries", () => {
       expect(source).not.toMatch(/\bRequest\b|\bResponse\b|toUIMessageStreamResponse|Response\.json/);
     }
   });
+
+  test("agent tools depend only on the core read boundary", () => {
+    const source = readFileSync(
+      path.join(root, "src/agent/job-search-tools.ts"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
+    expect(source).toContain("AgentContextReader");
+    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(7);
+  });
 });

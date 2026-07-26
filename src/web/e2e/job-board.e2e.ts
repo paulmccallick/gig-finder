@@ -84,6 +84,10 @@ test("mobile board remains usable", async ({ page }) => {
 });
 
 test("session-only JobSearchAgent streams guidance and remains available across dashboard views", async ({ page }) => {
+  const diagnostics: string[] = [];
+  page.on("console", message => {
+    if (message.text().includes("[JobSearchAgent]")) diagnostics.push(message.text());
+  });
   const stream = [
     'data: {"type":"start","messageId":"assistant-1"}',
     'data: {"type":"start-step"}',
@@ -113,13 +117,62 @@ test("session-only JobSearchAgent streams guidance and remains available across 
   await page.goto("/");
   const panel = page.getByRole("complementary", { name: "Job Search Agent" });
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText("Live applications, contacts, tasks, and documents are not connected yet.");
+  await expect(panel).toContainText("I have read-only access to your applications, contacts, tasks, and registered documents.");
   await panel.getByRole("button", { name: "What kinds of roles should I prioritize?" }).click();
   await expect(panel).toContainText("Prioritize Senior Director and VP engineering roles");
+  expect(diagnostics.some(message => message.includes("agent.ui.request.submitted"))).toBe(true);
+  expect(diagnostics.some(message => message.includes("agent.ui.status.changed"))).toBe(true);
+  expect(diagnostics.some(message => message.includes("agent.ui.response.finished"))).toBe(true);
   await page.screenshot({ path: "test-results/playwright/agent-desktop.png", fullPage: false });
   await page.getByRole("button", { name: /Networking/ }).click();
   await expect(page.getByRole("heading", { name: "Relationship Control Room" })).toBeVisible();
   await expect(panel).toContainText("Prioritize Senior Director and VP engineering roles");
   await panel.getByRole("button", { name: "Close Job Search Agent" }).click();
   await expect(panel).toBeHidden();
+});
+
+test("JobSearchAgent surfaces and retries an interrupted empty response", async ({ page }) => {
+  let attempts = 0;
+  await page.route("**/api/agent/messages", async route => {
+    attempts += 1;
+    const responseEvents = attempts === 1
+      ? [
+          'data: {"type":"start","messageId":"assistant-empty"}',
+          'data: {"type":"start-step"}',
+          'data: {"type":"finish-step"}',
+          'data: {"type":"finish"}',
+          "data: [DONE]",
+          "",
+        ]
+      : [
+          'data: {"type":"start","messageId":"assistant-retry"}',
+          'data: {"type":"start-step"}',
+          'data: {"type":"text-start","id":"text-retry"}',
+          'data: {"type":"text-delta","id":"text-retry","delta":"The retried response completed."}',
+          'data: {"type":"text-end","id":"text-retry"}',
+          'data: {"type":"finish-step"}',
+          'data: {"type":"finish"}',
+          "data: [DONE]",
+          "",
+        ];
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "x-vercel-ai-ui-message-stream": "v1",
+      },
+      body: responseEvents.join("\n\n"),
+    });
+  });
+
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "Job Search Agent" });
+  await panel.getByLabel("Message JobSearchAgent").fill("Tell me about this role");
+  await panel.getByRole("button", { name: /Send/ }).click();
+  const alert = panel.getByRole("alert");
+  await expect(alert).toContainText("response was interrupted");
+  await alert.getByRole("button", { name: "Retry response" }).click();
+  await expect(panel).toContainText("The retried response completed.");
+  await expect(alert).toBeHidden();
+  expect(attempts).toBe(2);
 });

@@ -5,13 +5,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DataError, DataStore, migrateDatabase, openDatabase, RevisionConflictError } from "../src";
 import type { ChangeContext,JobData,MeetingData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
+import { JobSearchApplication } from "../../core/src/application";
+import type { ArtifactPort } from "../../core/src/ports";
+import { AuditReader } from "../src/audit";
 
 let database: Database;
 let store: DataStore;
 const timestamp = "2026-07-21T12:00:00.000Z";
 const context = (summary = "Test change"): ChangeContext => ({ actor: "test-suite", source: "test", summary, occurredAt: timestamp });
 
-const job: JobData = { id:"job-1",company:"Company",title:"VP Engineering",externalJobId:"123",stage:"identified",outcome:null,statusSummary:"Identified",lastActivity:"2026-07-21",nextActionDescription:"Review",nextActionDue:"2026-07-22",fitRating:"good",fitSummary:"Good role shape",payCurrency:"USD",payMinimum:200000,payMaximum:250000,payPeriod:"year",payNotes:null,sourceUrl:"https://example.com/jobs/123",location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"Annual bonus",equity:null,otherCompensation:null,tagsJson:'["platform"]',hasJobDescription:false,hasInterviewPrep:false };
+const job: JobData = { id:"job-1",company:"Company",title:"VP Engineering",externalJobId:"123",stage:"identified",outcome:"pending",statusSummary:"Identified",lastActivity:"2026-07-21",nextActionDescription:"Review",nextActionDue:"2026-07-22",fitRating:"good",fitSummary:"Good role shape",payCurrency:"USD",payMinimum:200000,payMaximum:250000,payPeriod:"year",payNotes:null,sourceUrl:"https://example.com/jobs/123",location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"Annual bonus",equity:null,otherCompensation:null,tagsJson:'["platform"]',hasJobDescription:false,hasInterviewPrep:false };
 const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01",hasLocalProfile:false};
 const networking:NetworkingContactData={id:"person-1",personId:"person-1",relationshipType:"former_colleague",relationshipStrength:"strong",introducedBy:null,relationshipNotes:null,priority:"high",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:"Reach out",nextActionDue:"2026-07-22",whyInteresting:"Strong relationship",notesJson:"[]",tagsJson:"[]"};
 const task: TaskData = { id:"task-1",title:"Review role",type:"application",status:"open",priority:"high",dueDate:"2026-07-22",relatedEntityType:"job",relatedEntityId:"job-1",relatedEntityLabel:"Company VP Engineering",notes:"Review the JD",completedAt:null };
@@ -64,6 +67,34 @@ describe("typed CRUD repositories", () => {
   test("read operations never create change records", () => {
     store.jobs.get("missing"); store.jobs.list();
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(0);
+  });
+  test("agent context tools cannot change operational or audit state", async () => {
+    store.change(context("Create records"), (tx) => {
+      tx.jobs.create(job);
+      tx.people.create(person);
+      tx.networking.create(networking);
+      tx.tasks.create(task);
+    });
+    const artifacts = {
+      personProfile: async () => "",
+      jobDescription: async () => "",
+      interviewPrep: async () => [],
+      personProfileExists: async () => false,
+      jobDescriptionExists: async () => false,
+      interviewPrepExists: async () => false,
+      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+    } satisfies ArtifactPort;
+    const app = new JobSearchApplication(store, new AuditReader(database), artifacts);
+    const before = database.serialize();
+
+    app.agentContext.listJobs({ stages: ["applied"], limit: 10 });
+    await app.agentContext.getJob(job.id);
+    app.agentContext.listNetworkingContacts({ statuses: ["not_contacted"] });
+    await app.agentContext.getNetworkingContact(networking.id);
+    app.agentContext.listTasks({ statuses: ["open"] });
+    await app.agentContext.getTask(task.id);
+
+    expect(database.serialize()).toEqual(before);
   });
 });
 

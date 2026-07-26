@@ -32,7 +32,7 @@ const jobFields = {
   title: text("title").notNull(),
   externalJobId: text("external_job_id"),
   stage: text("stage").notNull(),
-  outcome: text("outcome"),
+  outcome: text("outcome").notNull().default("pending"),
   statusSummary: text("status_summary").notNull(),
   lastActivity: text("last_activity").notNull(),
   nextActionDescription: text("next_action_description"),

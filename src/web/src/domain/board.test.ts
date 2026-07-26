@@ -9,7 +9,7 @@ const role = (overrides: Partial<JobRole> = {}): JobRole => ({
   jobId: null,
   roleDirectory: null,
   stage: "identified",
-  outcome: null,
+  outcome: "pending",
   statusSummary: "Promising platform role",
   lastActivity: "2026-07-10",
   nextAction: { description: "Review role", due: "2026-07-13" },

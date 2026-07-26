@@ -13,6 +13,7 @@ export const pipelineStages = [
 export type PipelineStage = (typeof pipelineStages)[number];
 
 export const outcomes = [
+  "pending",
   "accepted",
   "rejected",
   "withdrawn",
@@ -65,7 +66,7 @@ export interface JobRole {
   jobId: string | null;
   roleDirectory: string | null;
   stage: PipelineStage;
-  outcome: Outcome | null;
+  outcome: Outcome;
   statusSummary: string;
   lastActivity: string;
   nextAction: NextAction | null;

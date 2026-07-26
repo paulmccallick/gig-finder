@@ -14,18 +14,97 @@ function messageText(parts: Array<{ type: string; text?: string }>) {
 
 export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [input, setInput] = useState("");
+  const [interactionFailure, setInteractionFailure] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const diagnosticRef = useRef<{
+    sequence: number;
+    startedAt: number;
+    assistantTextBefore: number;
+  } | null>(null);
+  const sequenceRef = useRef(0);
   const transport = useMemo(() => new DefaultChatTransport({ api: "/api/agent/messages" }), []);
   const {
     messages,
     sendMessage,
     stop,
+    regenerate,
     status,
     error,
     clearError,
-  } = useChat({ transport, throttle: 30 });
+  } = useChat({
+    transport,
+    throttle: 30,
+    onFinish: ({ message, isAbort, isDisconnect, isError }) => {
+      const deliveredTextCharacters = messageText(message.parts).length;
+      if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
+        setInteractionFailure(
+          "JobSearchAgent's response was interrupted before it completed. Please retry.",
+        );
+      }
+    },
+    onError: () => {
+      setInteractionFailure(
+        "JobSearchAgent's response was interrupted before it completed. Please retry.",
+      );
+    },
+  });
+  const previousStatusRef = useRef(status);
   const active = status === "submitted" || status === "streaming";
+
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current;
+    previousStatusRef.current = status;
+    const diagnostic = diagnosticRef.current;
+    if (!diagnostic || previousStatus === status) return;
+    const elapsedMs = Math.round(performance.now() - diagnostic.startedAt);
+    console.debug("[JobSearchAgent]", {
+      event: "agent.ui.status.changed",
+      interactionSequence: diagnostic.sequence,
+      previousStatus,
+      status,
+      elapsedMs,
+      messageCount: messages.length,
+    });
+    if (status === "ready" && (previousStatus === "submitted" || previousStatus === "streaming")) {
+      const assistantText = messages
+        .filter(message => message.role === "assistant")
+        .reduce((total, message) => total + messageText(message.parts).length, 0);
+      const deliveredTextCharacters = assistantText - diagnostic.assistantTextBefore;
+      const completion = {
+        event: "agent.ui.response.finished",
+        interactionSequence: diagnostic.sequence,
+        outcome: "completed",
+        elapsedMs,
+        deliveredTextCharacters,
+        messageCount: messages.length,
+      };
+      if (deliveredTextCharacters === 0) {
+        console.warn("[JobSearchAgent]", {
+          ...completion,
+          diagnostic: "completed_without_assistant_text",
+        });
+      } else {
+        console.info("[JobSearchAgent]", completion);
+      }
+      diagnosticRef.current = null;
+    }
+  }, [messages, status]);
+
+  useEffect(() => {
+    if (!error) return;
+    const diagnostic = diagnosticRef.current;
+    console.error("[JobSearchAgent]", {
+      event: "agent.ui.error",
+      interactionSequence: diagnostic?.sequence,
+      elapsedMs: diagnostic
+        ? Math.round(performance.now() - diagnostic.startedAt)
+        : undefined,
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    });
+  }, [error]);
 
   useEffect(() => {
     if (open) window.setTimeout(() => inputRef.current?.focus(), 100);
@@ -47,9 +126,40 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const submit = async (text = input) => {
     const value = text.trim();
     if (!value || active) return;
+    const sequence = sequenceRef.current + 1;
+    sequenceRef.current = sequence;
+    diagnosticRef.current = {
+      sequence,
+      startedAt: performance.now(),
+      assistantTextBefore: messages
+        .filter(message => message.role === "assistant")
+        .reduce((total, message) => total + messageText(message.parts).length, 0),
+    };
+    console.debug("[JobSearchAgent]", {
+      event: "agent.ui.request.submitted",
+      interactionSequence: sequence,
+      promptCharacters: value.length,
+      messageCount: messages.length + 1,
+    });
     clearError();
+    setInteractionFailure(null);
     setInput("");
     await sendMessage({ text: value });
+  };
+
+  const retry = () => {
+    const sequence = sequenceRef.current + 1;
+    sequenceRef.current = sequence;
+    diagnosticRef.current = {
+      sequence,
+      startedAt: performance.now(),
+      assistantTextBefore: messages
+        .filter(message => message.role === "assistant")
+        .reduce((total, message) => total + messageText(message.parts).length, 0),
+    };
+    clearError();
+    setInteractionFailure(null);
+    void regenerate();
   };
 
   return (
@@ -67,7 +177,7 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. Live applications, contacts, tasks, and documents are not connected yet.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I have read-only access to your applications, contacts, tasks, and registered documents.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
@@ -97,11 +207,15 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
         )}
       </div>
 
-      {error && (
+      {(error || interactionFailure) && (
         <div className="agent-error" role="alert">
-          <span>CONNECTION FAULT</span>
-          <p>{error.message || "The JobSearchAgent could not complete that response."}</p>
-          <button type="button" onClick={clearError}>Dismiss</button>
+          <span>RESPONSE INTERRUPTED</span>
+          <p>{interactionFailure || error?.message || "The JobSearchAgent could not complete that response."}</p>
+          <button type="button" onClick={retry}>Retry response</button>
+          <button type="button" onClick={() => {
+            clearError();
+            setInteractionFailure(null);
+          }}>Dismiss</button>
         </div>
       )}
 
@@ -124,9 +238,20 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
           disabled={!open}
         />
         <div className="agent-composer-footer">
-          <span>{active ? "STREAM ACTIVE" : "NO LIVE DATA ACCESS"}</span>
+          <span>{active ? "STREAM ACTIVE" : "READ-ONLY DATA ACCESS"}</span>
           {active
-            ? <button className="agent-stop" type="button" onClick={stop}>Stop <i /></button>
+            ? <button className="agent-stop" type="button" onClick={() => {
+                const diagnostic = diagnosticRef.current;
+                console.warn("[JobSearchAgent]", {
+                  event: "agent.ui.stop.requested",
+                  interactionSequence: diagnostic?.sequence,
+                  elapsedMs: diagnostic
+                    ? Math.round(performance.now() - diagnostic.startedAt)
+                    : undefined,
+                  status,
+                });
+                stop();
+              }}>Stop <i /></button>
             : <button className="agent-send" type="submit" disabled={!input.trim()}>Send <span>↗</span></button>}
         </div>
       </form>

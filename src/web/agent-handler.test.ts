@@ -8,6 +8,8 @@ import {
   WebRequestError,
 } from "./agent-handler";
 import { testJobSearchProfile } from "../agent/test/fixtures";
+import { DomainValidationError } from "../core/src";
+import { toWebError } from "./error-response";
 
 const userMessage = (text: string): UIMessage => ({
   id: "message-1",
@@ -39,6 +41,17 @@ function mockModel(answer = "Prioritize roles with matching leadership scope.") 
 }
 
 describe("agent web adapter", () => {
+  test("maps domain validation failures to an actionable 422 response", () => {
+    expect(toWebError(new DomainValidationError(
+      "Job role-1 cannot be closed while its outcome is pending.",
+    ))).toEqual({
+      status: 422,
+      body: {
+        error: "Job role-1 cannot be closed while its outcome is pending.",
+        code: "domain_validation_failed",
+      },
+    });
+  });
   test("accepts bounded text-only UI messages", async () => {
     await expect(validateAgentMessages([userMessage("Help me assess a role.")])).resolves.toHaveLength(1);
   });
@@ -62,6 +75,31 @@ describe("agent web adapter", () => {
     ];
 
     await expect(validateAgentMessages(conversation)).resolves.toEqual(conversation);
+  });
+
+  test("removes server tool parts before reusing assistant history", async () => {
+    const messages = await validateAgentMessages([
+      userMessage("What is open?"),
+      {
+        id: "assistant-tool-message",
+        role: "assistant",
+        parts: [
+          { type: "step-start" },
+          {
+            type: "tool-list_tasks",
+            toolCallId: "tool-call-1",
+            state: "output-available",
+            input: { statuses: ["open"] },
+            output: { items: [] },
+          },
+          { type: "text", text: "No open tasks." },
+        ],
+      },
+    ]);
+    expect(messages[1]?.parts).toEqual([
+      { type: "step-start" },
+      { type: "text", text: "No open tasks." },
+    ]);
   });
 
   test("rejects invalid UI conversations with web request errors", async () => {

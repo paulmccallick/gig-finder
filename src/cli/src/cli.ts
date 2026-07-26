@@ -16,7 +16,7 @@ Usage:
   job-search networking list
   job-search jobs add <id> --patch '<json>' [--dry-run]
   job-search jobs update <id> --patch-file <path> [--dry-run]
-  job-search jobs touch <id> --date YYYY-MM-DD --stage <stage> --summary <text> [--outcome <outcome|none>] [--next-action <text>] [--due YYYY-MM-DD|none]
+  job-search jobs touch <id> --date YYYY-MM-DD --stage <stage> --summary <text> [--outcome <outcome>] [--next-action <text>] [--due YYYY-MM-DD|none]
   job-search networking add <id> --patch-file <path> [--dry-run]
   job-search networking update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
   job-search networking touch <id> --date YYYY-MM-DD --status <status> --method <method> --summary <text> [--next-action <text>] [--due YYYY-MM-DD|none]
@@ -129,11 +129,11 @@ async function main(args: string[]) {
   } else if (entity === "contact" && command === "update") {
     result = await updateContact(paths, id, await patchFrom(flags) as Partial<NetworkContact>, { dryRun, date: optional(flags, "date") });
   } else if (entity === "job") {
-    const outcome = nullable(optional(flags, "outcome"));
+    const outcome = optional(flags, "outcome");
     const action = optional(flags, "next-action");
     const due = nullable(optional(flags, "due"));
     const date=required(flags,"date"),stage=required(flags,"stage") as PipelineStage;
-    result = await touchJob(paths,id,{date,stage,summary:required(flags,"summary"),...(outcome!==undefined?{outcome:outcome as Outcome|null}:{}),...(action!==undefined?{nextAction:action}:{}),...(due!==undefined?{due}: {})},{dryRun,date});
+    result = await touchJob(paths,id,{date,stage,summary:required(flags,"summary"),...(outcome!==undefined?{outcome:outcome as Outcome}:{}),...(action!==undefined?{nextAction:action}:{}),...(due!==undefined?{due}: {})},{dryRun,date});
   } else if (entity === "contact") {
     const action = optional(flags, "next-action");
     const due = nullable(optional(flags, "due"));
