@@ -12,7 +12,7 @@ export class JobSearchApplication {
       jobs:this.jobs,
       networking:this.networking,
       tasks:this.tasks,
-      documents:new ApplicationAgentDocumentSource({jobs:this.jobs,people:this.people}),
+      documents:new ApplicationAgentDocumentSource({jobs:this.jobs,people:this.people,contacts:this.networking}),
     });
   }
 }

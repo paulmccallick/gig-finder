@@ -177,7 +177,7 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. Live applications, contacts, tasks, and documents are not connected yet.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I have read-only access to your applications, contacts, tasks, and registered documents.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
@@ -238,7 +238,7 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
           disabled={!open}
         />
         <div className="agent-composer-footer">
-          <span>{active ? "STREAM ACTIVE" : "NO LIVE DATA ACCESS"}</span>
+          <span>{active ? "STREAM ACTIVE" : "READ-ONLY DATA ACCESS"}</span>
           {active
             ? <button className="agent-stop" type="button" onClick={() => {
                 const diagnostic = diagnosticRef.current;

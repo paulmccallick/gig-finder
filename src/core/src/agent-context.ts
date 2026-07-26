@@ -78,7 +78,11 @@ export interface AgentDocumentReference {
 
 export interface AgentDocument extends AgentDocumentReference {
   content: string;
+  truncated: boolean;
+  totalCharacters: number;
 }
+
+export const agentDocumentContentLimit = 50_000;
 
 export interface ListJobsInput extends PageInput {
   stages?: PipelineStage[];
@@ -444,17 +448,25 @@ export interface AgentDocumentServices {
     get(id: string): { hasLocalProfile: boolean } | null;
     profile(id: string): Promise<string | null>;
   };
+  contacts: {
+    personId(id: string): string | null;
+  };
 }
 
 export class ApplicationAgentDocumentSource implements AgentDocumentSource {
   constructor(private readonly services: AgentDocumentServices) {}
+
+  private personId(contactId: string) {
+    return this.services.contacts.personId(contactId);
+  }
 
   async list(
     entityType: "job" | "contact",
     entityId: string,
   ): Promise<AgentDocumentReference[]> {
     if (entityType === "contact") {
-      const person = this.services.people.get(entityId);
+      const personId = this.personId(entityId);
+      const person = personId ? this.services.people.get(personId) : null;
       return person?.hasLocalProfile
         ? [{
             reference: `contact:${encoded(entityId)}:contact_profile`,
@@ -503,15 +515,16 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
     const match = available.find((item) => item.reference === reference);
     if (!match) return { status: "not_found", id: reference };
     if (documentType === "contact_profile") {
-      const content = await this.services.people.profile(entityId);
-      return content
-        ? { status: "ok", record: { ...match, content } }
+      const personId = this.personId(entityId);
+      const content = personId ? await this.services.people.profile(personId) : null;
+      return content !== null
+        ? { status: "ok", record: documentRecord(match, content) }
         : { status: "not_found", id: reference };
     }
     if (documentType === "job_description") {
       const content = await this.services.jobs.description(entityId);
-      return content
-        ? { status: "ok", record: { ...match, content } }
+      return content !== null
+        ? { status: "ok", record: documentRecord(match, content) }
         : { status: "not_found", id: reference };
     }
     const title = parts[3] ? decoded(parts[3]) : null;
@@ -519,9 +532,21 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
       ? (await this.services.jobs.prep(entityId)).find((item) => item.name === title)
       : null;
     return document
-      ? { status: "ok", record: { ...match, content: document.content } }
+      ? { status: "ok", record: documentRecord(match, document.content) }
       : { status: "not_found", id: reference };
   }
+}
+
+function documentRecord(
+  reference: AgentDocumentReference,
+  content: string,
+): AgentDocument {
+  return {
+    ...reference,
+    content: content.slice(0, agentDocumentContentLimit),
+    truncated: content.length > agentDocumentContentLimit,
+    totalCharacters: content.length,
+  };
 }
 
 export const agentContextEnums = {

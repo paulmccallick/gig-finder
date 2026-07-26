@@ -1,5 +1,6 @@
 export * from "./application";
 export * from "./agent-context";
+export * from "./errors";
 export * from "./jobs";
 export * from "./network";
 export * from "./tasks";

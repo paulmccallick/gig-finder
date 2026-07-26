@@ -1,5 +1,6 @@
 import path from "node:path";
-import { createAgentHandler, WebRequestError } from "./agent-handler";
+import { createAgentHandler } from "./agent-handler";
+import { toWebError } from "./error-response";
 import {
   activeLogFile,
   configuredLogLevel,
@@ -71,11 +72,8 @@ Bun.serve({
       }
     } catch (error) {
       log.error({ event: "http.request.failed", err: error }, "HTTP request failed");
-      const status = error instanceof WebRequestError ? error.status : 500;
-      const message = error instanceof WebRequestError
-        ? error.message
-        : "Unknown server error";
-      response = json({ error: message }, status);
+      const webError = toWebError(error);
+      response = json(webError.body, webError.status);
     }
 
     response.headers.set("x-request-id", requestId);

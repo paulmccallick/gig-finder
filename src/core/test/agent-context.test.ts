@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ApplicationAgentDocumentSource,
   JobSearchAgentContext,
+  agentDocumentContentLimit,
   type AgentContextSources,
 } from "../src/agent-context";
 import type { Job } from "../src/jobs";
@@ -207,8 +208,11 @@ describe("JobSearchAgentContext", () => {
         prep: async () => [{ name: "screen.md", content: "Interview notes" }],
       },
       people: {
-        get: (id) => id === "contact-1" ? { hasLocalProfile: true } : null,
-        profile: async () => "Contact profile content",
+        get: (id) => id === "person-1" ? { hasLocalProfile: true } : null,
+        profile: async (id) => id === "person-1" ? "" : null,
+      },
+      contacts: {
+        personId: (id) => id === "contact-1" ? "person-1" : null,
       },
     });
     const source = <T extends { id: string }>(records: T[]) => ({
@@ -234,11 +238,47 @@ describe("JobSearchAgentContext", () => {
     ]);
     expect(await context.getDocument("job:job-1:interview_prep:screen.md")).toMatchObject({
       status: "ok",
-      record: { content: "Interview notes" },
+      record: {
+        content: "Interview notes",
+        truncated: false,
+        totalCharacters: 15,
+      },
+    });
+    expect(await context.getDocument("contact:contact-1:contact_profile")).toMatchObject({
+      status: "ok",
+      record: { entityId: "contact-1", content: "", totalCharacters: 0 },
     });
     expect(await context.getDocument("job:job-1:interview_prep:missing.md")).toEqual({
       status: "not_found",
       id: "job:job-1:interview_prep:missing.md",
+    });
+  });
+
+  test("bounds document content returned to the agent", async () => {
+    const content = "x".repeat(agentDocumentContentLimit + 10);
+    const documentSource = new ApplicationAgentDocumentSource({
+      jobs: {
+        get: (id) => id === "job-1"
+          ? job("job-1", { hasJobDescription: true })
+          : null,
+        description: async () => content,
+        prep: async () => [],
+      },
+      people: {
+        get: () => null,
+        profile: async () => null,
+      },
+      contacts: {
+        personId: () => null,
+      },
+    });
+    expect(await documentSource.get("job:job-1:job_description")).toMatchObject({
+      status: "ok",
+      record: {
+        content: "x".repeat(agentDocumentContentLimit),
+        truncated: true,
+        totalCharacters: agentDocumentContentLimit + 10,
+      },
     });
   });
 });

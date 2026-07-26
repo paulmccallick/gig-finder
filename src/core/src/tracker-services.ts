@@ -1,6 +1,7 @@
 import type { ArtifactPort, AuditPort, Persistence } from "./ports";
 import type { ChangeContext, EntityRecord, JobData, NetworkingContactData, PersonData, TaskData } from "./models";
 import { fitRatings, outcomes, pipelineStages, type Job, type JobRole } from "./jobs";
+import { DomainValidationError } from "./errors";
 import { contactPriorities, contactStatuses, type NetworkContact } from "./network";
 import { taskPriorities, taskStatuses, taskTypes, type TaskRecord } from "./tasks";
 
@@ -23,10 +24,16 @@ export function deepPatch<T>(current: T, patch: unknown): T {
 }
 
 function validateJob(job: Job) {
-  if (!job.id || !job.company || !job.title || !job.statusSummary) throw new Error("Job id, company, title, and status summary are required.");
-  if (!pipelineStages.includes(job.stage)) throw new Error(`${job.id} has an unknown stage.`);
-  if (!outcomes.includes(job.outcome)) throw new Error(`${job.id} has an unknown outcome.`);
-  if (!fitRatings.includes(job.fit.rating)) throw new Error(`${job.id} has an invalid fit rating.`);
+  if (!job.id || !job.company || !job.title || !job.statusSummary) throw new DomainValidationError("Job id, company, title, and status summary are required.");
+  if (!pipelineStages.includes(job.stage)) throw new DomainValidationError(`Job ${job.id} has an unknown stage: ${job.stage}.`);
+  if (!outcomes.includes(job.outcome)) throw new DomainValidationError(`Job ${job.id} has an unknown outcome: ${job.outcome}.`);
+  if (!fitRatings.includes(job.fit.rating)) throw new DomainValidationError(`Job ${job.id} has an invalid fit rating: ${job.fit.rating}.`);
+  if (job.stage === "closed" && job.outcome === "pending") {
+    throw new DomainValidationError(`Job ${job.id} cannot be closed while its outcome is pending.`);
+  }
+  if (job.stage !== "closed" && job.outcome !== "pending") {
+    throw new DomainValidationError(`Job ${job.id} must remain pending until its stage is closed.`);
+  }
   assertDate(job.lastActivity, `${job.id}.lastActivity`);
   if (job.nextAction) assertDate(job.nextAction.due, `${job.id}.nextAction.due`, true);
   if (job.stage === "closed" && job.nextAction !== null) throw new Error(`${job.id} is closed but still has a next action.`);
@@ -70,6 +77,7 @@ export class JobDomainService {
 export class ContactDomainService {
   constructor(private p:Persistence){}
   get(id:string){const c=this.p.networking.get(id);if(!c)return null;const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${id} references missing person ${c.personId}`);return contactFromData({...c,person})}
+  personId(id:string){return this.p.networking.get(id)?.personId??null}
   list(){return this.p.networking.list().map(c=>{const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${c.id} references missing person ${c.personId}`);return contactFromData({...c,person})})}
   create(context:ChangeContext,c:NetworkContact,options:MutationOptions={}){validateContact(c);if(!options.dryRun)this.p.change(context,u=>{u.people.create(personData(c));u.networking.create(networkingData(c))});return c}
   update(context:ChangeContext,id:string,patch:Partial<NetworkContact>,options:MutationOptions={}){const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const updated=deepPatch(current,patch);validateContact(updated);if(!options.dryRun){const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated),nd=networkingData(updated);const{id:_,...pp}=pd,{id:__,...np}=nd;this.p.change(context,u=>{u.people.update(person.id,person.revision,pp);u.networking.update(id,raw.revision,np)})}return updated}
