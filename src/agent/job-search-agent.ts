@@ -21,6 +21,12 @@ export class JobSearchAgent {
 
   respond(messages: ModelMessage[], signal?: AbortSignal) {
     const startedAt = performance.now();
+    let activeStep: {
+      callId: string;
+      stepNumber: number;
+      startedAt: number;
+    } | null = null;
+    let wasAborted = false;
     const log = this.options.logger ?? defaultLogger;
     const model = this.options.model;
     const modelIdentity = typeof model === "string"
@@ -52,6 +58,7 @@ export class JobSearchAgent {
         },
       },
       onStepStart: ({ callId, stepNumber, provider, modelId, tools, steps }) => {
+        activeStep = { callId, stepNumber, startedAt: performance.now() };
         log.debug({
           ...interaction,
           event: "agent.step.started",
@@ -72,6 +79,8 @@ export class JobSearchAgent {
         toolCalls,
         toolResults,
         performance,
+        text,
+        reasoningText,
       }) => {
         log.debug({
           ...interaction,
@@ -82,6 +91,18 @@ export class JobSearchAgent {
           modelId: stepModel.modelId,
           latencyMs: performance.stepTimeMs,
           responseTimeMs: performance.responseTimeMs,
+          timeToFirstOutputMs: performance.timeToFirstOutputMs,
+          textCharacters: text.length,
+          reasoningCharacters: reasoningText?.length ?? 0,
+          modelOutput: {
+            text,
+            reasoning: reasoningText ?? null,
+            toolCalls: toolCalls.map(toolCall => ({
+              toolCallId: toolCall.toolCallId,
+              toolName: toolCall.toolName,
+              input: toolCall.input,
+            })),
+          },
           finishReason,
           usage: {
             inputTokens: usage.inputTokens,
@@ -100,14 +121,25 @@ export class JobSearchAgent {
           })),
           toolExecutionMs: performance.toolExecutionMs,
         }, "Completed agent step");
+        activeStep = null;
       },
       onEnd: ({ usage, finishReason, steps }) => {
+        const outcome = wasAborted ? "aborted" : "completed";
         log.info({
           ...interaction,
-          event: "model.interaction.completed",
+          event: "model.interaction.finished",
+          outcome,
           latencyMs: Math.round(performance.now() - startedAt),
           finishReason,
           stepCount: steps.length,
+          textCharactersGenerated: steps.reduce(
+            (total, step) => total + step.text.length,
+            0,
+          ),
+          toolCallCount: steps.reduce(
+            (total, step) => total + step.toolCalls.length,
+            0,
+          ),
           usage: {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
@@ -115,13 +147,23 @@ export class JobSearchAgent {
             cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
             reasoningTokens: usage.outputTokenDetails.reasoningTokens,
           },
-        }, "Completed model interaction");
+        }, `${outcome === "aborted" ? "Aborted" : "Completed"} model interaction`);
       },
-      onAbort: () => {
+      onAbort: ({ steps }) => {
+        wasAborted = true;
         log.warn({
           ...interaction,
           event: "model.interaction.aborted",
+          callId: activeStep?.callId,
           latencyMs: Math.round(performance.now() - startedAt),
+          completedStepCount: steps.length,
+          activeStepNumber: activeStep?.stepNumber,
+          activeStepAgeMs: activeStep
+            ? Math.round(performance.now() - activeStep.startedAt)
+            : undefined,
+          abortSource: signal?.aborted ? "request_signal" : "stream",
+          signalAborted: signal?.aborted ?? false,
+          err: signal?.reason,
         }, "Model interaction aborted");
       },
       onError: ({ error }) => {
@@ -129,6 +171,10 @@ export class JobSearchAgent {
           ...interaction,
           event: "model.interaction.failed",
           latencyMs: Math.round(performance.now() - startedAt),
+          activeStepNumber: activeStep?.stepNumber,
+          activeStepAgeMs: activeStep
+            ? Math.round(performance.now() - activeStep.startedAt)
+            : undefined,
           err: error,
         }, "Model interaction failed");
       },

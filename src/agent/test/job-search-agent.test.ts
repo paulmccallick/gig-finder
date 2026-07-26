@@ -112,13 +112,21 @@ describe("agent streaming", () => {
           outputTokens: 8,
           totalTokens: 18,
         },
+        modelOutput: {
+          text: "Prioritize roles with matching leadership scope.",
+          reasoning: null,
+          toolCalls: [],
+        },
         toolCalls: [],
         toolResults: [],
       },
     });
-    const completion = logEntries.find(entry => entry.data.event === "model.interaction.completed");
+    const completion = logEntries.find(entry => entry.data.event === "model.interaction.finished");
     expect(completion?.data).toMatchObject({
-      event: "model.interaction.completed",
+      event: "model.interaction.finished",
+      outcome: "completed",
+      textCharactersGenerated: 48,
+      toolCallCount: 0,
       usage: {
         inputTokens: 10,
         outputTokens: 8,
@@ -143,7 +151,17 @@ describe("agent streaming", () => {
                 type: "tool-call",
                 toolCallId: "tool-call-1",
                 toolName: "list_tasks",
-                input: JSON.stringify({ statuses: ["open"] }),
+                input: JSON.stringify({
+                  statuses: ["open"],
+                  priorities: null,
+                  types: null,
+                  relatedEntityType: null,
+                  relatedEntityId: null,
+                  overdueOnly: null,
+                  query: null,
+                  offset: null,
+                  limit: null,
+                }),
               },
               {
                 type: "finish",

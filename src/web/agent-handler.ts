@@ -95,6 +95,7 @@ export function createAgentHandler(
 ) {
   return async (request: Request) => {
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+    const requestStartedAt = performance.now();
     const contentLength = Number(request.headers.get("content-length") ?? 0);
     if (contentLength > 128_000) throw new WebRequestError("Request body is too large.", 413);
 
@@ -107,6 +108,13 @@ export function createAgentHandler(
 
     const uiMessages = await validateAgentMessages(body.messages);
     const agentLogger = logger.child({ requestId });
+    request.signal.addEventListener("abort", () => {
+      agentLogger.warn({
+        event: "agent.request.aborted",
+        latencyMs: Math.round(performance.now() - requestStartedAt),
+        err: request.signal.reason,
+      }, "Agent request signal aborted");
+    }, { once: true });
     const agent = new JobSearchAgent({
       profile,
       model: await modelFactory(),
@@ -117,6 +125,21 @@ export function createAgentHandler(
     return result.toUIMessageStreamResponse({
       sendReasoning: false,
       onError: error => safeAgentError(error),
+      onEnd: ({ isAborted, finishReason, responseMessage }) => {
+        const partTypes = responseMessage.parts.map((part) => part.type);
+        const deliveredTextCharacters = responseMessage.parts.reduce(
+          (total, part) => total + (part.type === "text" ? part.text.length : 0),
+          0,
+        );
+        agentLogger.info({
+          event: "agent.response.stream.finished",
+          outcome: isAborted ? "aborted" : "completed",
+          finishReason,
+          latencyMs: Math.round(performance.now() - requestStartedAt),
+          partTypes,
+          deliveredTextCharacters,
+        }, "Agent response stream finished");
+      },
       headers: {
         "Cache-Control": "no-store",
       },

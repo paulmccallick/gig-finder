@@ -41,6 +41,7 @@ export const stageLabels: Record<PipelineStage, string> = {
 };
 
 export const outcomeLabels: Record<Outcome | "other", string> = {
+  pending: "Pending",
   accepted: "Accepted",
   rejected: "Rejected",
   withdrawn: "Withdrawn",

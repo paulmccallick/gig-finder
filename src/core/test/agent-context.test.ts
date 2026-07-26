@@ -15,7 +15,7 @@ const job = (id: string, patch: Partial<Job> = {}): Job => ({
   jobId: null,
   roleDirectory: null,
   stage: "applied",
-  outcome: null,
+  outcome: "pending",
   statusSummary: "Application active",
   lastActivity: "2026-07-20",
   nextAction: { description: "Follow up", due: "2026-07-23" },
@@ -104,7 +104,7 @@ function reader(
 }
 
 describe("JobSearchAgentContext", () => {
-  test("applies job defaults, multi-value filters, exclusions, ordering, and pagination", () => {
+  test("applies job defaults, multi-value filters, ordering, and pagination", () => {
     const context = reader([
       job("screen", { stage: "screening", fit: { rating: "strong", summary: null } }),
       job("closed", { stage: "closed", outcome: "rejected", nextAction: null }),
@@ -127,10 +127,8 @@ describe("JobSearchAgentContext", () => {
       "applied-future",
     ]);
     expect(context.listJobs({
-      stages: ["applied", "screening", "closed"],
-      excludeStages: ["closed"],
-      fitRatings: ["strong", "good"],
-      excludeFitRatings: ["strong"],
+      stages: ["applied"],
+      fitRatings: ["good"],
       offset: 0,
       limit: 1,
     })).toMatchObject({
@@ -153,7 +151,7 @@ describe("JobSearchAgentContext", () => {
     ]);
   });
 
-  test("filters contacts with inclusion and exclusion arrays", () => {
+  test("filters contacts with inclusion arrays", () => {
     const context = reader([], [
       contact("active-high", { priority: "high" }),
       contact("due", { status: "follow_up_due", priority: "high" }),
@@ -162,8 +160,7 @@ describe("JobSearchAgentContext", () => {
 
     expect(context.listNetworkingContacts({}).items.map(({ id }) => id)).toEqual(["active-high"]);
     expect(context.listNetworkingContacts({
-      statuses: ["active_relationship", "follow_up_due", "paused"],
-      excludeStatuses: ["paused"],
+      statuses: ["active_relationship", "follow_up_due"],
       priorities: ["high", "medium"],
     }).items.map(({ id }) => id)).toEqual(["active-high", "due"]);
     expect(context.listNetworkingContacts({ overdueOnly: true }).items.map(({ id }) => id)).toEqual([
@@ -180,8 +177,7 @@ describe("JobSearchAgentContext", () => {
     ]);
 
     const result = context.listTasks({
-      statuses: ["open", "in_progress", "completed"],
-      excludeStatuses: ["completed"],
+      statuses: ["open", "in_progress"],
       types: ["application", "networking_follow_up"],
     });
     expect(result.items.map(({ id }) => id)).toEqual(["open-overdue", "progress"]);

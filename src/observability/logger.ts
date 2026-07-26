@@ -29,6 +29,9 @@ export const logger = pino({
   base: {
     service: "job-search-server",
   },
+  serializers: {
+    err: pino.stdSerializers.err,
+  },
   redact: {
     paths: [
       "req.headers.authorization",

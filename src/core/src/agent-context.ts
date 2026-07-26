@@ -84,9 +84,6 @@ export interface ListJobsInput extends PageInput {
   stages?: PipelineStage[];
   outcomes?: Outcome[];
   fitRatings?: FitRating[];
-  excludeStages?: PipelineStage[];
-  excludeOutcomes?: Outcome[];
-  excludeFitRatings?: FitRating[];
   overdueOnly?: boolean;
   query?: string;
 }
@@ -95,9 +92,6 @@ export interface ListContactsInput extends PageInput {
   statuses?: ContactStatus[];
   priorities?: ContactPriority[];
   relationshipStrengths?: RelationshipStrength[];
-  excludeStatuses?: ContactStatus[];
-  excludePriorities?: ContactPriority[];
-  excludeRelationshipStrengths?: RelationshipStrength[];
   overdueOnly?: boolean;
   query?: string;
 }
@@ -106,9 +100,6 @@ export interface ListTasksInput extends PageInput {
   statuses?: TaskStatus[];
   priorities?: TaskPriority[];
   types?: TaskType[];
-  excludeStatuses?: TaskStatus[];
-  excludePriorities?: TaskPriority[];
-  excludeTypes?: TaskType[];
   relatedEntityType?: TaskRecord["relatedEntity"]["type"];
   relatedEntityId?: string;
   overdueOnly?: boolean;
@@ -337,11 +328,8 @@ export class JobSearchAgentContext implements AgentContextReader {
     const query = normalizedQuery(input.query);
     const records = this.sources.jobs.list()
       .filter((job) => includes(stages, job.stage))
-      .filter((job) => !includes(input.excludeStages ?? [], job.stage))
-      .filter((job) => input.outcomes === undefined || (job.outcome !== null && includes(input.outcomes, job.outcome)))
-      .filter((job) => job.outcome === null || !includes(input.excludeOutcomes ?? [], job.outcome))
+      .filter((job) => input.outcomes === undefined || includes(input.outcomes, job.outcome))
       .filter((job) => input.fitRatings === undefined || includes(input.fitRatings, job.fit.rating))
-      .filter((job) => !includes(input.excludeFitRatings ?? [], job.fit.rating))
       .filter((job) => !input.overdueOnly || Boolean(job.nextAction?.due && job.nextAction.due < today))
       .filter((job) => matchesQuery(query, [
         job.company,
@@ -381,11 +369,8 @@ export class JobSearchAgentContext implements AgentContextReader {
     const query = normalizedQuery(input.query);
     const records = this.sources.networking.list()
       .filter((contact) => includes(statuses, contact.status))
-      .filter((contact) => !includes(input.excludeStatuses ?? [], contact.status))
       .filter((contact) => input.priorities === undefined || includes(input.priorities, contact.priority))
-      .filter((contact) => !includes(input.excludePriorities ?? [], contact.priority))
       .filter((contact) => input.relationshipStrengths === undefined || includes(input.relationshipStrengths, contact.relationship.strength))
-      .filter((contact) => !includes(input.excludeRelationshipStrengths ?? [], contact.relationship.strength))
       .filter((contact) => !input.overdueOnly || contactIsOverdue(contact, today))
       .filter((contact) => matchesQuery(query, [
         contact.name,
@@ -417,11 +402,8 @@ export class JobSearchAgentContext implements AgentContextReader {
     const query = normalizedQuery(input.query);
     const records = this.sources.tasks.list()
       .filter((task) => includes(statuses, task.status))
-      .filter((task) => !includes(input.excludeStatuses ?? [], task.status))
       .filter((task) => input.priorities === undefined || includes(input.priorities, task.priority))
-      .filter((task) => !includes(input.excludePriorities ?? [], task.priority))
       .filter((task) => input.types === undefined || includes(input.types, task.type))
-      .filter((task) => !includes(input.excludeTypes ?? [], task.type))
       .filter((task) => input.relatedEntityType === undefined || task.relatedEntity.type === input.relatedEntityType)
       .filter((task) => input.relatedEntityId === undefined || task.relatedEntity.id === input.relatedEntityId)
       .filter((task) => !input.overdueOnly || taskIsOverdue(task, today))

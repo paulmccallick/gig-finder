@@ -13,6 +13,7 @@ const repoRoot = path.resolve(import.meta.dir, "../..");
 const context = resolveJobSearchContext(repoRoot);
 const {application:jobSearch}=openLocalApplication({database:context.database,artifacts:context.artifacts});
 const port = Number(process.env.API_PORT ?? 3001);
+const agentIdleTimeoutSeconds = 120;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const agentHandler = createAgentHandler(
   loadJobSearchProfile(context.profile),
@@ -24,11 +25,14 @@ const agentHandler = createAgentHandler(
 Bun.serve({
   port,
   hostname: "127.0.0.1",
-  async fetch(request) {
+  async fetch(request, server) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
     const log = requestLogger(requestId);
     const url = new URL(request.url);
+    if (url.pathname === "/api/agent/messages") {
+      server.timeout(request, agentIdleTimeoutSeconds);
+    }
     log.debug({
       event: "http.request",
       request: {
@@ -37,6 +41,9 @@ Bun.serve({
         contentLength: Number(request.headers.get("content-length") ?? 0),
         userAgent: request.headers.get("user-agent"),
       },
+      ...(url.pathname === "/api/agent/messages"
+        ? { idleTimeoutSeconds: agentIdleTimeoutSeconds }
+        : {}),
     }, "Received HTTP request");
 
     let response: Response;
@@ -72,11 +79,14 @@ Bun.serve({
     }
 
     response.headers.set("x-request-id", requestId);
+    const streaming = url.pathname === "/api/agent/messages"
+      && response.headers.get("x-vercel-ai-ui-message-stream") === "v1";
     log.debug({
-      event: "http.response",
+      event: streaming ? "http.response.started" : "http.response",
       response: { status: response.status },
+      streaming,
       latencyMs: Math.round(performance.now() - startedAt),
-    }, "Completed HTTP request");
+    }, streaming ? "Started streaming HTTP response" : "Completed HTTP request");
     return response;
   },
 });
