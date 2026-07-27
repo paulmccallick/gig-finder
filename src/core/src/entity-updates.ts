@@ -1,20 +1,16 @@
 import type { Job } from "./jobs";
+import type { ChangeContext, RevertedRecord } from "./models";
 import type { NetworkContact } from "./network";
 import type { Persistence } from "./ports";
+import type {
+  ContactDomainService,
+  JobDomainService,
+  MutationOptions,
+} from "./tracker-services";
 import type {
   JobUpdate,
   NetworkingContactUpdate,
 } from "./update-contracts";
-import type {
-  ContactDomainService,
-  JobDomainService,
-} from "./tracker-services";
-
-export interface AgentMutationContext {
-  actor: string;
-  requestId: string;
-  toolCallId: string;
-}
 
 export interface FieldChange {
   field: string;
@@ -22,37 +18,36 @@ export interface FieldChange {
   after: unknown;
 }
 
-export interface AgentUpdateResult<T> {
-  status: "ok";
+export interface EntityUpdateResult<T> {
   entity: "job" | "networking_contact";
-  changeId: string;
+  changeId: string | null;
   record: T;
   changes: FieldChange[];
 }
 
-export interface AgentRevertResult {
-  status: "ok";
-  entity: "agent_change";
+export interface ChangeRevertResult {
   changeId: string;
   revertedChangeId: string;
-  affected: Array<{ entity: string; id: string }>;
+  affected: RevertedRecord[];
 }
 
-export interface AgentMutationWriter {
+export interface EntityUpdater {
   updateJob(
-    context: AgentMutationContext,
+    context: ChangeContext,
     id: string,
     patch: JobUpdate,
-  ): AgentUpdateResult<Job>;
+    options?: MutationOptions,
+  ): EntityUpdateResult<Job>;
   updateNetworkingContact(
-    context: AgentMutationContext,
+    context: ChangeContext,
     id: string,
     patch: NetworkingContactUpdate,
-  ): AgentUpdateResult<NetworkContact>;
-  revertAgentChange(
-    context: AgentMutationContext,
+    options?: MutationOptions,
+  ): EntityUpdateResult<NetworkContact>;
+  revertChange(
+    context: ChangeContext,
     changeId: string,
-  ): AgentRevertResult;
+  ): ChangeRevertResult;
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -79,10 +74,12 @@ function changedFields(
     : [{ field: prefix, before, after }];
 }
 
-const updateChangeId = (toolCallId: string) => `agent-tool:${toolCallId}`;
-const revertChangeId = (toolCallId: string) => `agent-revert:${toolCallId}`;
+const withChangeId = (context: ChangeContext) => ({
+  ...context,
+  changeId: context.changeId ?? `chg_${crypto.randomUUID()}`,
+});
 
-export class JobSearchMutationService implements AgentMutationWriter {
+export class EntityUpdateService implements EntityUpdater {
   constructor(
     private readonly persistence: Persistence,
     private readonly jobs: JobDomainService,
@@ -90,65 +87,50 @@ export class JobSearchMutationService implements AgentMutationWriter {
   ) {}
 
   updateJob(
-    context: AgentMutationContext,
+    context: ChangeContext,
     id: string,
     patch: JobUpdate,
-  ): AgentUpdateResult<Job> {
+    options: MutationOptions = {},
+  ): EntityUpdateResult<Job> {
     const before = this.jobs.get(id);
     if (!before) throw new Error(`Job not found: ${id}`);
-    const changeId = updateChangeId(context.toolCallId);
-    const record = this.jobs.update({
-      actor: context.actor,
-      source: "agent",
-      summary: `Agent updated job ${id} (request ${context.requestId}, tool ${context.toolCallId})`,
-      changeId,
-    }, id, patch);
+    const change = withChangeId(context);
+    const record = this.jobs.update(change, id, patch, options);
     return {
-      status: "ok",
       entity: "job",
-      changeId,
+      changeId: options.dryRun ? null : change.changeId,
       record,
       changes: changedFields(before, record, patch),
     };
   }
 
   updateNetworkingContact(
-    context: AgentMutationContext,
+    context: ChangeContext,
     id: string,
     patch: NetworkingContactUpdate,
-  ): AgentUpdateResult<NetworkContact> {
+    options: MutationOptions = {},
+  ): EntityUpdateResult<NetworkContact> {
     const before = this.networking.get(id);
     if (!before) throw new Error(`Contact not found: ${id}`);
-    const changeId = updateChangeId(context.toolCallId);
-    const record = this.networking.update({
-      actor: context.actor,
-      source: "agent",
-      summary: `Agent updated networking contact ${id} (request ${context.requestId}, tool ${context.toolCallId})`,
-      changeId,
-    }, id, patch);
+    const change = withChangeId(context);
+    const record = this.networking.update(change, id, patch, options);
     return {
-      status: "ok",
       entity: "networking_contact",
-      changeId,
+      changeId: options.dryRun ? null : change.changeId,
       record,
       changes: changedFields(before, record, patch),
     };
   }
 
-  revertAgentChange(
-    context: AgentMutationContext,
+  revertChange(
+    context: ChangeContext,
     targetChangeId: string,
-  ): AgentRevertResult {
-    const changeId = revertChangeId(context.toolCallId);
-    const result = this.persistence.revertAgentChange({
-      actor: context.actor,
-      source: "agent",
-      summary: `Agent reverted ${targetChangeId} (request ${context.requestId}, tool ${context.toolCallId})`,
-      changeId,
-    }, targetChangeId);
+  ): ChangeRevertResult {
+    const result = this.persistence.revertChange(
+      withChangeId(context),
+      targetChangeId,
+    );
     return {
-      status: "ok",
-      entity: "agent_change",
       changeId: result.changeId,
       revertedChangeId: targetChangeId,
       affected: result.value,

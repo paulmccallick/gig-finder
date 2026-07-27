@@ -2,8 +2,8 @@ import { tool } from "ai";
 import type { Logger } from "pino";
 import { z } from "zod";
 import type {
-  AgentMutationWriter,
   AgentContextReader,
+  EntityUpdater,
   ListContactsInput,
   ListJobsInput,
   ListTasksInput,
@@ -355,8 +355,8 @@ function loggedExecution<TInput extends ToolInput, TResult>(
 export function createJobSearchTools(
   reader: AgentContextReader,
   logger: Logger,
-  writer?: AgentMutationWriter,
-  mutationContext?: { actor: string; requestId: string },
+  updater?: EntityUpdater,
+  requestContext?: { actor: string; requestId: string },
 ) {
   const readTools = {
     list_jobs: tool({
@@ -409,7 +409,7 @@ export function createJobSearchTools(
       ),
     }),
   };
-  if (!writer || !mutationContext) return readTools;
+  if (!updater || !requestContext) return readTools;
   return {
     ...readTools,
     update_job: tool({
@@ -422,8 +422,15 @@ export function createJobSearchTools(
       execute: loggedExecution(
         logger,
         "update_job",
-        ({ id, patch }, { toolCallId }) =>
-          writer.updateJob({ ...mutationContext, toolCallId }, id, patch),
+        ({ id, patch }, { toolCallId }) => ({
+          status: "ok" as const,
+          ...updater.updateJob({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent updated job ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, id, patch),
+        }),
       ),
     }),
     update_networking_contact: tool({
@@ -433,12 +440,15 @@ export function createJobSearchTools(
       execute: loggedExecution(
         logger,
         "update_networking_contact",
-        ({ id, patch }, { toolCallId }) =>
-          writer.updateNetworkingContact(
-            { ...mutationContext, toolCallId },
-            id,
-            patch,
-          ),
+        ({ id, patch }, { toolCallId }) => ({
+          status: "ok" as const,
+          ...updater.updateNetworkingContact({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent updated networking contact ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, id, patch),
+        }),
       ),
     }),
     revert_agent_change: tool({
@@ -448,11 +458,24 @@ export function createJobSearchTools(
       execute: loggedExecution(
         logger,
         "revert_agent_change",
-        ({ changeId }, { toolCallId }) =>
-          writer.revertAgentChange(
-            { ...mutationContext, toolCallId },
-            changeId,
-          ),
+        ({ changeId }, { toolCallId }) => {
+          if (!changeId.startsWith("agent-tool:")) {
+            throw new MutationError(
+              "not_revertible",
+              `Change is not an agent update: ${changeId}`,
+            );
+          }
+          return {
+            status: "ok" as const,
+            entity: "change" as const,
+            ...updater.revertChange({
+              actor: requestContext.actor,
+              source: "agent",
+              summary: `Agent reverted ${changeId} (request ${requestContext.requestId}, tool ${toolCallId})`,
+              changeId: `agent-revert:${toolCallId}`,
+            }, changeId),
+          };
+        },
       ),
     }),
   };

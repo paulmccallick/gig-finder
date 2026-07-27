@@ -63,8 +63,8 @@ export interface EventSourceInput {
 
 export interface ChangeResult<T> { changeId: string; value: T }
 
-export interface RevertedEntity {
-  entity: "job" | "person" | "networking";
+export interface RevertedRecord {
+  entity: string;
   id: string;
 }
 

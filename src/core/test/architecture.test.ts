@@ -58,10 +58,27 @@ describe("application boundaries", () => {
     );
     expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
     expect(source).toContain("AgentContextReader");
-    expect(source).toContain("AgentMutationWriter");
+    expect(source).toContain("EntityUpdater");
     expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(10);
     expect(source).not.toMatch(/z\.enum\((pipelineStages|outcomes|contactStatuses)/);
     const cli = readFileSync(path.join(root, "src/cli/src/cli.ts"), "utf8");
     expect(cli).not.toMatch(/as Partial<(Job|JobRole|NetworkContact)>/);
+  });
+
+  test("core persistence is independent of agent callers", () => {
+    for (const relative of [
+      "src/core/src/entity-updates.ts",
+      "src/core/src/ports.ts",
+      "src/sqlite/src/store.ts",
+    ]) {
+      const source = readFileSync(path.join(root, relative), "utf8");
+      expect(source).not.toMatch(
+        /AgentMutation|revertAgentChange|agent-tool:|agent-revert:/,
+      );
+    }
+
+    const cli = readFileSync(path.join(root, "src/cli/src/db-store.ts"), "utf8");
+    expect(cli).toContain("app.updates.updateJob");
+    expect(cli).toContain("app.updates.updateNetworkingContact");
   });
 });

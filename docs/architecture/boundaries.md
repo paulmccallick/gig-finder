@@ -5,8 +5,8 @@
 - SQL, migrations, repositories, and filesystem artifacts belong in
   `src/sqlite`.
 - CLI and web code call application services; they do not query SQLite.
-- Agent tools depend on core read and mutation interfaces; writes run through
-  the same domain services as the CLI.
+- Agent tools and the CLI use the same core `EntityUpdater`; caller-specific
+  metadata and policy stay in their adapters.
 - Generic agent policy is separate from the user profile, which defaults to
   `context/`.
 - Private context never belongs in application source control.
