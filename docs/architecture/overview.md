@@ -27,10 +27,13 @@ flowchart LR
 
 ## Persistence and history
 
+- `store.ts` provides generic change and history behavior shared by all entity
+  tables.
 - Each mutable entity table has a companion `*_history` table in the
   [SQLite schema](../../src/sqlite/src/schema.ts)
 - Before an update or delete, the current row is
   inserted into history with the operation and `change_id`.
+- The `changes` table groups multiple record updates into one audited change.
 - Each record has a revision number
 - Soft deletes use `is_deleted`
 
