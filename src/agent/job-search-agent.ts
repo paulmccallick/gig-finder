@@ -45,6 +45,7 @@ export class JobSearchAgent {
       model,
       instructions: buildJobSearchInstructions(this.options.profile, {
         liveDashboardRecords: this.options.tools !== undefined,
+        updateDashboardRecords: this.options.canUpdateDashboardRecords,
       }),
       messages,
       tools: this.options.tools,

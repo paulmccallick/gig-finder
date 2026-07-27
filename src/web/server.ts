@@ -9,8 +9,10 @@ import {
 } from "../observability/logger";
 import { loadJobSearchProfile } from "../agent/profile-loader";
 import { openLocalApplication, resolveJobSearchContext } from "../sqlite/src";
+import { registerDevelopmentTelemetry } from "../observability/devtools";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
+const devToolsEnabled = await registerDevelopmentTelemetry();
 const context = resolveJobSearchContext(repoRoot);
 const {application:jobSearch}=openLocalApplication({database:context.database,artifacts:context.artifacts});
 const port = Number(process.env.API_PORT ?? 3001);
@@ -21,6 +23,8 @@ const agentHandler = createAgentHandler(
   undefined,
   logger,
   jobSearch.agentContext,
+  jobSearch,
+  context.actor,
 );
 
 Bun.serve({
@@ -94,4 +98,5 @@ logger.info({
   address: `http://127.0.0.1:${port}`,
   logFile: activeLogFile,
   logLevel: configuredLogLevel,
+  aiSdkDevTools: devToolsEnabled,
 }, "Read-only jobs API listening");

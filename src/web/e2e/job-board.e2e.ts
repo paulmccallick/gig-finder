@@ -117,7 +117,7 @@ test("session-only JobSearchAgent streams guidance and remains available across 
   await page.goto("/");
   const panel = page.getByRole("complementary", { name: "Job Search Agent" });
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText("I have read-only access to your applications, contacts, tasks, and registered documents.");
+  await expect(panel).toContainText("I can read your applications, contacts, tasks, and registered documents, and update existing jobs and contacts when asked.");
   await panel.getByRole("button", { name: "What kinds of roles should I prioritize?" }).click();
   await expect(panel).toContainText("Prioritize Senior Director and VP engineering roles");
   expect(diagnostics.some(message => message.includes("agent.ui.request.submitted"))).toBe(true);

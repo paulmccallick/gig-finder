@@ -63,4 +63,9 @@ export interface EventSourceInput {
 
 export interface ChangeResult<T> { changeId: string; value: T }
 
+export interface RevertedRecord {
+  entity: string;
+  id: string;
+}
+
 export type NetworkingContactView = EntityRecord<NetworkingContactData> & { person:EntityRecord<PersonData> };

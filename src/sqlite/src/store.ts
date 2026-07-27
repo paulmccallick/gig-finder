@@ -1,6 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, TaskData } from "../../core/src/models";
+import { MutationError } from "../../core/src/errors";
+import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
@@ -78,6 +79,39 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
     if (result.changes !== 1) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, this.get(recordId, { includeDeleted: true })?.revision ?? -1);
     return this.get(recordId)!;
   }
+  revert(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>): EntityRecord<T> {
+    const current = this.requireCurrent(recordId, expectedRevision);
+    this.snapshot(current, "update");
+    const entries = Object.entries(this.config.columns)
+      .filter(([property]) => property !== "id")
+      .map(([property, column]) => [
+        column,
+        snapshot[property as keyof T] as Scalar,
+      ] as const);
+    const timestamp = now(this.context);
+    const assignments = [
+      ...entries.map(([column]) => `${quote(column)} = ?`),
+      "revision = revision + 1",
+      "updated_at = ?",
+    ];
+    const result = this.database.query(
+      `UPDATE ${quote(this.config.table)} SET ${assignments.join(", ")} WHERE id = ? AND revision = ? AND is_deleted = 0`,
+    ).run(
+      ...entries.map(([, value]) => toBinding(value)),
+      timestamp,
+      recordId,
+      expectedRevision,
+    );
+    if (result.changes !== 1) {
+      throw new RevisionConflictError(
+        this.config.entity,
+        recordId,
+        expectedRevision,
+        this.get(recordId, { includeDeleted: true })?.revision ?? -1,
+      );
+    }
+    return this.get(recordId)!;
+  }
   delete(recordId: string, expectedRevision: number): EntityRecord<T> {
     const current = this.requireCurrent(recordId, expectedRevision);
     this.snapshot(current, "delete");
@@ -145,11 +179,91 @@ export class DataStore {
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");
+    if (context.changeId) this.assertChangeIdAvailable(changeId);
     const occurredAt = now(context);
     const execute = this.database.transaction(() => {
       this.database.query("INSERT INTO changes (id, occurred_at, actor, source, summary, parent_change_id, status) VALUES (?, ?, ?, ?, ?, ?, 'committed')").run(changeId, occurredAt, context.actor, context.source, context.summary, context.parentChangeId ?? null);
       return action(new ChangeTransaction(this.database, { ...context, occurredAt }, changeId));
     });
     return { changeId, value: execute() };
+  }
+
+  revertChange(
+    context: ChangeContext,
+    targetChangeId: string,
+  ): ChangeResult<RevertedRecord[]> {
+    if (context.changeId) this.assertChangeIdAvailable(context.changeId);
+    const target = this.database.query("SELECT id FROM changes WHERE id = ?")
+      .get(targetChangeId);
+    if (!target) {
+      throw new MutationError("not_found", `Change not found: ${targetChangeId}`);
+    }
+
+    const snapshots = {
+      jobs: this.historyRecords(targetChangeId, configs.jobs),
+      people: this.historyRecords(targetChangeId, configs.people),
+      networking: this.historyRecords(targetChangeId, configs.networking),
+      jobPeople: this.historyRecords(targetChangeId, configs.jobPeople),
+      tasks: this.historyRecords(targetChangeId, configs.tasks),
+      meetings: this.historyRecords(targetChangeId, configs.meetings),
+    };
+    if (Object.values(snapshots).every(records => records.length === 0)) {
+      throw new MutationError(
+        "not_revertible",
+        `Change has no reversible updates: ${targetChangeId}`,
+      );
+    }
+
+    return this.change(
+      { ...context, parentChangeId: targetChangeId },
+      transaction => [
+        ...this.restoreRecords(snapshots.jobs, this.jobs, transaction.jobs, "job"),
+        ...this.restoreRecords(snapshots.people, this.people, transaction.people, "person"),
+        ...this.restoreRecords(snapshots.networking, this.networking, transaction.networking, "networking"),
+        ...this.restoreRecords(snapshots.jobPeople, this.jobPeople, transaction.jobPeople, "job-person"),
+        ...this.restoreRecords(snapshots.tasks, this.tasks, transaction.tasks, "task"),
+        ...this.restoreRecords(snapshots.meetings, this.meetings, transaction.meetings, "meeting"),
+      ],
+    );
+  }
+
+  private assertChangeIdAvailable(changeId: string) {
+    if (this.database.query("SELECT 1 FROM changes WHERE id = ?").get(changeId)) {
+      throw new MutationError("duplicate_change", `Change has already been applied: ${changeId}`);
+    }
+  }
+
+  private historyRecords<T extends DataRecord>(
+    changeId: string,
+    config: RepositoryConfig<T>,
+  ): EntityRecord<T>[] {
+    const rows = this.database.query(
+      `SELECT * FROM ${quote(config.historyTable)} WHERE change_id = ? ORDER BY history_id`,
+    ).all(changeId) as Record<string, unknown>[];
+    return rows.map(row => fromRow(row, config));
+  }
+
+  private restoreRecords<T extends DataRecord>(
+    snapshots: EntityRecord<T>[],
+    reader: ReadRepository<T>,
+    writer: MutationRepository<T>,
+    entity: string,
+  ): RevertedRecord[] {
+    return snapshots.map(snapshot => {
+      const current = reader.get(snapshot.id, { includeDeleted: true });
+      if (
+        !current
+        || current.revision !== snapshot.revision + 1
+        || current.isDeleted
+        || snapshot.isDeleted
+      ) {
+        throw new MutationError(
+          "revision_conflict",
+          `Cannot revert ${entity} ${snapshot.id} because it is not the immediately preceding active revision.`,
+        );
+      }
+      writer.revert(snapshot.id, current.revision, snapshot);
+      return { entity, id: snapshot.id };
+    });
   }
 }

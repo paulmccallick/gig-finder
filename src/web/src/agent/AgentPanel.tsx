@@ -1,5 +1,5 @@
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const starterPrompts = [
@@ -8,11 +8,32 @@ const starterPrompts = [
   "Which role categories are poor fits?",
 ];
 
-function messageText(parts: Array<{ type: string; text?: string }>) {
+function messageText(parts: UIMessage["parts"]) {
   return parts.filter(part => part.type === "text").map(part => part.text ?? "").join("");
 }
 
-export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function hasSuccessfulMutation(parts: Parameters<typeof messageText>[0]) {
+  return parts.some(part => {
+    if (!isToolUIPart(part)) return false;
+    if (part.state !== "output-available") return false;
+    const output = part.output;
+    return typeof output === "object"
+      && output !== null
+      && "status" in output
+      && output.status === "ok"
+      && "changeId" in output;
+  });
+}
+
+export function AgentPanel({
+  open,
+  onClose,
+  onDataChanged,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDataChanged?: () => void;
+}) {
   const [input, setInput] = useState("");
   const [interactionFailure, setInteractionFailure] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -37,6 +58,7 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
     throttle: 30,
     onFinish: ({ message, isAbort, isDisconnect, isError }) => {
       const deliveredTextCharacters = messageText(message.parts).length;
+      if (hasSuccessfulMutation(message.parts)) onDataChanged?.();
       if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
         setInteractionFailure(
           "JobSearchAgent's response was interrupted before it completed. Please retry.",
@@ -177,7 +199,7 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. I have read-only access to your applications, contacts, tasks, and registered documents.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents, and update existing jobs and contacts when asked.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
@@ -238,7 +260,7 @@ export function AgentPanel({ open, onClose }: { open: boolean; onClose: () => vo
           disabled={!open}
         />
         <div className="agent-composer-footer">
-          <span>{active ? "STREAM ACTIVE" : "READ-ONLY DATA ACCESS"}</span>
+          <span>{active ? "STREAM ACTIVE" : "LIVE DATA ACCESS"}</span>
           {active
             ? <button className="agent-stop" type="button" onClick={() => {
                 const diagnostic = diagnosticRef.current;

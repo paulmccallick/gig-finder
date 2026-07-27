@@ -182,6 +182,10 @@ function JobBoard({ roles, onNavigate }: { roles: Job[]; onNavigate: (value: Wor
   const [mode, setMode] = useState<BoardMode>("active");
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const [selectedRole, setSelectedRole] = useState<JobRole | null>(null);
+  useEffect(() => {
+    if (!selectedRole) return;
+    setSelectedRole(roles.find(role => role.id === selectedRole.id) ?? null);
+  }, [roles, selectedRole?.id]);
   const today = todayInPacific();
   const activeCount = roles.filter((role) => role.stage !== "closed").length;
   const archiveCount = roles.length - activeCount;
@@ -284,7 +288,14 @@ export function App() {
   const [result, setResult] = useState<JobsResult | null>(null);
   const [networkResult, setNetworkResult] = useState<ContactsResult | null>(null);
   const [taskResult, setTaskResult] = useState<TasksResult | null>(null);
-  useEffect(() => { void Promise.all([loadJobs().then(setResult), loadContacts().then(setNetworkResult), loadTasks().then(setTaskResult)]); }, []);
+  const refreshDashboard = () => {
+    void Promise.all([
+      loadJobs().then(setResult),
+      loadContacts().then(setNetworkResult),
+      loadTasks().then(setTaskResult),
+    ]);
+  };
+  useEffect(refreshDashboard, []);
   useEffect(() => { window.scrollTo({ top: 0, left: 0 }); }, [view]);
   if (!result || !networkResult || !taskResult) return <main className="loading-screen"><span /><p>Loading search operations…</p></main>;
   if (!result.ok) return <AppError error={result.error} />;
@@ -300,7 +311,11 @@ export function App() {
       <div className={agentOpen ? "dashboard-with-agent" : ""}>{dashboard}</div>
       <AgentLauncher open={agentOpen} onClick={() => setAgentOpen(value => !value)} />
       <div id="job-search-agent">
-        <AgentPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
+        <AgentPanel
+          open={agentOpen}
+          onClose={() => setAgentOpen(false)}
+          onDataChanged={refreshDashboard}
+        />
       </div>
     </>
   );

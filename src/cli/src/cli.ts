@@ -4,6 +4,10 @@ import { completeTask, createContact, createEvent, createJob, createJobPerson, c
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
 import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
+import {
+  jobUpdateSchema,
+  networkingContactUpdateSchema,
+} from "../../core/src/update-contracts";
 
 const usage = `job-search — job-search application CLI
 
@@ -125,9 +129,9 @@ async function main(args: string[]) {
     if (record.id !== id) throw new Error("Contact id must match the command id.");
     result = await createContact(paths, record, { dryRun });
   } else if (entity === "job" && command === "update") {
-    result = await updateJob(paths, id, await patchFrom(flags) as Partial<JobRole>, { dryRun });
+    result = await updateJob(paths, id, jobUpdateSchema.parse(await patchFrom(flags)), { dryRun });
   } else if (entity === "contact" && command === "update") {
-    result = await updateContact(paths, id, await patchFrom(flags) as Partial<NetworkContact>, { dryRun, date: optional(flags, "date") });
+    result = await updateContact(paths, id, networkingContactUpdateSchema.parse(await patchFrom(flags)), { dryRun, date: optional(flags, "date") });
   } else if (entity === "job") {
     const outcome = optional(flags, "outcome");
     const action = optional(flags, "next-action");

@@ -51,13 +51,42 @@ describe("application boundaries", () => {
     }
   });
 
-  test("agent tools depend only on the core read boundary", () => {
+  test("agent tools depend only on core read and domain-service boundaries", () => {
     const source = readFileSync(
       path.join(root, "src/agent/job-search-tools.ts"),
       "utf8",
     );
     expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
     expect(source).toContain("AgentContextReader");
-    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(7);
+    expect(source).toContain("JobDomainService");
+    expect(source).toContain("ContactDomainService");
+    expect(source).toContain("ChangeService");
+    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(10);
+    expect(source).not.toMatch(/z\.enum\((pipelineStages|outcomes|contactStatuses)/);
+    const cli = readFileSync(path.join(root, "src/cli/src/cli.ts"), "utf8");
+    expect(cli).not.toMatch(/as Partial<(Job|JobRole|NetworkContact)>/);
+  });
+
+  test("generic change services are independent of entities and clients", () => {
+    const changeServices = readFileSync(
+      path.join(root, "src/core/src/changes.ts"),
+      "utf8",
+    );
+    expect(changeServices).not.toMatch(/\b(Job|Contact|Agent)\b/);
+    expect(changeServices).not.toContain("switch");
+
+    for (const relative of [
+      "src/core/src/ports.ts",
+      "src/sqlite/src/store.ts",
+    ]) {
+      const source = readFileSync(path.join(root, relative), "utf8");
+      expect(source).not.toMatch(
+        /AgentMutation|revertAgentChange|agent-tool:|agent-revert:/,
+      );
+    }
+
+    const cli = readFileSync(path.join(root, "src/cli/src/db-store.ts"), "utf8");
+    expect(cli).toContain("app.jobs.update");
+    expect(cli).toContain("app.networking.update");
   });
 });

@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-JobSearchAgent has seven read-only tools.
+JobSearchAgent has seven read tools and three mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -11,6 +11,9 @@ JobSearchAgent has seven read-only tools.
 | `list_tasks` | Lists tasks; filters by status, priority, type, related entity, overdue state, and text. |
 | `get_task` | Returns one complete task. |
 | `get_document` | Resolves an exact reference returned by a detail tool. |
+| `update_job` | Updates mutable fields on one existing job. |
+| `update_networking_contact` | Atomically updates mutable person and networking fields for one contact. |
+| `revert_change` | Reverts one eligible change unless a later revision exists. |
 
 ## List behavior
 
@@ -34,10 +37,18 @@ Responses include totals and the next offset.
 
 ## Model-facing schema
 
-Tools use strict JSON schemas. List properties are required and nullable so the
+Read tools use strict JSON schemas. List properties are required and nullable so the
 model can leave individual filters unused. Each property carries its own
 description; enum-valued properties use domain-derived values.
 
-Detail tools return `not_found` for unknown IDs. Tool exceptions return
-`{"status":"error","error":"tool_failed"}`. Documents are limited to 50,000
-characters and report whether content was truncated.
+Job and contact tools use structurally strict operation lists. Field and value
+descriptions enumerate accepted domain values; the agent adapter translates
+operations into, and validates them against, the update schemas in
+`src/core/src/update-contracts.ts`. The CLI uses those core schemas directly.
+See [ADR 0001](decisions/0001-agent-update-contracts.md).
+
+Successful updates return the persisted record and change ID.
+The tool-call ID makes updates idempotent. Reverts create new history and reject
+later-revision conflicts. Failures distinguish validation, not found,
+duplicate, conflict, non-revertible, and unexpected errors. Documents are
+limited to 50,000 characters and report whether content was truncated.

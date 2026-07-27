@@ -9,8 +9,9 @@ flowchart LR
   API <-->|Agent messages and response stream| Agent[JobSearchAgent / AI SDK loop]
   Agent <-->|Model steps| Provider[Codex subscription provider]
   Provider <-->|Responses API| Model[Codex model]
-  Agent -->|Validated tool calls| Tools[Read-only agent tools]
+  Agent -->|Validated tool calls| Tools[Agent tools]
   Tools --> Reader[AgentContextReader]
+  Tools --> Core
   Reader --> Core
   CLI[CLI] --> Core
   Core --> SQLite[(SQLite)]
@@ -25,10 +26,13 @@ flowchart LR
 
 ## Persistence and history
 
+- `store.ts` provides generic change and history behavior shared by all entity
+  tables.
 - Each mutable entity table has a companion `*_history` table in the
   [SQLite schema](../../src/sqlite/src/schema.ts)
 - Before an update or delete, the current row is
   inserted into history with the operation and `change_id`.
+- The `changes` table groups multiple record updates into one audited change.
 - Each record has a revision number
 - Soft deletes use `is_deleted`
 

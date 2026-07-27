@@ -1,5 +1,6 @@
 export * from "./application";
 export * from "./agent-context";
+export * from "./changes";
 export * from "./errors";
 export * from "./jobs";
 export * from "./network";
@@ -8,3 +9,4 @@ export * from "./models";
 export * from "./ports";
 export * from "./tracker-services";
 export * from "./services";
+export * from "./update-contracts";

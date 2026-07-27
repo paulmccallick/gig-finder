@@ -8,6 +8,7 @@ import type { ChangeContext,JobData,MeetingData,NetworkingContactData,PersonData
 import { JobSearchApplication } from "../../core/src/application";
 import type { ArtifactPort } from "../../core/src/ports";
 import { AuditReader } from "../src/audit";
+import { MutationError } from "../../core/src/errors";
 
 let database: Database;
 let store: DataStore;
@@ -206,4 +207,146 @@ describe("change envelopes, business events, and evidence", () => {
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(1);
   });
   test("requires actor and summary metadata", () => { expect(() => store.change({ actor:"", source:"test", summary:"" }, () => undefined)).toThrow("required"); });
+});
+
+describe("change idempotency and reversal", () => {
+  test("rejects a duplicate explicit change ID before applying a retry", () => {
+    store.change(context("Create job"), tx => tx.jobs.create(job));
+    const updateContext: ChangeContext = {
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Update job",
+      changeId: "change:update-job",
+    };
+    store.change(updateContext, tx =>
+      tx.jobs.update(job.id, 1, { statusSummary: "Updated once" }));
+    expect(() => store.change(updateContext, tx =>
+      tx.jobs.update(job.id, 2, { statusSummary: "Updated twice" })))
+      .toThrow(MutationError);
+    expect(store.jobs.get(job.id)).toMatchObject({
+      revision: 2,
+      statusSummary: "Updated once",
+    });
+  });
+
+  test("reverts a job update as a new audited revision", () => {
+    store.change(context("Create job"), tx => tx.jobs.create(job));
+    store.change({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Update job",
+      changeId: "change:update-job",
+    }, tx => tx.jobs.update(job.id, 1, {
+      stage: "applied",
+      statusSummary: "Application submitted",
+    }));
+
+    const reverted = store.revertChange({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Revert job update",
+      changeId: "change:revert-job",
+    }, "change:update-job");
+
+    expect(reverted.value).toEqual([{ entity: "job", id: job.id }]);
+    expect(store.jobs.get(job.id)).toMatchObject({
+      revision: 3,
+      stage: "identified",
+      statusSummary: "Identified",
+    });
+    expect(database.query(
+      "SELECT parent_change_id FROM changes WHERE id = 'change:revert-job'",
+    ).get()).toEqual({ parent_change_id: "change:update-job" });
+    expect(database.query(
+      "SELECT change_id, revision FROM job_history ORDER BY history_id",
+    ).all()).toEqual([
+      { change_id: "change:update-job", revision: 1 },
+      { change_id: "change:revert-job", revision: 2 },
+    ]);
+    expect(() => store.revertChange({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Retry revert",
+      changeId: "change:revert-job",
+    }, "change:update-job")).toThrow("already been applied");
+  });
+
+  test("reverts person and networking rows atomically", () => {
+    store.change(context("Create contact"), tx => {
+      tx.people.create(person);
+      tx.networking.create(networking);
+    });
+    store.change({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Update contact",
+      changeId: "change:update-contact",
+    }, tx => {
+      tx.people.update(person.id, 1, { title: "Chief Product Officer" });
+      tx.networking.update(networking.id, 1, { status: "active_relationship" });
+    });
+
+    store.revertChange({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Revert contact",
+      changeId: "change:revert-contact",
+    }, "change:update-contact");
+
+    expect(store.people.get(person.id)).toMatchObject({ title: "CTO", revision: 3 });
+    expect(store.networking.get(networking.id)).toMatchObject({
+      status: "not_contacted",
+      revision: 3,
+    });
+  });
+
+  test("uses the same reversal mechanism for another repository", () => {
+    store.change(context("Create task"), tx => tx.tasks.create(task));
+    store.change({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Complete task",
+      changeId: "change:complete-task",
+    }, tx => tx.tasks.update(task.id, 1, {
+      status: "completed",
+      completedAt: "2026-07-22",
+    }));
+
+    const reverted = store.revertChange({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Reopen task",
+      changeId: "change:reopen-task",
+    }, "change:complete-task");
+
+    expect(reverted.value).toEqual([{ entity: "task", id: task.id }]);
+    expect(store.tasks.get(task.id)).toMatchObject({
+      revision: 3,
+      status: "open",
+      completedAt: null,
+    });
+  });
+
+  test("rejects a revert when a later edit would be overwritten", () => {
+    store.change(context("Create job"), tx => tx.jobs.create(job));
+    store.change({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Update job",
+      changeId: "change:update-conflict",
+    }, tx => tx.jobs.update(job.id, 1, { statusSummary: "First update" }));
+    store.change(context("Later edit"), tx =>
+      tx.jobs.update(job.id, 2, { statusSummary: "Later edit" }));
+
+    expect(() => store.revertChange({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Unsafe revert",
+      changeId: "change:revert-conflict",
+    }, "change:update-conflict")).toThrow("immediately preceding active revision");
+    expect(store.jobs.get(job.id)).toMatchObject({
+      revision: 3,
+      statusSummary: "Later edit",
+    });
+  });
 });
