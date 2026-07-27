@@ -2,7 +2,12 @@ const root = new URL("../../", import.meta.url).pathname;
 
 const api = Bun.spawn(["bun", "--watch", "src/web/server.ts"], {
   cwd: root,
-  env: { ...process.env, API_PORT: "3001" },
+  env: {
+    ...process.env,
+    API_PORT: "3001",
+    NODE_ENV: "development",
+    AI_SDK_DEVTOOLS: process.env.AI_SDK_DEVTOOLS ?? "true",
+  },
   stdout: "inherit",
   stderr: "inherit",
 });
