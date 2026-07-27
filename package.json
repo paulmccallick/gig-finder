@@ -5,8 +5,9 @@
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "bun run src/web/dev.ts",
-    "dev:api": "bun --watch src/web/server.ts",
+    "dev:api": "NODE_ENV=development AI_SDK_DEVTOOLS=true bun --watch src/web/server.ts",
     "dev:client": "vite --config src/web/vite.config.ts --host 127.0.0.1",
+    "dev:inspect": "bunx @ai-sdk/devtools",
     "typecheck": "tsc --noEmit -p src/core/tsconfig.json && tsc --noEmit -p src/sqlite/tsconfig.json && tsc --noEmit -p src/cli/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json",
     "test": "bun test src/core/test src/sqlite/test src/cli/test src/agent/test src/web/src src/web/server",
     "test:e2e": "playwright test --config src/web/playwright.config.ts",
@@ -29,6 +30,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@ai-sdk/devtools": "^1.0.7",
     "@playwright/test": "^1.61.1",
     "@types/bun": "^1.3.14",
     "@types/react": "^19.1.16",
