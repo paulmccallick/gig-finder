@@ -1,7 +1,7 @@
 # Job Search Agent
 
-A local-first job-search tracker with an interactive dashboard, CLI, and
-read-only AI agent.
+A local-first job-search tracker with an interactive dashboard, CLI, and AI
+agent that can read current context and update existing jobs and contacts.
 
 ## Requirements
 

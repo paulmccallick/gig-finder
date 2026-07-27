@@ -1,8 +1,9 @@
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
-import type { Job,JobRole } from "../../core/src/jobs";
+import type { JobRole } from "../../core/src/jobs";
 import type { NetworkContact } from "../../core/src/network";
 import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../../core/src/tasks";
 import type { ContactTouchInput,JobTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
+import type { JobUpdate, NetworkingContactUpdate } from "../../core/src/update-contracts";
 import { openLocalApplication,resolveJobSearchContext } from "../../sqlite/src";
 
 export interface TrackerPaths{database:string;artifacts:string;actor:string}
@@ -10,7 +11,7 @@ export interface UpdateOptions{dryRun?:boolean;date?:string}
 export const trackerPaths=(repoRoot:string):TrackerPaths=>{const resolved=resolveJobSearchContext(repoRoot);return{database:resolved.database,artifacts:resolved.artifacts,actor:resolved.actor}};
 export function pacificDate(now=new Date()){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(now);const get=(type:Intl.DateTimeFormatPartTypes)=>parts.find(part=>part.type===type)?.value??"";return`${get("year")}-${get("month")}-${get("day")}`}
 const timestamp=(date?:string)=>`${date??pacificDate()}T12:00:00-07:00`;
-const context=(paths:TrackerPaths,summary:string,date?:string)=>({actor:paths.actor,source:"agent" as const,summary,occurredAt:timestamp(date)});
+const context=(paths:TrackerPaths,summary:string,date?:string)=>({actor:paths.actor,source:"user_request" as const,summary,occurredAt:timestamp(date)});
 function withApplication<T>(paths:TrackerPaths,action:(app:ReturnType<typeof openLocalApplication>["application"])=>T):T{
   const local=openLocalApplication(paths);
   try{
@@ -24,13 +25,13 @@ function withApplication<T>(paths:TrackerPaths,action:(app:ReturnType<typeof ope
 export const getJob=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.jobs.get(id));
 export const listJobs=(paths:TrackerPaths)=>withApplication(paths,app=>app.jobs.list());
 export const createJob=(paths:TrackerPaths,record:JobRole,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.create(context(paths,"CLI job create",record.lastActivity),record,options));
-export const updateJob=(paths:TrackerPaths,id:string,patch:Partial<Job>,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.update(context(paths,`CLI job update ${id}`,options.date),id,patch,options));
+export const updateJob=(paths:TrackerPaths,id:string,patch:JobUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.update(context(paths,`CLI job update ${id}`,options.date),id,patch,options));
 export const touchJob=(paths:TrackerPaths,id:string,input:JobTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.touch(context(paths,`CLI job touch ${id}`,input.date),id,input,options));
 
 export const getContact=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.networking.get(id));
 export const listContacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.networking.list());
 export const createContact=(paths:TrackerPaths,record:NetworkContact,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.create(context(paths,"CLI networking create",record.createdAt),record,options));
-export const updateContact=(paths:TrackerPaths,id:string,patch:Partial<NetworkContact>,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.update(context(paths,`CLI networking update ${id}`,options.date),id,{...patch,updatedAt:options.date??pacificDate()},options));
+export const updateContact=(paths:TrackerPaths,id:string,patch:NetworkingContactUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.update(context(paths,`CLI networking update ${id}`,options.date),id,patch,options));
 export const touchContact=(paths:TrackerPaths,id:string,input:ContactTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.touch(context(paths,`CLI networking touch ${id}`,input.date),id,input,options));
 
 export const getTask=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.tasks.get(id));

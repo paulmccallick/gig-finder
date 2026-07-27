@@ -1,6 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, TaskData } from "../../core/src/models";
+import { MutationError } from "../../core/src/errors";
+import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, RevertedEntity, TaskData } from "../../core/src/models";
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
@@ -145,11 +146,100 @@ export class DataStore {
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");
+    if (context.changeId && this.database.query("SELECT 1 FROM changes WHERE id = ?").get(changeId)) {
+      throw new MutationError("duplicate_change", `Change has already been applied: ${changeId}`);
+    }
     const occurredAt = now(context);
     const execute = this.database.transaction(() => {
       this.database.query("INSERT INTO changes (id, occurred_at, actor, source, summary, parent_change_id, status) VALUES (?, ?, ?, ?, ?, ?, 'committed')").run(changeId, occurredAt, context.actor, context.source, context.summary, context.parentChangeId ?? null);
       return action(new ChangeTransaction(this.database, { ...context, occurredAt }, changeId));
     });
     return { changeId, value: execute() };
+  }
+
+  revertAgentChange(
+    context: ChangeContext,
+    targetChangeId: string,
+  ): ChangeResult<RevertedEntity[]> {
+    if (context.changeId && this.database.query(
+      "SELECT 1 FROM changes WHERE id = ?",
+    ).get(context.changeId)) {
+      throw new MutationError(
+        "duplicate_change",
+        `Change has already been applied: ${context.changeId}`,
+      );
+    }
+    const target = this.database.query(
+      "SELECT id, source FROM changes WHERE id = ?",
+    ).get(targetChangeId) as { id: string; source: string } | null;
+    if (!target) {
+      throw new MutationError("not_found", `Agent change not found: ${targetChangeId}`);
+    }
+    if (target.source !== "agent" || !target.id.startsWith("agent-tool:")) {
+      throw new MutationError(
+        "not_revertible",
+        `Change is not an agent update: ${targetChangeId}`,
+      );
+    }
+
+    const snapshots = [
+      ...this.historyRecords(targetChangeId, configs.jobs)
+        .map(record => ({ entity: "job" as const, record })),
+      ...this.historyRecords(targetChangeId, configs.people)
+        .map(record => ({ entity: "person" as const, record })),
+      ...this.historyRecords(targetChangeId, configs.networking)
+        .map(record => ({ entity: "networking" as const, record })),
+    ];
+    if (snapshots.length === 0) {
+      throw new MutationError(
+        "not_revertible",
+        `Agent change has no reversible job or contact updates: ${targetChangeId}`,
+      );
+    }
+    for (const snapshot of snapshots) {
+      const current = snapshot.entity === "job"
+        ? this.jobs.get(snapshot.record.id, { includeDeleted: true })
+        : snapshot.entity === "person"
+          ? this.people.get(snapshot.record.id, { includeDeleted: true })
+          : this.networking.get(snapshot.record.id, { includeDeleted: true });
+      if (!current || current.revision !== snapshot.record.revision + 1) {
+        throw new MutationError(
+          "revision_conflict",
+          `Cannot revert ${snapshot.entity} ${snapshot.record.id} because it has a later revision.`,
+        );
+      }
+    }
+
+    return this.change(
+      { ...context, parentChangeId: targetChangeId },
+      transaction => snapshots.map(snapshot => {
+        if (snapshot.entity === "job") {
+          const current = this.jobs.get(snapshot.record.id, { includeDeleted: true })!;
+          const { id: recordId, revision: _, isDeleted: __, createdAt: ___, updatedAt: ____, ...data } = snapshot.record;
+          transaction.jobs.update(recordId, current.revision, data);
+          return { entity: snapshot.entity, id: recordId };
+        }
+        if (snapshot.entity === "person") {
+          const current = this.people.get(snapshot.record.id, { includeDeleted: true })!;
+          const { id: recordId, revision: _, isDeleted: __, createdAt: ___, updatedAt: ____, ...data } = snapshot.record;
+          transaction.people.update(recordId, current.revision, data);
+          return { entity: snapshot.entity, id: recordId };
+        }
+        const current = this.networking.get(snapshot.record.id, { includeDeleted: true })!;
+        const { id: recordId, revision: _, isDeleted: __, createdAt: ___, updatedAt: ____, ...data } = snapshot.record;
+        transaction.networking.update(recordId, current.revision, data);
+        return { entity: snapshot.entity, id: recordId };
+      }),
+    );
+  }
+
+  private historyRecords<T extends DataRecord>(
+    changeId: string,
+    config: RepositoryConfig<T>,
+  ): EntityRecord<T>[] {
+    const rows = this.database.query(
+      `SELECT * FROM ${quote(config.historyTable)} WHERE change_id = ? ORDER BY history_id`,
+    ).all(changeId) as Record<string, unknown>[];
+    return rows.map(row => fromRow(row, config));
   }
 }

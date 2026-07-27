@@ -2,11 +2,17 @@ import { tool } from "ai";
 import type { Logger } from "pino";
 import { z } from "zod";
 import type {
+  AgentMutationWriter,
   AgentContextReader,
   ListContactsInput,
   ListJobsInput,
   ListTasksInput,
 } from "../core/src";
+import { DomainValidationError, MutationError } from "../core/src/errors";
+import {
+  jobUpdateSchema,
+  networkingContactUpdateSchema,
+} from "../core/src/update-contracts";
 import { fitRatings, outcomes, pipelineStages } from "../core/src/jobs";
 import {
   contactPriorities,
@@ -81,6 +87,22 @@ const getDocumentInputSchema = z.object({
     .describe("Exact registered document reference returned by a detail tool."),
 }).strict();
 
+const updateJobInputSchema = z.object({
+  id: getInputSchema.shape.id,
+  patch: jobUpdateSchema.describe("Mutable job fields to update."),
+}).strict();
+
+const updateNetworkingContactInputSchema = z.object({
+  id: getInputSchema.shape.id,
+  patch: networkingContactUpdateSchema
+    .describe("Mutable networking-contact fields to update."),
+}).strict();
+
+const revertAgentChangeInputSchema = z.object({
+  changeId: z.string().trim().min(1)
+    .describe("Exact change ID returned by an earlier agent update tool."),
+}).strict();
+
 type ToolInput = {
   [key: string]: unknown;
   offset?: number | null;
@@ -89,18 +111,30 @@ type ToolInput = {
   id?: string;
   reference?: string;
   query?: string | null;
+  changeId?: string;
 };
 
 export interface ToolFailure {
   status: "error";
-  error: "tool_failed";
+  error:
+    | "duplicate_change"
+    | "not_found"
+    | "not_revertible"
+    | "revision_conflict"
+    | "validation_failed"
+    | "tool_failed";
+  message: string;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 function toolInvocationDetails(input: ToolInput) {
+  const patch = isRecord(input.patch) ? input.patch : undefined;
   const appliedFilters = Object.fromEntries(
     Object.entries(input)
       .filter(([key]) =>
-        !["id", "reference", "query", "offset", "limit", "relatedEntityId"].includes(key)
+        !["id", "reference", "query", "offset", "limit", "relatedEntityId", "patch", "changeId"].includes(key)
       )
       .filter(([, value]) =>
         value !== undefined
@@ -124,6 +158,8 @@ function toolInvocationDetails(input: ToolInput) {
   return {
     ...(input.id === undefined ? {} : { recordId: input.id }),
     ...(input.reference === undefined ? {} : { documentReference: input.reference }),
+    ...(input.changeId === undefined ? {} : { changeId: input.changeId }),
+    ...(patch === undefined ? {} : { updateFields: Object.keys(patch) }),
     filterMode: Object.keys(filters).length === 0 ? "unfiltered" : "filtered",
     appliedFilters: filters,
     ...(
@@ -188,17 +224,31 @@ function normalizeTasksInput(
 }
 
 type ToolResultSummary = {
-  outcome: "found" | "not_found" | "page" | "unknown";
+  outcome: "found" | "not_found" | "page" | "updated" | "reverted" | "unknown";
   returned?: number;
   total?: number;
   recordIds?: string[];
   recordId?: string;
   contentCharacters?: number;
   documentReferences?: number;
+  changeId?: string;
+  changedFields?: string[];
 };
 
 function safeResultSummary(result: unknown): ToolResultSummary {
   if (typeof result !== "object" || result === null) return { outcome: "unknown" };
+  if ("status" in result && result.status === "ok" && "changeId" in result) {
+    const changes = "changes" in result && Array.isArray(result.changes)
+      ? result.changes as Array<{ field?: unknown }>
+      : [];
+    return {
+      outcome: "revertedChangeId" in result ? "reverted" : "updated",
+      changeId: typeof result.changeId === "string" ? result.changeId : undefined,
+      changedFields: changes
+        .map(change => change.field)
+        .filter((field): field is string => typeof field === "string"),
+    };
+  }
   if ("page" in result) {
     const page = (result as { page: { returned: number; total: number } }).page;
     const items = "items" in result && Array.isArray(result.items)
@@ -235,7 +285,10 @@ function safeResultSummary(result: unknown): ToolResultSummary {
 function loggedExecution<TInput extends ToolInput, TResult>(
   logger: Logger,
   toolName: string,
-  execute: (input: TInput) => TResult | Promise<TResult>,
+  execute: (
+    input: TInput,
+    options: { toolCallId: string },
+  ) => TResult | Promise<TResult>,
 ) {
   return async (
     input: TInput,
@@ -249,7 +302,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
       ...toolInvocationDetails(input),
     }, "Starting agent tool");
     try {
-      const result = await execute(input);
+      const result = await execute(input, options);
       const summary = safeResultSummary(result);
       const details = {
         event: "agent.tool.completed",
@@ -274,13 +327,38 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         durationMs: Math.round(performance.now() - startedAt),
         err: error,
       }, "Agent tool failed");
-      return { status: "error", error: "tool_failed" };
+      if (error instanceof z.ZodError || error instanceof DomainValidationError) {
+        return {
+          status: "error",
+          error: "validation_failed",
+          message: error instanceof z.ZodError
+            ? error.issues.map(issue => issue.message).join("; ")
+            : error.message,
+        };
+      }
+      if (error instanceof MutationError) {
+        return { status: "error", error: error.code, message: error.message };
+      }
+      const message = error instanceof Error ? error.message : "";
+      if (/^(Job|Contact) not found:/.test(message)) {
+        return { status: "error", error: "not_found", message };
+      }
+      return {
+        status: "error",
+        error: "tool_failed",
+        message: "The requested operation could not be completed.",
+      };
     }
   };
 }
 
-export function createJobSearchTools(reader: AgentContextReader, logger: Logger) {
-  return {
+export function createJobSearchTools(
+  reader: AgentContextReader,
+  logger: Logger,
+  writer?: AgentMutationWriter,
+  mutationContext?: { actor: string; requestId: string },
+) {
+  const readTools = {
     list_jobs: tool({
       strict: true,
       description: "List job opportunities in the candidate's pipeline. Use optional filters if desired. Results are summaries and may be paginated; use get_job with an ID when you need the complete current record.",
@@ -331,6 +409,53 @@ export function createJobSearchTools(reader: AgentContextReader, logger: Logger)
       ),
     }),
   };
+  if (!writer || !mutationContext) return readTools;
+  return {
+    ...readTools,
+    update_job: tool({
+      // Optional means "leave unchanged"; null explicitly clears a nullable
+      // value. OpenAI strict tool schemas require every property, so runtime
+      // Zod validation remains strict while provider strict mode is disabled.
+      strict: false,
+      description: "Update mutable fields on one existing job. Use optional fields if desired. Report the returned changed fields and change ID to the user.",
+      inputSchema: updateJobInputSchema,
+      execute: loggedExecution(
+        logger,
+        "update_job",
+        ({ id, patch }, { toolCallId }) =>
+          writer.updateJob({ ...mutationContext, toolCallId }, id, patch),
+      ),
+    }),
+    update_networking_contact: tool({
+      strict: false,
+      description: "Update mutable fields on one existing networking contact. Use optional fields if desired. Report the returned changed fields and change ID to the user.",
+      inputSchema: updateNetworkingContactInputSchema,
+      execute: loggedExecution(
+        logger,
+        "update_networking_contact",
+        ({ id, patch }, { toolCallId }) =>
+          writer.updateNetworkingContact(
+            { ...mutationContext, toolCallId },
+            id,
+            patch,
+          ),
+      ),
+    }),
+    revert_agent_change: tool({
+      strict: true,
+      description: "Revert one prior change made by update_job or update_networking_contact. Use the exact returned change ID. The revert is rejected if a later edit would be overwritten.",
+      inputSchema: revertAgentChangeInputSchema,
+      execute: loggedExecution(
+        logger,
+        "revert_agent_change",
+        ({ changeId }, { toolCallId }) =>
+          writer.revertAgentChange(
+            { ...mutationContext, toolCallId },
+            changeId,
+          ),
+      ),
+    }),
+  };
 }
 
 export type JobSearchTools = ReturnType<typeof createJobSearchTools>;
@@ -342,4 +467,7 @@ export const jobSearchToolSchemas = {
   list_tasks: listTasksInputSchema,
   get_task: getInputSchema,
   get_document: getDocumentInputSchema,
+  update_job: updateJobInputSchema,
+  update_networking_contact: updateNetworkingContactInputSchema,
+  revert_agent_change: revertAgentChangeInputSchema,
 } as const;

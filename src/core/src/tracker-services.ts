@@ -4,6 +4,12 @@ import { fitRatings, outcomes, pipelineStages, type Job, type JobRole } from "./
 import { DomainValidationError } from "./errors";
 import { contactPriorities, contactStatuses, type NetworkContact } from "./network";
 import { taskPriorities, taskStatuses, taskTypes, type TaskRecord } from "./tasks";
+import {
+  jobUpdateSchema,
+  networkingContactUpdateSchema,
+  type JobUpdate,
+  type NetworkingContactUpdate,
+} from "./update-contracts";
 
 export interface MutationOptions { dryRun?: boolean }
 export interface JobTouchInput { date:string;stage:Job["stage"];summary:string;outcome?:Job["outcome"];nextAction?:string|null;due?:string|null }
@@ -13,7 +19,7 @@ export interface TaskCreateInput { id:string;title:string;type:TaskRecord["type"
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const assertDate = (value: unknown, label: string, nullable = false) => {
   if (nullable && value === null) return;
-  if (typeof value !== "string" || !datePattern.test(value)) throw new Error(`${label} must use YYYY-MM-DD.`);
+  if (typeof value !== "string" || !datePattern.test(value)) throw new DomainValidationError(`${label} must use YYYY-MM-DD.`);
 };
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 export function deepPatch<T>(current: T, patch: unknown): T {
@@ -35,9 +41,17 @@ function validateJob(job: Job) {
     throw new DomainValidationError(`Job ${job.id} must remain pending until its stage is closed.`);
   }
   assertDate(job.lastActivity, `${job.id}.lastActivity`);
-  if (job.nextAction) assertDate(job.nextAction.due, `${job.id}.nextAction.due`, true);
-  if (job.stage === "closed" && job.nextAction !== null) throw new Error(`${job.id} is closed but still has a next action.`);
-  if (job.payRange?.minimum !== null && job.payRange?.maximum !== null && job.payRange && job.payRange.minimum! > job.payRange.maximum!) throw new Error(`${job.id} has an inverted pay range.`);
+  if (job.nextAction) {
+    if (!job.nextAction.description?.trim()) {
+      throw new DomainValidationError(`Job ${job.id} next action requires a description.`);
+    }
+    assertDate(job.nextAction.due, `${job.id}.nextAction.due`, true);
+  }
+  if (job.stage === "closed" && job.nextAction !== null) throw new DomainValidationError(`${job.id} is closed but still has a next action.`);
+  if (job.payRange && (!job.payRange.currency || !job.payRange.period)) {
+    throw new DomainValidationError(`Job ${job.id} pay range requires currency and period.`);
+  }
+  if (job.payRange?.minimum !== null && job.payRange?.maximum !== null && job.payRange && job.payRange.minimum! > job.payRange.maximum!) throw new DomainValidationError(`${job.id} has an inverted pay range.`);
 }
 
 function jobFromData(r: JobData): Job {
@@ -51,11 +65,11 @@ function contactFromData(c: NetworkingContactData & {person:PersonData;createdAt
   return {id:c.id,name:c.person.name,company:c.person.company,title:c.person.title,linkedInProfileUrl:c.person.linkedInProfileUrl,profileStatus:c.person.linkedInProfileUrl?"verified":"missing",connectedOn:c.person.connectedOn,hasLocalProfile:c.person.hasLocalProfile,relationship:{type:c.relationshipType,strength:c.relationshipStrength as NetworkContact["relationship"]["strength"],introducedBy:c.introducedBy,notes:c.relationshipNotes},priority:c.priority as NetworkContact["priority"],status:c.status as NetworkContact["status"],outreach:{lastContacted:c.lastContacted,lastContactMethod:c.lastContactMethod,lastContactSummary:c.lastContactSummary,nextAction:c.nextAction,nextActionDue:c.nextActionDue},whyInteresting:c.whyInteresting,notes:JSON.parse(c.notesJson),tags:JSON.parse(c.tagsJson),source:{files:[]},createdAt:c.createdAt.slice(0,10),updatedAt:c.updatedAt.slice(0,10)};
 }
 function validateContact(c: NetworkContact) {
-  if (!c.id || !c.name) throw new Error("Contact id and name are required.");
-  if (!contactPriorities.includes(c.priority) || !contactStatuses.includes(c.status)) throw new Error(`${c.id} has an invalid priority or status.`);
+  if (!c.id || !c.name) throw new DomainValidationError("Contact id and name are required.");
+  if (!contactPriorities.includes(c.priority) || !contactStatuses.includes(c.status)) throw new DomainValidationError(`${c.id} has an invalid priority or status.`);
   for (const [value,label] of [[c.createdAt,`${c.id}.createdAt`],[c.updatedAt,`${c.id}.updatedAt`],[c.connectedOn,`${c.id}.connectedOn`],[c.outreach.lastContacted,`${c.id}.outreach.lastContacted`],[c.outreach.nextActionDue,`${c.id}.outreach.nextActionDue`]] as const) assertDate(value,label,true);
-  if (c.profileStatus==="verified"&&!c.linkedInProfileUrl?.match(/^https:\/\/(www\.)?linkedin\.com\/in\//)) throw new Error(`${c.id} is verified without a LinkedIn profile URL.`);
-  if (c.outreach.nextActionDue&&!c.outreach.nextAction) throw new Error(`${c.id} has a next-action due date without a next action.`);
+  if (c.profileStatus==="verified"&&!c.linkedInProfileUrl?.match(/^https:\/\/(www\.)?linkedin\.com\/in\//)) throw new DomainValidationError(`${c.id} is verified without a LinkedIn profile URL.`);
+  if (c.outreach.nextActionDue&&!c.outreach.nextAction) throw new DomainValidationError(`${c.id} has a next-action due date without a next action.`);
 }
 const personData=(c:NetworkContact):PersonData=>({id:c.id,name:c.name,company:c.company,title:c.title,linkedInProfileUrl:c.linkedInProfileUrl,connectedOn:c.connectedOn,hasLocalProfile:c.hasLocalProfile??false});
 const networkingData=(c:NetworkContact):NetworkingContactData=>({id:c.id,personId:c.id,relationshipType:c.relationship.type,relationshipStrength:c.relationship.strength,introducedBy:c.relationship.introducedBy,relationshipNotes:c.relationship.notes,priority:c.priority,status:c.status,lastContacted:c.outreach.lastContacted,lastContactMethod:c.outreach.lastContactMethod,lastContactSummary:c.outreach.lastContactSummary,nextAction:c.outreach.nextAction,nextActionDue:c.outreach.nextActionDue,whyInteresting:c.whyInteresting,notesJson:JSON.stringify(c.notes),tagsJson:JSON.stringify(c.tags)});
@@ -68,7 +82,7 @@ export class JobDomainService {
   get(id:string){const r=this.p.jobs.get(id);return r?jobFromData(r):null}
   list(){return this.p.jobs.list().map(jobFromData)}
   create(context:ChangeContext,job:JobRole,options:MutationOptions={}){const complete=jobFromData(jobToData(job));validateJob(complete);if(!options.dryRun)this.p.change(context,u=>u.jobs.create(jobToData(complete)));return complete}
-  update(context:ChangeContext,id:string,patch:Partial<Job>,options:MutationOptions={}){const current=this.get(id);if(!current)throw new Error(`Job not found: ${id}`);const updated=deepPatch(current,patch);validateJob(updated);if(!options.dryRun){const raw=this.p.jobs.get(id)!;const{id:_,...data}=jobToData(updated);this.p.change(context,u=>u.jobs.update(id,raw.revision,data))}return updated}
+  update(context:ChangeContext,id:string,patch:JobUpdate,options:MutationOptions={}){const validatedPatch=jobUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Job not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateJob(updated);if(!options.dryRun){const raw=this.p.jobs.get(id)!;const{id:_,...data}=jobToData(updated);this.p.change(context,u=>u.jobs.update(id,raw.revision,data))}return updated}
   touch(context:ChangeContext,id:string,input:JobTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options)}
   async description(id:string){const job=this.get(id);if(!job)throw new Error(`Job not found: ${id}`);return job.hasJobDescription?this.artifacts.jobDescription(id):null}
   async prep(id:string){const job=this.get(id);if(!job)throw new Error(`Job not found: ${id}`);return job.hasInterviewPrep?this.artifacts.interviewPrep(id):[]}
@@ -80,8 +94,8 @@ export class ContactDomainService {
   personId(id:string){return this.p.networking.get(id)?.personId??null}
   list(){return this.p.networking.list().map(c=>{const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${c.id} references missing person ${c.personId}`);return contactFromData({...c,person})})}
   create(context:ChangeContext,c:NetworkContact,options:MutationOptions={}){validateContact(c);if(!options.dryRun)this.p.change(context,u=>{u.people.create(personData(c));u.networking.create(networkingData(c))});return c}
-  update(context:ChangeContext,id:string,patch:Partial<NetworkContact>,options:MutationOptions={}){const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const updated=deepPatch(current,patch);validateContact(updated);if(!options.dryRun){const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated),nd=networkingData(updated);const{id:_,...pp}=pd,{id:__,...np}=nd;this.p.change(context,u=>{u.people.update(person.id,person.revision,pp);u.networking.update(id,raw.revision,np)})}return updated}
-  touch(context:ChangeContext,id:string,input:ContactTouchInput,options:MutationOptions={}){return this.update(context,id,{status:input.status,updatedAt:input.date,outreach:{lastContacted:input.date,lastContactMethod:input.method,lastContactSummary:input.summary,nextAction:input.nextAction??null,nextActionDue:input.due??null}},options)}
+  update(context:ChangeContext,id:string,patch:NetworkingContactUpdate,options:MutationOptions={}){const validatedPatch=networkingContactUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const candidate=deepPatch(current,validatedPatch);const updated={...candidate,profileStatus:candidate.linkedInProfileUrl?"verified" as const:"missing" as const};validateContact(updated);if(!options.dryRun){const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated),nd=networkingData(updated);const{id:_,...pp}=pd,{id:__,...np}=nd;this.p.change(context,u=>{u.people.update(person.id,person.revision,pp);u.networking.update(id,raw.revision,np)})}return updated}
+  touch(context:ChangeContext,id:string,input:ContactTouchInput,options:MutationOptions={}){return this.update(context,id,{status:input.status,outreach:{lastContacted:input.date,lastContactMethod:input.method,lastContactSummary:input.summary,nextAction:input.nextAction??null,nextActionDue:input.due??null}},options)}
 }
 
 export class TaskDomainService {

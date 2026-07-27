@@ -8,8 +8,8 @@ Job Search Agent is a local-first workspace for running a job search.
   filters, urgency signals, details, and captured job descriptions.
 - The CLI reads and updates the same records with audited mutations and
   non-persisting dry-run previews where available.
-- the agent window uses the candidate profile plus read-only access to current
-  jobs, contacts, tasks, and registered documents.
+- The agent window uses the candidate profile, reads current records and
+  registered documents, and can update existing jobs and contacts.
 - Agent conversations last only for the current page load.
 
 ## Entities
@@ -34,5 +34,6 @@ Application source is generic. By default, a user's profile, operational
 records, documents, logs, database, and backups live in the ignored `context/`
 workspace.
 
-Agent tools cannot change records or access arbitrary files, meetings, history,
-email, calendars, or external services.
+Agent tools cannot create or delete records or access arbitrary files,
+meetings, history, email, calendars, or external services. Agent updates are
+audited and can be reverted when no later edit would be overwritten.

@@ -9,9 +9,11 @@ flowchart LR
   API <-->|Agent messages and response stream| Agent[JobSearchAgent / AI SDK loop]
   Agent <-->|Model steps| Provider[Codex subscription provider]
   Provider <-->|Responses API| Model[Codex model]
-  Agent -->|Validated tool calls| Tools[Read-only agent tools]
+  Agent -->|Validated tool calls| Tools[Agent tools]
   Tools --> Reader[AgentContextReader]
+  Tools --> Writer[AgentMutationWriter]
   Reader --> Core
+  Writer --> Core
   CLI[CLI] --> Core
   Core --> SQLite[(SQLite)]
   Core --> Artifacts[Local artifacts]

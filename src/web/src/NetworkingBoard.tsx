@@ -51,6 +51,10 @@ export function NetworkingBoard({ contacts }: { contacts: NetworkContact[] }) {
   const [priority, setPriority] = useState<ContactPriority | "all">("high");
   const [trancheOnly, setTrancheOnly] = useState(false);
   const [selected, setSelected] = useState<NetworkContact | null>(null);
+  useEffect(() => {
+    if (!selected) return;
+    setSelected(contacts.find(contact => contact.id === selected.id) ?? null);
+  }, [contacts, selected?.id]);
   const today = todayInPacific();
   const actionable = contacts.filter((c) => !["paused", "do_not_contact"].includes(c.status));
   const visible = useMemo(() => actionable.filter((c) => {

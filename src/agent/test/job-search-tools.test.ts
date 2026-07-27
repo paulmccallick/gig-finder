@@ -7,7 +7,11 @@ import {
   pipelineStages,
   taskTypes,
   type AgentContextReader,
+  type AgentMutationContext,
+  type AgentMutationWriter,
+  type Job,
 } from "../../core/src";
+import { MutationError } from "../../core/src/errors";
 import {
   createJobSearchTools,
   jobSearchToolSchemas,
@@ -59,6 +63,12 @@ const reader = {
   getDocument: async (reference) => ({ status: "not_found", id: reference }),
 } satisfies AgentContextReader;
 
+const writer: AgentMutationWriter = {
+  updateJob: () => { throw new Error("not executed"); },
+  updateNetworkingContact: () => { throw new Error("not executed"); },
+  revertAgentChange: () => { throw new Error("not executed"); },
+};
+
 const nullJobsInput = {
   stages: null,
   outcomes: null,
@@ -107,6 +117,219 @@ describe("JobSearchAgent tools", () => {
       expect(definition.description?.length).toBeGreaterThan(40);
       expect(definition.strict).toBe(true);
     }
+  });
+
+  test("registers mutation tools only when the mutation boundary is supplied", () => {
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      writer,
+      { actor: "Candidate", requestId: "request-1" },
+    );
+    expect(Object.keys(tools)).toEqual([
+      "list_jobs",
+      "get_job",
+      "list_networking_contacts",
+      "get_networking_contact",
+      "list_tasks",
+      "get_task",
+      "get_document",
+      "update_job",
+      "update_networking_contact",
+      "revert_agent_change",
+    ]);
+    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+    expect(tools.update_job.strict).toBe(false);
+    expect(tools.update_networking_contact.strict).toBe(false);
+    expect(tools.revert_agent_change.strict).toBe(true);
+  });
+
+  test("uses the shared core schemas for mutation tool patches", () => {
+    expect(jobSearchToolSchemas.update_job.safeParse({
+      id: "job-1",
+      patch: { stage: "applied", fit: { rating: "strong" } },
+    }).success).toBe(true);
+    expect(jobSearchToolSchemas.update_job.safeParse({
+      id: "job-1",
+      patch: { id: "different" },
+    }).success).toBe(false);
+    expect(jobSearchToolSchemas.update_networking_contact.safeParse({
+      id: "person-1",
+      patch: { status: "awaiting_response" },
+    }).success).toBe(true);
+    expect(jobSearchToolSchemas.update_networking_contact.safeParse({
+      id: "person-1",
+      patch: { updatedAt: "2026-07-27" },
+    }).success).toBe(false);
+  });
+
+  test("passes request and tool-call identity through the mutation boundary", async () => {
+    let received: {
+      context: AgentMutationContext;
+      id: string;
+      patch: unknown;
+    } | undefined;
+    const record: Job = {
+      id: "job-1",
+      company: "Company",
+      title: "Director",
+      jobId: null,
+      roleDirectory: null,
+      stage: "applied",
+      outcome: "pending",
+      statusSummary: "Applied",
+      lastActivity: "2026-07-27",
+      nextAction: null,
+      fit: { rating: "good", summary: null },
+      payRange: null,
+      sourceUrl: null,
+      tags: [],
+      hasJobDescription: false,
+      hasInterviewPrep: false,
+      location: null,
+      workArrangement: null,
+      postedDate: null,
+      businessUnitTeam: null,
+      recruiterSource: null,
+      bonus: null,
+      equity: null,
+      otherCompensation: null,
+    };
+    const capturingWriter: AgentMutationWriter = {
+      updateJob: (context, id, patch) => {
+        received = { context, id, patch };
+        return {
+          status: "ok",
+          entity: "job",
+          changeId: `agent-tool:${context.toolCallId}`,
+          record,
+          changes: [{ field: "stage", before: "identified", after: "applied" }],
+        };
+      },
+      updateNetworkingContact: () => { throw new Error("not executed"); },
+      revertAgentChange: () => { throw new Error("not executed"); },
+    };
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      capturingWriter,
+      { actor: "Candidate", requestId: "request-1" },
+    );
+    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+
+    const result = await tools.update_job.execute?.(
+      { id: "job-1", patch: { stage: "applied" } },
+      { toolCallId: "call-9", messages: [], abortSignal: undefined, context: {} },
+    );
+
+    expect(received).toEqual({
+      context: {
+        actor: "Candidate",
+        requestId: "request-1",
+        toolCallId: "call-9",
+      },
+      id: "job-1",
+      patch: { stage: "applied" },
+    });
+    expect(result).toMatchObject({
+      status: "ok",
+      changeId: "agent-tool:call-9",
+    });
+  });
+
+  test("returns a structured duplicate result", async () => {
+    const duplicateWriter: AgentMutationWriter = {
+      updateJob: () => {
+        throw new MutationError("duplicate_change", "Already applied");
+      },
+      updateNetworkingContact: () => { throw new Error("not executed"); },
+      revertAgentChange: () => { throw new Error("not executed"); },
+    };
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      duplicateWriter,
+      { actor: "Candidate", requestId: "request-1" },
+    );
+    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+
+    expect(await tools.update_job.execute?.(
+      { id: "job-1", patch: { stage: "applied" } },
+      { toolCallId: "call-9", messages: [], abortSignal: undefined, context: {} },
+    )).toEqual({
+      status: "error",
+      error: "duplicate_change",
+      message: "Already applied",
+    });
+  });
+
+  test("logs update fields and the resulting change without treating them as filters", async () => {
+    const entries: Array<Record<string, unknown>> = [];
+    const capturingLogger = {
+      debug: (entry: Record<string, unknown>) => entries.push(entry),
+      warn: () => undefined,
+      error: () => undefined,
+    } as unknown as Logger;
+    const record = {
+      id: "job-1",
+      company: "Company",
+      title: "Director",
+      jobId: null,
+      roleDirectory: null,
+      stage: "applied",
+      outcome: "pending",
+      statusSummary: "Applied",
+      lastActivity: "2026-07-27",
+      nextAction: null,
+      fit: { rating: "good" as const, summary: null },
+      payRange: null,
+      sourceUrl: null,
+      tags: [],
+      location: null,
+      workArrangement: null,
+      postedDate: null,
+      businessUnitTeam: null,
+      recruiterSource: null,
+      bonus: null,
+      equity: null,
+      otherCompensation: null,
+    } satisfies Job;
+    const loggingWriter: AgentMutationWriter = {
+      updateJob: context => ({
+        status: "ok",
+        entity: "job",
+        changeId: `agent-tool:${context.toolCallId}`,
+        record,
+        changes: [{ field: "stage", before: "identified", after: "applied" }],
+      }),
+      updateNetworkingContact: () => { throw new Error("not executed"); },
+      revertAgentChange: () => { throw new Error("not executed"); },
+    };
+    const tools = createJobSearchTools(
+      reader,
+      capturingLogger,
+      loggingWriter,
+      { actor: "Candidate", requestId: "request-1" },
+    );
+    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+
+    await tools.update_job.execute?.(
+      { id: "job-1", patch: { stage: "applied" } },
+      { toolCallId: "call-log", messages: [], abortSignal: undefined, context: {} },
+    );
+
+    expect(entries[0]).toMatchObject({
+      event: "agent.tool.started",
+      recordId: "job-1",
+      updateFields: ["stage"],
+      appliedFilters: {},
+    });
+    expect(entries[1]).toMatchObject({
+      event: "agent.tool.completed",
+      outcome: "updated",
+      changeId: "agent-tool:call-log",
+      changedFields: ["stage"],
+    });
   });
 
   test("validates inclusion values from entity enums", () => {

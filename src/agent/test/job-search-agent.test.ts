@@ -53,7 +53,11 @@ describe("JobSearchAgent instructions", () => {
     );
     expect(buildJobSearchInstructions(testJobSearchProfile, {
       liveDashboardRecords: true,
-    })).toContain("read-only tools for current jobs, networking contacts, tasks");
+    })).toContain("These tools are read-only");
+    expect(buildJobSearchInstructions(testJobSearchProfile, {
+      liveDashboardRecords: true,
+      updateDashboardRecords: true,
+    })).toContain("You may update existing jobs and networking contacts");
   });
 
   test("composes the current user's profile separately", () => {

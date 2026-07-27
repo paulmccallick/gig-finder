@@ -21,6 +21,8 @@ const agentHandler = createAgentHandler(
   undefined,
   logger,
   jobSearch.agentContext,
+  jobSearch.agentMutations,
+  context.actor,
 );
 
 Bun.serve({

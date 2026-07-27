@@ -51,13 +51,17 @@ describe("application boundaries", () => {
     }
   });
 
-  test("agent tools depend only on the core read boundary", () => {
+  test("agent tools depend only on core read and mutation boundaries", () => {
     const source = readFileSync(
       path.join(root, "src/agent/job-search-tools.ts"),
       "utf8",
     );
     expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
     expect(source).toContain("AgentContextReader");
-    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(7);
+    expect(source).toContain("AgentMutationWriter");
+    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(10);
+    expect(source).not.toMatch(/z\.enum\((pipelineStages|outcomes|contactStatuses)/);
+    const cli = readFileSync(path.join(root, "src/cli/src/cli.ts"), "utf8");
+    expect(cli).not.toMatch(/as Partial<(Job|JobRole|NetworkContact)>/);
   });
 });
