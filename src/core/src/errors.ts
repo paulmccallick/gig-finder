@@ -7,6 +7,13 @@ export class DomainValidationError extends Error {
   }
 }
 
+export class OptimisticConcurrencyError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "OptimisticConcurrencyError";
+  }
+}
+
 export type MutationErrorCode =
   | "duplicate_change"
   | "not_found"

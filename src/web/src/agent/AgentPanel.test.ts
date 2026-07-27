@@ -9,7 +9,10 @@ describe("agent dashboard refresh signal", () => {
       toolName: "update_job",
       toolCallId: "call-1",
       state: "output-available",
-      input: { id: "job-1", patch: { stage: "applied" } },
+      input: {
+        id: "job-1",
+        changes: [{ operation: "set", field: "stage", value: "applied" }],
+      },
       output: { status: "ok", changeId: "agent-tool:call-1" },
     }];
     expect(hasSuccessfulMutation(parts)).toBe(true);
@@ -42,7 +45,10 @@ describe("agent dashboard refresh signal", () => {
         toolName: "update_job",
         toolCallId: "call-2",
         state: "output-available",
-        input: { id: "job-1", patch: { stage: "applied" } },
+        input: {
+          id: "job-1",
+          changes: [{ operation: "set", field: "stage", value: "applied" }],
+        },
         output: { status: "error", error: "validation_failed" },
       },
     ];

@@ -1,5 +1,6 @@
 import type { ChangeContext, RevertedRecord } from "./models";
 import type { Persistence, UnitOfWork } from "./ports";
+import { MutationError, OptimisticConcurrencyError } from "./errors";
 
 export interface MutationOptions {
   dryRun?: boolean;
@@ -23,14 +24,22 @@ export class ChangeExecutor {
     context: ChangeContext,
     candidate: T,
     options: MutationOptions,
-    write: (transaction: UnitOfWork) => void,
+    write: (transaction: UnitOfWork) => T,
   ): MutationResult<T> {
     if (options.dryRun) return { record: candidate, changeId: null };
-    const result = this.persistence.change(context, transaction => {
-      write(transaction);
-      return candidate;
-    });
-    return { record: result.value, changeId: result.changeId };
+    try {
+      const result = this.persistence.change(context, write);
+      return { record: result.value, changeId: result.changeId };
+    } catch (error) {
+      if (error instanceof OptimisticConcurrencyError) {
+        throw new MutationError(
+          "revision_conflict",
+          error.message,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
   }
 }
 

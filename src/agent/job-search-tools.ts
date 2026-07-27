@@ -6,9 +6,11 @@ import type {
   ChangeService,
   ContactDomainService,
   JobDomainService,
+  JobUpdate,
   ListContactsInput,
   ListJobsInput,
   ListTasksInput,
+  NetworkingContactUpdate,
 } from "../core/src";
 import { DomainValidationError, MutationError } from "../core/src/errors";
 import {
@@ -22,6 +24,10 @@ import {
   relationshipStrengths,
 } from "../core/src/network";
 import { taskPriorities, taskStatuses, taskTypes } from "../core/src/tasks";
+import {
+  contactChangesSchema,
+  jobChangesSchema,
+} from "./update-tool-schemas";
 
 const nonEmptyArray = <T extends readonly [string, ...string[]]>(values: T) =>
   z.array(z.enum(values)).min(1);
@@ -91,13 +97,14 @@ const getDocumentInputSchema = z.object({
 
 const updateJobInputSchema = z.object({
   id: getInputSchema.shape.id,
-  patch: jobUpdateSchema.describe("Mutable job fields to update."),
+  changes: jobChangesSchema
+    .describe("One or more explicit changes to mutable job fields."),
 }).strict();
 
 const updateNetworkingContactInputSchema = z.object({
   id: getInputSchema.shape.id,
-  patch: networkingContactUpdateSchema
-    .describe("Mutable networking-contact fields to update."),
+  changes: contactChangesSchema
+    .describe("One or more explicit changes to mutable networking-contact fields."),
 }).strict();
 
 const revertChangeInputSchema = z.object({
@@ -114,6 +121,7 @@ type ToolInput = {
   reference?: string;
   query?: string | null;
   changeId?: string;
+  changes?: Array<{ field: string }>;
 };
 
 export interface ToolFailure {
@@ -138,11 +146,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 function toolInvocationDetails(input: ToolInput) {
-  const patch = isRecord(input.patch) ? input.patch : undefined;
   const appliedFilters = Object.fromEntries(
     Object.entries(input)
       .filter(([key]) =>
-        !["id", "reference", "query", "offset", "limit", "relatedEntityId", "patch", "changeId"].includes(key)
+        !["id", "reference", "query", "offset", "limit", "relatedEntityId", "changes", "changeId"].includes(key)
       )
       .filter(([, value]) =>
         value !== undefined
@@ -167,7 +174,9 @@ function toolInvocationDetails(input: ToolInput) {
     ...(input.id === undefined ? {} : { recordId: input.id }),
     ...(input.reference === undefined ? {} : { documentReference: input.reference }),
     ...(input.changeId === undefined ? {} : { changeId: input.changeId }),
-    ...(patch === undefined ? {} : { updateFields: Object.keys(patch) }),
+    ...(input.changes === undefined
+      ? {}
+      : { updateFields: input.changes.map(change => change.field) }),
     filterMode: Object.keys(filters).length === 0 ? "unfiltered" : "filtered",
     appliedFilters: filters,
     ...(
@@ -181,6 +190,36 @@ function toolInvocationDetails(input: ToolInput) {
           }
     ),
   };
+}
+
+function changesToPatch(
+  changes: ReadonlyArray<{ field: string; value: string | number | string[] | null }>,
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const { field, value } of changes) {
+    const separator = field.indexOf(".");
+    if (separator === -1) {
+      patch[field] = value;
+      continue;
+    }
+    const parent = field.slice(0, separator);
+    const child = field.slice(separator + 1);
+    const nested = isRecord(patch[parent]) ? patch[parent] : {};
+    patch[parent] = { ...nested, [child]: value };
+  }
+  return patch;
+}
+
+function jobPatchFromOperations(
+  changes: z.infer<typeof jobChangesSchema>,
+): JobUpdate {
+  return jobUpdateSchema.parse(changesToPatch(changes));
+}
+
+function contactPatchFromOperations(
+  changes: z.infer<typeof contactChangesSchema>,
+): NetworkingContactUpdate {
+  return networkingContactUpdateSchema.parse(changesToPatch(changes));
 }
 
 function normalizeJobsInput(
@@ -414,41 +453,38 @@ export function createJobSearchTools(
   return {
     ...readTools,
     update_job: tool({
-      // Optional means "leave unchanged"; null explicitly clears a nullable
-      // value. OpenAI strict tool schemas require every property, so runtime
-      // Zod validation remains strict while provider strict mode is disabled.
-      strict: false,
-      description: "Update mutable fields on one existing job. Use optional fields if desired. Report the resulting record and change ID to the user.",
+      strict: true,
+      description: "Update one existing job using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and report the resulting record and change ID to the user.",
       inputSchema: updateJobInputSchema,
       execute: loggedExecution(
         logger,
         "update_job",
-        ({ id, patch }, { toolCallId }) => ({
+        ({ id, changes }, { toolCallId }) => ({
           status: "ok" as const,
           ...mutations.jobs.update({
             actor: requestContext.actor,
             source: "agent",
             summary: `Agent updated job ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
             changeId: `agent-tool:${toolCallId}`,
-          }, id, patch),
+          }, id, jobPatchFromOperations(changes)),
         }),
       ),
     }),
     update_networking_contact: tool({
-      strict: false,
-      description: "Update mutable fields on one existing networking contact. Use optional fields if desired. Report the resulting record and change ID to the user.",
+      strict: true,
+      description: "Update one existing networking contact using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and report the resulting record and change ID to the user.",
       inputSchema: updateNetworkingContactInputSchema,
       execute: loggedExecution(
         logger,
         "update_networking_contact",
-        ({ id, patch }, { toolCallId }) => ({
+        ({ id, changes }, { toolCallId }) => ({
           status: "ok" as const,
           ...mutations.networking.update({
             actor: requestContext.actor,
             source: "agent",
             summary: `Agent updated networking contact ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
             changeId: `agent-tool:${toolCallId}`,
-          }, id, patch),
+          }, id, contactPatchFromOperations(changes)),
         }),
       ),
     }),

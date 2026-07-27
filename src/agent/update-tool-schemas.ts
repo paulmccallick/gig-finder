@@ -1,0 +1,160 @@
+import { z } from "zod";
+import { fitRatings, outcomes, pipelineStages } from "../core/src/jobs";
+import {
+  contactPriorities,
+  contactStatuses,
+  relationshipStrengths,
+} from "../core/src/network";
+
+const updateValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.array(z.string()),
+  z.null(),
+]);
+
+const jobUpdateFields = [
+  "company", "title", "jobId", "stage", "outcome", "statusSummary",
+  "lastActivity", "nextAction", "nextAction.description", "nextAction.due",
+  "fit.rating", "fit.summary", "payRange", "payRange.currency",
+  "payRange.minimum", "payRange.maximum", "payRange.period",
+  "payRange.notes", "sourceUrl", "tags", "location", "workArrangement",
+  "postedDate", "businessUnitTeam", "recruiterSource", "bonus", "equity",
+  "otherCompensation",
+] as const;
+
+const contactUpdateFields = [
+  "name", "company", "title", "linkedInProfileUrl", "connectedOn",
+  "relationship.type", "relationship.strength", "relationship.introducedBy",
+  "relationship.notes", "priority", "status", "outreach.lastContacted",
+  "outreach.lastContactMethod", "outreach.lastContactSummary",
+  "outreach.nextAction", "outreach.nextActionDue", "whyInteresting", "notes",
+  "tags",
+] as const;
+
+const list = (values: readonly string[]) => values.join(", ");
+
+const jobFieldDescription = [
+  "Exact mutable job field path; nested fields use dot notation.",
+  `stage values: ${list(pipelineStages)}.`,
+  `outcome values: ${list(outcomes)}.`,
+  `fit.rating values: ${list(fitRatings)}.`,
+  "payRange.currency: USD; payRange.period: hour or year.",
+].join(" ");
+
+const jobValueDescription = [
+  "Value appropriate to the selected job field.",
+  `For stage use one of: ${list(pipelineStages)}.`,
+  `For outcome use one of: ${list(outcomes)}.`,
+  `For fit.rating use one of: ${list(fitRatings)}.`,
+  "Use YYYY-MM-DD for date fields, a valid URL for sourceUrl,",
+  "nonnegative numbers for payRange.minimum or payRange.maximum,",
+  "and a string array for tags.",
+  "For clear operations use null; only nullable fields can be cleared.",
+].join(" ");
+
+const contactFieldDescription = [
+  "Exact mutable networking-contact field path; nested fields use dot notation.",
+  `status values: ${list(contactStatuses)}.`,
+  `priority values: ${list(contactPriorities)}.`,
+  `relationship.strength values: ${list(relationshipStrengths)}.`,
+].join(" ");
+
+const contactValueDescription = [
+  "Value appropriate to the selected networking-contact field.",
+  `For status use one of: ${list(contactStatuses)}.`,
+  `For priority use one of: ${list(contactPriorities)}.`,
+  `For relationship.strength use one of: ${list(relationshipStrengths)}.`,
+  "Use YYYY-MM-DD for date fields, a valid URL for linkedInProfileUrl,",
+  "and a string array for notes or tags.",
+  "For clear operations use null; only nullable fields can be cleared.",
+].join(" ");
+
+function operationListSchema<T extends readonly [string, ...string[]]>(
+  fields: T,
+  clearable: ReadonlySet<T[number]>,
+  clearOnly: ReadonlySet<T[number]>,
+  fieldDescription: string,
+  valueDescription: string,
+) {
+  return z.array(z.object({
+    operation: z.enum(["set", "clear"])
+      .describe("Use set to assign a value or clear to remove a nullable value."),
+    field: z.enum(fields).describe(fieldDescription),
+    value: updateValueSchema.describe(valueDescription),
+  }).strict().superRefine((change, context) => {
+    if (change.operation === "clear" && change.value !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: "Clear operations must use a null value.",
+      });
+    }
+    if (change.operation === "clear" && !clearable.has(change.field)) {
+      context.addIssue({
+        code: "custom",
+        path: ["field"],
+        message: `${change.field} cannot be cleared.`,
+      });
+    }
+    if (change.operation === "set" && change.value === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: "Set operations require a non-null value.",
+      });
+    }
+    if (change.operation === "set" && clearOnly.has(change.field)) {
+      context.addIssue({
+        code: "custom",
+        path: ["field"],
+        message: `${change.field} can only be cleared; set its nested fields instead.`,
+      });
+    }
+  })).min(1).superRefine((changes, context) => {
+    const paths = changes.map(change => change.field);
+    for (const [index, path] of paths.entries()) {
+      if (paths.indexOf(path) !== index) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "field"],
+          message: `Field ${path} may only appear once.`,
+        });
+      }
+      if (paths.some(other => other !== path && other.startsWith(`${path}.`))) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "field"],
+          message: `Cannot change ${path} and one of its nested fields together.`,
+        });
+      }
+    }
+  });
+}
+
+export const jobChangesSchema = operationListSchema(
+  jobUpdateFields,
+  new Set([
+    "jobId", "nextAction", "nextAction.due", "fit.summary", "payRange",
+    "payRange.minimum", "payRange.maximum", "payRange.notes", "sourceUrl",
+    "location", "workArrangement", "postedDate", "businessUnitTeam",
+    "recruiterSource", "bonus", "equity", "otherCompensation",
+  ] satisfies typeof jobUpdateFields[number][]),
+  new Set(["nextAction", "payRange"] satisfies typeof jobUpdateFields[number][]),
+  jobFieldDescription,
+  jobValueDescription,
+);
+
+export const contactChangesSchema = operationListSchema(
+  contactUpdateFields,
+  new Set([
+    "company", "title", "linkedInProfileUrl", "connectedOn",
+    "relationship.introducedBy", "relationship.notes",
+    "outreach.lastContacted", "outreach.lastContactMethod",
+    "outreach.lastContactSummary", "outreach.nextAction",
+    "outreach.nextActionDue", "whyInteresting",
+  ] satisfies typeof contactUpdateFields[number][]),
+  new Set(),
+  contactFieldDescription,
+  contactValueDescription,
+);

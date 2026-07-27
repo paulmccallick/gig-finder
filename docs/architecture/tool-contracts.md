@@ -41,11 +41,11 @@ Read tools use strict JSON schemas. List properties are required and nullable so
 model can leave individual filters unused. Each property carries its own
 description; enum-valued properties use domain-derived values.
 
-Job and contact update schemas live in `src/core/src/update-contracts.ts` and
-are shared by the tools, CLI, and domain services. Fields are optional; `null`
-clears a nullable value and omission preserves it. Provider strict mode is off
-for these two tools because strict OpenAI schemas require every property, which
-would erase that distinction; Zod still rejects unknown and immutable fields.
+Job and contact tools use structurally strict operation lists. Field and value
+descriptions enumerate accepted domain values; the agent adapter translates
+operations into, and validates them against, the update schemas in
+`src/core/src/update-contracts.ts`. The CLI uses those core schemas directly.
+See [ADR 0001](decisions/0001-agent-update-contracts.md).
 
 Successful updates return the persisted record and change ID.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
