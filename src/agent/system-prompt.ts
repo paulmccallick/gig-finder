@@ -46,7 +46,7 @@ documents explicitly referenced by those records. Use them when the user's
 request depends on live dashboard records.${capabilities.updateDashboardRecords
       ? ` You may update existing jobs and networking contacts when the user
 asks, and may revert a change using its returned change ID. After a write,
-state the changed fields and change ID from the tool result.`
+state the resulting record and change ID from the tool result.`
       : " These tools are read-only; you cannot change records."}
 You cannot browse arbitrary files or access email, calendar, or external
 services. Never imply that a lookup or change occurred unless the corresponding

@@ -10,8 +10,8 @@ import {
   type JobUpdate,
   type NetworkingContactUpdate,
 } from "./update-contracts";
+import { ChangeExecutor, type MutationOptions } from "./changes";
 
-export interface MutationOptions { dryRun?: boolean }
 export interface JobTouchInput { date:string;stage:Job["stage"];summary:string;outcome?:Job["outcome"];nextAction?:string|null;due?:string|null }
 export interface ContactTouchInput { date:string;status:NetworkContact["status"];method:string;summary:string;nextAction?:string|null;due?:string|null }
 export interface TaskCreateInput { id:string;title:string;type:TaskRecord["type"];priority?:TaskRecord["priority"];dueDate:string|null;relatedEntity:TaskRecord["relatedEntity"];notes?:string|null;date:string }
@@ -78,24 +78,24 @@ const taskData=(t:TaskRecord):TaskData=>({id:t.id,title:t.title,type:t.type,stat
 function validateTask(t:TaskRecord){if(!t.id||!t.title)throw new Error("Task id and title are required.");if(!taskTypes.includes(t.type)||!taskStatuses.includes(t.status)||!taskPriorities.includes(t.priority))throw new Error(`${t.id} has an invalid type, status, or priority.`);assertDate(t.dueDate,`${t.id}.dueDate`,true)}
 
 export class JobDomainService {
-  constructor(private p:Persistence,private artifacts:ArtifactPort){}
+  constructor(private p:Persistence,private artifacts:ArtifactPort,private changes:ChangeExecutor){}
   get(id:string){const r=this.p.jobs.get(id);return r?jobFromData(r):null}
   list(){return this.p.jobs.list().map(jobFromData)}
   create(context:ChangeContext,job:JobRole,options:MutationOptions={}){const complete=jobFromData(jobToData(job));validateJob(complete);if(!options.dryRun)this.p.change(context,u=>u.jobs.create(jobToData(complete)));return complete}
-  update(context:ChangeContext,id:string,patch:JobUpdate,options:MutationOptions={}){const validatedPatch=jobUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Job not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateJob(updated);if(!options.dryRun){const raw=this.p.jobs.get(id)!;const{id:_,...data}=jobToData(updated);this.p.change(context,u=>u.jobs.update(id,raw.revision,data))}return updated}
-  touch(context:ChangeContext,id:string,input:JobTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options)}
+  update(context:ChangeContext,id:string,patch:JobUpdate,options:MutationOptions={}){const validatedPatch=jobUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Job not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateJob(updated);const raw=this.p.jobs.get(id)!;const{id:_,...data}=jobToData(updated);return this.changes.execute(context,updated,options,u=>{u.jobs.update(id,raw.revision,data)})}
+  touch(context:ChangeContext,id:string,input:JobTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
   async description(id:string){const job=this.get(id);if(!job)throw new Error(`Job not found: ${id}`);return job.hasJobDescription?this.artifacts.jobDescription(id):null}
   async prep(id:string){const job=this.get(id);if(!job)throw new Error(`Job not found: ${id}`);return job.hasInterviewPrep?this.artifacts.interviewPrep(id):[]}
 }
 
 export class ContactDomainService {
-  constructor(private p:Persistence){}
+  constructor(private p:Persistence,private changes:ChangeExecutor){}
   get(id:string){const c=this.p.networking.get(id);if(!c)return null;const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${id} references missing person ${c.personId}`);return contactFromData({...c,person})}
   personId(id:string){return this.p.networking.get(id)?.personId??null}
   list(){return this.p.networking.list().map(c=>{const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${c.id} references missing person ${c.personId}`);return contactFromData({...c,person})})}
   create(context:ChangeContext,c:NetworkContact,options:MutationOptions={}){validateContact(c);if(!options.dryRun)this.p.change(context,u=>{u.people.create(personData(c));u.networking.create(networkingData(c))});return c}
-  update(context:ChangeContext,id:string,patch:NetworkingContactUpdate,options:MutationOptions={}){const validatedPatch=networkingContactUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const candidate=deepPatch(current,validatedPatch);const updated={...candidate,profileStatus:candidate.linkedInProfileUrl?"verified" as const:"missing" as const};validateContact(updated);if(!options.dryRun){const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated),nd=networkingData(updated);const{id:_,...pp}=pd,{id:__,...np}=nd;this.p.change(context,u=>{u.people.update(person.id,person.revision,pp);u.networking.update(id,raw.revision,np)})}return updated}
-  touch(context:ChangeContext,id:string,input:ContactTouchInput,options:MutationOptions={}){return this.update(context,id,{status:input.status,outreach:{lastContacted:input.date,lastContactMethod:input.method,lastContactSummary:input.summary,nextAction:input.nextAction??null,nextActionDue:input.due??null}},options)}
+  update(context:ChangeContext,id:string,patch:NetworkingContactUpdate,options:MutationOptions={}){const validatedPatch=networkingContactUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const candidate=deepPatch(current,validatedPatch);const updated={...candidate,profileStatus:candidate.linkedInProfileUrl?"verified" as const:"missing" as const};validateContact(updated);const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated),nd=networkingData(updated);const{id:_,...pp}=pd,{id:__,...np}=nd;return this.changes.execute(context,updated,options,u=>{u.people.update(person.id,person.revision,pp);u.networking.update(id,raw.revision,np)})}
+  touch(context:ChangeContext,id:string,input:ContactTouchInput,options:MutationOptions={}){return this.update(context,id,{status:input.status,outreach:{lastContacted:input.date,lastContactMethod:input.method,lastContactSummary:input.summary,nextAction:input.nextAction??null,nextActionDue:input.due??null}},options).record}
 }
 
 export class TaskDomainService {

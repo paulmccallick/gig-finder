@@ -21,7 +21,7 @@ const agentHandler = createAgentHandler(
   undefined,
   logger,
   jobSearch.agentContext,
-  jobSearch.updates,
+  jobSearch,
   context.actor,
 );
 

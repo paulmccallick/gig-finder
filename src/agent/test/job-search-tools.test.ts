@@ -8,13 +8,13 @@ import {
   taskTypes,
   type AgentContextReader,
   type ChangeContext,
-  type EntityUpdater,
   type Job,
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
 import {
   createJobSearchTools,
   jobSearchToolSchemas,
+  type JobSearchMutationCapabilities,
 } from "../job-search-tools";
 
 const logger = {
@@ -63,10 +63,10 @@ const reader = {
   getDocument: async (reference) => ({ status: "not_found", id: reference }),
 } satisfies AgentContextReader;
 
-const updater: EntityUpdater = {
-  updateJob: () => { throw new Error("not executed"); },
-  updateNetworkingContact: () => { throw new Error("not executed"); },
-  revertChange: () => { throw new Error("not executed"); },
+const mutations: JobSearchMutationCapabilities = {
+  jobs: { update: () => { throw new Error("not executed"); } },
+  networking: { update: () => { throw new Error("not executed"); } },
+  changes: { revert: () => { throw new Error("not executed"); } },
 };
 
 const nullJobsInput = {
@@ -123,7 +123,7 @@ describe("JobSearchAgent tools", () => {
     const tools = createJobSearchTools(
       reader,
       logger,
-      updater,
+      mutations,
       { actor: "Candidate", requestId: "request-1" },
     );
     expect(Object.keys(tools)).toEqual([
@@ -136,12 +136,12 @@ describe("JobSearchAgent tools", () => {
       "get_document",
       "update_job",
       "update_networking_contact",
-      "revert_agent_change",
+      "revert_change",
     ]);
     if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
     expect(tools.update_job.strict).toBe(false);
     expect(tools.update_networking_contact.strict).toBe(false);
-    expect(tools.revert_agent_change.strict).toBe(true);
+    expect(tools.revert_change.strict).toBe(true);
   });
 
   test("uses the shared core schemas for mutation tool patches", () => {
@@ -195,23 +195,21 @@ describe("JobSearchAgent tools", () => {
       equity: null,
       otherCompensation: null,
     };
-    const capturingWriter: EntityUpdater = {
-      updateJob: (context, id, patch) => {
+    const capturingMutations: JobSearchMutationCapabilities = {
+      jobs: { update: (context, id, patch) => {
         received = { context, id, patch };
         return {
-          entity: "job",
           changeId: context.changeId ?? null,
           record,
-          changes: [{ field: "stage", before: "identified", after: "applied" }],
         };
-      },
-      updateNetworkingContact: () => { throw new Error("not executed"); },
-      revertChange: () => { throw new Error("not executed"); },
+      } },
+      networking: { update: () => { throw new Error("not executed"); } },
+      changes: { revert: () => { throw new Error("not executed"); } },
     };
     const tools = createJobSearchTools(
       reader,
       logger,
-      capturingWriter,
+      capturingMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
     if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
@@ -238,17 +236,17 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("returns a structured duplicate result", async () => {
-    const duplicateWriter: EntityUpdater = {
-      updateJob: () => {
+    const duplicateMutations: JobSearchMutationCapabilities = {
+      jobs: { update: () => {
         throw new MutationError("duplicate_change", "Already applied");
-      },
-      updateNetworkingContact: () => { throw new Error("not executed"); },
-      revertChange: () => { throw new Error("not executed"); },
+      } },
+      networking: { update: () => { throw new Error("not executed"); } },
+      changes: { revert: () => { throw new Error("not executed"); } },
     };
     const tools = createJobSearchTools(
       reader,
       logger,
-      duplicateWriter,
+      duplicateMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
     if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
@@ -263,35 +261,47 @@ describe("JobSearchAgent tools", () => {
     });
   });
 
-  test("keeps agent-only reversal policy in the agent adapter", async () => {
-    let revertCalled = false;
-    const capturingWriter: EntityUpdater = {
-      updateJob: () => { throw new Error("not executed"); },
-      updateNetworkingContact: () => { throw new Error("not executed"); },
-      revertChange: () => {
-        revertCalled = true;
-        throw new Error("not executed");
-      },
+  test("passes any exact change ID through the generic revert tool", async () => {
+    let received: { context: ChangeContext; targetChangeId: string } | undefined;
+    const capturingMutations: JobSearchMutationCapabilities = {
+      jobs: { update: () => { throw new Error("not executed"); } },
+      networking: { update: () => { throw new Error("not executed"); } },
+      changes: { revert: (context, targetChangeId) => {
+        received = { context, targetChangeId };
+        return {
+          changeId: context.changeId ?? "generated",
+          revertedChangeId: targetChangeId,
+          affected: [{ entity: "job", id: "job-1" }],
+        };
+      } },
     };
     const tools = createJobSearchTools(
       reader,
       logger,
-      capturingWriter,
+      capturingMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
-    if (!("revert_agent_change" in tools)) {
+    if (!("revert_change" in tools)) {
       throw new Error("Mutation tools were not registered.");
     }
 
-    expect(await tools.revert_agent_change.execute?.(
+    expect(await tools.revert_change.execute?.(
       { changeId: "change:from-cli" },
       { toolCallId: "call-revert", messages: [], abortSignal: undefined, context: {} },
-    )).toEqual({
-      status: "error",
-      error: "not_revertible",
-      message: "Change is not an agent update: change:from-cli",
+    )).toMatchObject({
+      status: "ok",
+      changeId: "agent-revert:call-revert",
+      revertedChangeId: "change:from-cli",
     });
-    expect(revertCalled).toBe(false);
+    expect(received).toEqual({
+      context: {
+        actor: "Candidate",
+        source: "agent",
+        summary: "Agent reverted change:from-cli (request request-1, tool call-revert)",
+        changeId: "agent-revert:call-revert",
+      },
+      targetChangeId: "change:from-cli",
+    });
   });
 
   test("logs update fields and the resulting change without treating them as filters", async () => {
@@ -325,20 +335,18 @@ describe("JobSearchAgent tools", () => {
       equity: null,
       otherCompensation: null,
     } satisfies Job;
-    const loggingWriter: EntityUpdater = {
-      updateJob: context => ({
-        entity: "job",
+    const loggingMutations: JobSearchMutationCapabilities = {
+      jobs: { update: context => ({
         changeId: context.changeId ?? null,
         record,
-        changes: [{ field: "stage", before: "identified", after: "applied" }],
-      }),
-      updateNetworkingContact: () => { throw new Error("not executed"); },
-      revertChange: () => { throw new Error("not executed"); },
+      }) },
+      networking: { update: () => { throw new Error("not executed"); } },
+      changes: { revert: () => { throw new Error("not executed"); } },
     };
     const tools = createJobSearchTools(
       reader,
       capturingLogger,
-      loggingWriter,
+      loggingMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
     if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
@@ -358,8 +366,8 @@ describe("JobSearchAgent tools", () => {
       event: "agent.tool.completed",
       outcome: "updated",
       changeId: "agent-tool:call-log",
-      changedFields: ["stage"],
     });
+    expect(entries[1]).not.toHaveProperty("changedFields");
   });
 
   test("validates inclusion values from entity enums", () => {

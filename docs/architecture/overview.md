@@ -11,9 +11,8 @@ flowchart LR
   Provider <-->|Responses API| Model[Codex model]
   Agent -->|Validated tool calls| Tools[Agent tools]
   Tools --> Reader[AgentContextReader]
-  Tools --> Writer[EntityUpdater]
+  Tools --> Core
   Reader --> Core
-  Writer --> Core
   CLI[CLI] --> Core
   Core --> SQLite[(SQLite)]
   Core --> Artifacts[Local artifacts]

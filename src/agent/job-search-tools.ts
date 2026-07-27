@@ -3,7 +3,9 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import type {
   AgentContextReader,
-  EntityUpdater,
+  ChangeService,
+  ContactDomainService,
+  JobDomainService,
   ListContactsInput,
   ListJobsInput,
   ListTasksInput,
@@ -98,9 +100,9 @@ const updateNetworkingContactInputSchema = z.object({
     .describe("Mutable networking-contact fields to update."),
 }).strict();
 
-const revertAgentChangeInputSchema = z.object({
+const revertChangeInputSchema = z.object({
   changeId: z.string().trim().min(1)
-    .describe("Exact change ID returned by an earlier agent update tool."),
+    .describe("Exact change ID of the update to revert."),
 }).strict();
 
 type ToolInput = {
@@ -124,6 +126,12 @@ export interface ToolFailure {
     | "validation_failed"
     | "tool_failed";
   message: string;
+}
+
+export interface JobSearchMutationCapabilities {
+  jobs: Pick<JobDomainService, "update">;
+  networking: Pick<ContactDomainService, "update">;
+  changes: Pick<ChangeService, "revert">;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -232,21 +240,14 @@ type ToolResultSummary = {
   contentCharacters?: number;
   documentReferences?: number;
   changeId?: string;
-  changedFields?: string[];
 };
 
 function safeResultSummary(result: unknown): ToolResultSummary {
   if (typeof result !== "object" || result === null) return { outcome: "unknown" };
   if ("status" in result && result.status === "ok" && "changeId" in result) {
-    const changes = "changes" in result && Array.isArray(result.changes)
-      ? result.changes as Array<{ field?: unknown }>
-      : [];
     return {
       outcome: "revertedChangeId" in result ? "reverted" : "updated",
       changeId: typeof result.changeId === "string" ? result.changeId : undefined,
-      changedFields: changes
-        .map(change => change.field)
-        .filter((field): field is string => typeof field === "string"),
     };
   }
   if ("page" in result) {
@@ -355,7 +356,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
 export function createJobSearchTools(
   reader: AgentContextReader,
   logger: Logger,
-  updater?: EntityUpdater,
+  mutations?: JobSearchMutationCapabilities,
   requestContext?: { actor: string; requestId: string },
 ) {
   const readTools = {
@@ -409,7 +410,7 @@ export function createJobSearchTools(
       ),
     }),
   };
-  if (!updater || !requestContext) return readTools;
+  if (!mutations || !requestContext) return readTools;
   return {
     ...readTools,
     update_job: tool({
@@ -417,14 +418,14 @@ export function createJobSearchTools(
       // value. OpenAI strict tool schemas require every property, so runtime
       // Zod validation remains strict while provider strict mode is disabled.
       strict: false,
-      description: "Update mutable fields on one existing job. Use optional fields if desired. Report the returned changed fields and change ID to the user.",
+      description: "Update mutable fields on one existing job. Use optional fields if desired. Report the resulting record and change ID to the user.",
       inputSchema: updateJobInputSchema,
       execute: loggedExecution(
         logger,
         "update_job",
         ({ id, patch }, { toolCallId }) => ({
           status: "ok" as const,
-          ...updater.updateJob({
+          ...mutations.jobs.update({
             actor: requestContext.actor,
             source: "agent",
             summary: `Agent updated job ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
@@ -435,14 +436,14 @@ export function createJobSearchTools(
     }),
     update_networking_contact: tool({
       strict: false,
-      description: "Update mutable fields on one existing networking contact. Use optional fields if desired. Report the returned changed fields and change ID to the user.",
+      description: "Update mutable fields on one existing networking contact. Use optional fields if desired. Report the resulting record and change ID to the user.",
       inputSchema: updateNetworkingContactInputSchema,
       execute: loggedExecution(
         logger,
         "update_networking_contact",
         ({ id, patch }, { toolCallId }) => ({
           status: "ok" as const,
-          ...updater.updateNetworkingContact({
+          ...mutations.networking.update({
             actor: requestContext.actor,
             source: "agent",
             summary: `Agent updated networking contact ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
@@ -451,31 +452,23 @@ export function createJobSearchTools(
         }),
       ),
     }),
-    revert_agent_change: tool({
+    revert_change: tool({
       strict: true,
-      description: "Revert one prior change made by update_job or update_networking_contact. Use the exact returned change ID. The revert is rejected if a later edit would be overwritten.",
-      inputSchema: revertAgentChangeInputSchema,
+      description: "Revert one eligible prior change using its exact change ID. The revert is rejected if a later edit would be overwritten.",
+      inputSchema: revertChangeInputSchema,
       execute: loggedExecution(
         logger,
-        "revert_agent_change",
-        ({ changeId }, { toolCallId }) => {
-          if (!changeId.startsWith("agent-tool:")) {
-            throw new MutationError(
-              "not_revertible",
-              `Change is not an agent update: ${changeId}`,
-            );
-          }
-          return {
-            status: "ok" as const,
-            entity: "change" as const,
-            ...updater.revertChange({
-              actor: requestContext.actor,
-              source: "agent",
-              summary: `Agent reverted ${changeId} (request ${requestContext.requestId}, tool ${toolCallId})`,
-              changeId: `agent-revert:${toolCallId}`,
-            }, changeId),
-          };
-        },
+        "revert_change",
+        ({ changeId }, { toolCallId }) => ({
+          status: "ok" as const,
+          entity: "change" as const,
+          ...mutations.changes.revert({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent reverted ${changeId} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-revert:${toolCallId}`,
+          }, changeId),
+        }),
       ),
     }),
   };
@@ -492,5 +485,5 @@ export const jobSearchToolSchemas = {
   get_document: getDocumentInputSchema,
   update_job: updateJobInputSchema,
   update_networking_contact: updateNetworkingContactInputSchema,
-  revert_agent_change: revertAgentChangeInputSchema,
+  revert_change: revertChangeInputSchema,
 } as const;

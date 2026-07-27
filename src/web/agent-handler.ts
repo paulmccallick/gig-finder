@@ -9,7 +9,8 @@ import { createCodexLanguageModel } from "../agent/codex-provider";
 import { JobSearchAgent } from "../agent/job-search-agent";
 import type { JobSearchProfile } from "../agent/types";
 import { createJobSearchTools } from "../agent/job-search-tools";
-import type { AgentContextReader, EntityUpdater } from "../core/src";
+import type { JobSearchMutationCapabilities } from "../agent/job-search-tools";
+import type { AgentContextReader } from "../core/src";
 import { logger as defaultLogger } from "../observability/logger";
 
 type ModelFactory = () => Promise<LanguageModel>;
@@ -92,7 +93,7 @@ export function createAgentHandler(
   modelFactory: ModelFactory = createCodexLanguageModel,
   logger: Logger = defaultLogger,
   contextReader?: AgentContextReader,
-  updater?: EntityUpdater,
+  mutations?: JobSearchMutationCapabilities,
   actor = "JobSearchAgent",
 ) {
   return async (request: Request) => {
@@ -125,11 +126,11 @@ export function createAgentHandler(
         ? createJobSearchTools(
           contextReader,
           agentLogger,
-          updater,
+          mutations,
           { actor, requestId },
         )
         : undefined,
-      canUpdateDashboardRecords: updater !== undefined,
+      canUpdateDashboardRecords: mutations !== undefined,
     });
     const result = agent.respond(await convertToModelMessages(uiMessages), request.signal);
     return result.toUIMessageStreamResponse({

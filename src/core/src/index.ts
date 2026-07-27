@@ -1,6 +1,6 @@
 export * from "./application";
 export * from "./agent-context";
-export * from "./entity-updates";
+export * from "./changes";
 export * from "./errors";
 export * from "./jobs";
 export * from "./network";

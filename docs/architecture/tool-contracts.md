@@ -13,7 +13,7 @@ JobSearchAgent has seven read tools and three mutation tools.
 | `get_document` | Resolves an exact reference returned by a detail tool. |
 | `update_job` | Updates mutable fields on one existing job. |
 | `update_networking_contact` | Atomically updates mutable person and networking fields for one contact. |
-| `revert_agent_change` | Reverts one agent update unless a later revision exists. |
+| `revert_change` | Reverts one eligible change unless a later revision exists. |
 
 ## List behavior
 
@@ -47,7 +47,7 @@ clears a nullable value and omission preserves it. Provider strict mode is off
 for these two tools because strict OpenAI schemas require every property, which
 would erase that distinction; Zod still rejects unknown and immutable fields.
 
-Successful updates return the persisted record, change ID, and changed fields.
+Successful updates return the persisted record and change ID.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
 later-revision conflicts. Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
