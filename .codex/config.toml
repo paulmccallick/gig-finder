@@ -1,0 +1,3 @@
+[agents.developer]
+description = "Implements a narrowly assigned development task while preserving product and architecture documentation as read-only."
+config_file = "agents/developer.toml"
