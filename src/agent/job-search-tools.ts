@@ -554,7 +554,7 @@ export function createJobSearchTools(
     }),
     create_document: tool({
       strict: true,
-      description: "Create a managed text document for an existing job from content the user supplied. Use job_description for source material, preserve source details without invention, and report the stable reference, version, and change ID.",
+      description: "Create a managed text document for an existing job from content the user supplied. First resolve the exact owner with record tools. Proceed without confirmation when one owner and the required context are clear; otherwise do not call this tool and ask the smallest targeted question. Infer ordinary metadata when clear, use null for an unknown source description, preserve supplied source content without rewriting it, and report the stable reference, version, and change ID.",
       inputSchema: createDocumentInputSchema,
       execute: loggedExecution(
         logger,
