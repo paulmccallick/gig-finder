@@ -2,6 +2,10 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
 import { MutationError } from "../../core/src/errors";
 import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
+import {
+  SqliteDocumentReadRepository,
+  SqliteDocumentWriteRepository,
+} from "./document-store";
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
@@ -153,12 +157,17 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly jobs: MutationRepository<JobData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly jobPeople:MutationRepository<JobPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>;
+  readonly jobs: MutationRepository<JobData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly jobPeople:MutationRepository<JobPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
     this.jobs = new MutationRepository(database, configs.jobs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.networking=new MutationRepository(database,configs.networking,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.jobPeople=new MutationRepository(database,configs.jobPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
     this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.meetings = new MutationRepository(database, configs.meetings, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.documents = new SqliteDocumentWriteRepository(
+      database,
+      context,
+      changeId,
+    );
   }
   recordEvent(input: BusinessEventInput): string {
     const eventId = input.id ?? id("evt");
@@ -174,8 +183,8 @@ export class ChangeTransaction {
 }
 
 export class DataStore {
-  readonly jobs: ReadRepository<JobData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly jobPeople:ReadRepository<JobPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>;
-  constructor(private readonly database: Database) { this.jobs = new ReadRepository(database, configs.jobs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.jobPeople=new ReadRepository(database,configs.jobPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); }
+  readonly jobs: ReadRepository<JobData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly jobPeople:ReadRepository<JobPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly documents: SqliteDocumentReadRepository;
+  constructor(private readonly database: Database) { this.jobs = new ReadRepository(database, configs.jobs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.jobPeople=new ReadRepository(database,configs.jobPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.documents = new SqliteDocumentReadRepository(database); }
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");

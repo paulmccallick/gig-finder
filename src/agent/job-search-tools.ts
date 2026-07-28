@@ -10,6 +10,8 @@ import type {
   ListContactsInput,
   ListJobsInput,
   ListTasksInput,
+  ManagedDocumentMutationResult,
+  ManagedDocumentService,
   NetworkingContactUpdate,
 } from "../core/src";
 import { DomainValidationError, MutationError } from "../core/src/errors";
@@ -24,6 +26,12 @@ import {
   relationshipStrengths,
 } from "../core/src/network";
 import { taskPriorities, taskStatuses, taskTypes } from "../core/src/tasks";
+import {
+  documentMediaTypes,
+  documentOwnerTypes,
+  managedDocumentContentLimit,
+  managedDocumentTypes,
+} from "../core/src/documents";
 import {
   contactChangesSchema,
   jobChangesSchema,
@@ -112,6 +120,33 @@ const revertChangeInputSchema = z.object({
     .describe("Exact change ID of the update to revert."),
 }).strict();
 
+const createDocumentInputSchema = z.object({
+  ownerType: z.enum(documentOwnerTypes)
+    .describe("Type of existing record that will own the document."),
+  ownerId: z.string().trim().min(1)
+    .describe("Exact durable owner ID returned by a corresponding list tool."),
+  documentType: z.enum(managedDocumentTypes)
+    .describe("Document category. Use job_description for supplied source text, notes for working notes, or interview_prep for preparation material."),
+  title: z.string().trim().min(1).max(200)
+    .describe("Concise human-readable document title."),
+  mediaType: z.enum(documentMediaTypes)
+    .describe("Text format: text/plain or text/markdown."),
+  sourceDescription: z.string().trim().min(1).max(500).nullable()
+    .describe("How the content was obtained, without inventing details; use null when unknown or not applicable."),
+  content: z.string().min(1).max(managedDocumentContentLimit)
+    .describe(`Complete document content, up to ${managedDocumentContentLimit} characters.`),
+}).strict();
+
+const updateDocumentInputSchema = z.object({
+  reference: getDocumentInputSchema.shape.reference,
+  expectedVersion: z.number().int().positive()
+    .describe("Current managed-document version returned by create_document, get_job, or get_document."),
+  content: z.string().min(1).max(managedDocumentContentLimit)
+    .describe(`Complete replacement content, up to ${managedDocumentContentLimit} characters.`),
+  changeSummary: z.string().trim().min(1).max(500)
+    .describe("Concise factual description of what changed."),
+}).strict();
+
 type ToolInput = {
   [key: string]: unknown;
   offset?: number | null;
@@ -122,6 +157,10 @@ type ToolInput = {
   query?: string | null;
   changeId?: string;
   changes?: Array<{ field: string }>;
+  ownerId?: string;
+  ownerType?: string;
+  documentType?: string;
+  expectedVersion?: number;
 };
 
 export interface ToolFailure {
@@ -140,6 +179,7 @@ export interface JobSearchMutationCapabilities {
   jobs: Pick<JobDomainService, "update">;
   networking: Pick<ContactDomainService, "update">;
   changes: Pick<ChangeService, "revert">;
+  documents: Pick<ManagedDocumentService, "create" | "update">;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -149,7 +189,12 @@ function toolInvocationDetails(input: ToolInput) {
   const appliedFilters = Object.fromEntries(
     Object.entries(input)
       .filter(([key]) =>
-        !["id", "reference", "query", "offset", "limit", "relatedEntityId", "changes", "changeId"].includes(key)
+        ![
+          "id", "reference", "query", "offset", "limit", "relatedEntityId",
+          "changes", "changeId", "ownerId", "ownerType", "documentType",
+          "expectedVersion", "title", "mediaType", "sourceDescription", "content",
+          "changeSummary",
+        ].includes(key)
       )
       .filter(([, value]) =>
         value !== undefined
@@ -173,6 +218,15 @@ function toolInvocationDetails(input: ToolInput) {
   return {
     ...(input.id === undefined ? {} : { recordId: input.id }),
     ...(input.reference === undefined ? {} : { documentReference: input.reference }),
+    ...(input.ownerId === undefined
+      ? {}
+      : { documentOwner: { type: input.ownerType, id: input.ownerId } }),
+    ...(input.documentType === undefined
+      ? {}
+      : { documentType: input.documentType }),
+    ...(input.expectedVersion === undefined
+      ? {}
+      : { expectedVersion: input.expectedVersion }),
     ...(input.changeId === undefined ? {} : { changeId: input.changeId }),
     ...(input.changes === undefined
       ? {}
@@ -392,6 +446,16 @@ function loggedExecution<TInput extends ToolInput, TResult>(
   };
 }
 
+function documentMutationResult(result: ManagedDocumentMutationResult) {
+  const { content: _, ...document } = result.document;
+  return {
+    status: "ok" as const,
+    changed: result.changed,
+    changeId: result.changeId,
+    document,
+  };
+}
+
 export function createJobSearchTools(
   reader: AgentContextReader,
   logger: Logger,
@@ -440,7 +504,7 @@ export function createJobSearchTools(
     }),
     get_document: tool({
       strict: true,
-      description: "Retrieve one registered job-search document using a reference returned by get_job or get_networking_contact. Use only an exact reference supplied by those tools; this tool cannot browse files or arbitrary paths.",
+      description: "Retrieve one registered job-search document using a reference returned by get_job or get_networking_contact. Managed-document results include the current version required for updates. Use only an exact supplied reference; this tool cannot browse files or arbitrary paths.",
       inputSchema: getDocumentInputSchema,
       execute: loggedExecution(
         logger,
@@ -488,6 +552,40 @@ export function createJobSearchTools(
         }),
       ),
     }),
+    create_document: tool({
+      strict: true,
+      description: "Create a managed text document for an existing job from content the user supplied. Use job_description for source material, preserve source details without invention, and report the stable reference, version, and change ID.",
+      inputSchema: createDocumentInputSchema,
+      execute: loggedExecution(
+        logger,
+        "create_document",
+        (input, { toolCallId }) => documentMutationResult(
+          mutations.documents.create({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent created ${input.documentType} for ${input.ownerType} ${input.ownerId} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, input),
+        ),
+      ),
+    }),
+    update_document: tool({
+      strict: true,
+      description: "Replace the content of one managed text document using its exact stable reference and current version. The prior content remains an immutable version; report whether a new version was created and its change ID.",
+      inputSchema: updateDocumentInputSchema,
+      execute: loggedExecution(
+        logger,
+        "update_document",
+        (input, { toolCallId }) => documentMutationResult(
+          mutations.documents.update({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent updated document ${input.reference} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, input),
+        ),
+      ),
+    }),
     revert_change: tool({
       strict: true,
       description: "Revert one eligible prior change using its exact change ID. The revert is rejected if a later edit would be overwritten.",
@@ -521,5 +619,7 @@ export const jobSearchToolSchemas = {
   get_document: getDocumentInputSchema,
   update_job: updateJobInputSchema,
   update_networking_contact: updateNetworkingContactInputSchema,
+  create_document: createDocumentInputSchema,
+  update_document: updateDocumentInputSchema,
   revert_change: revertChangeInputSchema,
 } as const;

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const recordMetadata = {
   revision: integer("revision").notNull().default(1),
@@ -92,3 +92,53 @@ export const businessEvents = sqliteTable("business_events", {
 export const eventSources = sqliteTable("event_sources", {
   id: text("id").primaryKey(), eventId: text("event_id").notNull().references(() => businessEvents.id), sourceSystem: text("source_system").notNull(), externalId: text("external_id"), sourceTimestamp: text("source_timestamp"), sourceUri: text("source_uri"), importedAt: text("imported_at").notNull(), contentHash: text("content_hash"), excerpt: text("excerpt"),
 }, (table) => [index("event_sources_event_idx").on(table.eventId), uniqueIndex("event_sources_external_idx").on(table.sourceSystem, table.externalId)]);
+
+export const managedDocuments = sqliteTable("managed_documents", {
+  id: text("id").primaryKey(),
+  ownerType: text("owner_type", { enum: ["job"] }).notNull(),
+  ownerId: text("owner_id").notNull().references(() => jobs.id),
+  documentType: text("document_type", {
+    enum: ["job_description", "notes", "interview_prep"],
+  }).notNull(),
+  title: text("title").notNull(),
+  mediaType: text("media_type", {
+    enum: ["text/plain", "text/markdown"],
+  }).notNull(),
+  sourceDescription: text("source_description"),
+  currentVersion: integer("current_version").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("managed_documents_owner_idx").on(table.ownerType, table.ownerId),
+  check("managed_documents_owner_type_check", sql`${table.ownerType} = 'job'`),
+  check(
+    "managed_documents_type_check",
+    sql`${table.documentType} in ('job_description', 'notes', 'interview_prep')`,
+  ),
+  check(
+    "managed_documents_media_type_check",
+    sql`${table.mediaType} in ('text/plain', 'text/markdown')`,
+  ),
+  check("managed_documents_current_version_check", sql`${table.currentVersion} > 0`),
+]);
+
+export const managedDocumentVersions = sqliteTable("managed_document_versions", {
+  documentId: text("document_id").notNull()
+    .references(() => managedDocuments.id),
+  version: integer("version").notNull(),
+  parentVersion: integer("parent_version"),
+  content: text("content").notNull(),
+  contentHash: text("content_hash").notNull(),
+  changeId: text("change_id").notNull().references(() => changes.id),
+  changeSummary: text("change_summary").notNull(),
+  createdAt: text("created_at").notNull(),
+  createdBy: text("created_by").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.documentId, table.version] }),
+  index("managed_document_versions_change_idx").on(table.changeId),
+  check("managed_document_versions_version_check", sql`${table.version} > 0`),
+  check(
+    "managed_document_versions_parent_check",
+    sql`${table.parentVersion} is null or ${table.parentVersion} < ${table.version}`,
+  ),
+]);

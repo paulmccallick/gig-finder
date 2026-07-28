@@ -27,7 +27,7 @@ afterEach(() => database.close());
 describe("migrations", () => {
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","changes","business_events","event_sources","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
   });
   test("can be applied repeatedly without duplicating migrations", () => { const before = (database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count; migrateDatabase(database); expect((database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count).toBe(before); });
   test("enables foreign key enforcement", () => { expect((database.query("PRAGMA foreign_keys").get() as {foreign_keys:number}).foreign_keys).toBe(1); });

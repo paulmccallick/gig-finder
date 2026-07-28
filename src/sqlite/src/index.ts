@@ -2,6 +2,7 @@ export * from "./artifacts";
 export * from "./audit";
 export * from "./context";
 export * from "./database";
+export * from "./document-store";
 export * from "./errors";
 export * from "./maintenance";
 export * from "./local-application";

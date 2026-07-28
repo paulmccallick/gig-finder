@@ -1,9 +1,13 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createContact, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getJob, getMeeting, getPerson, getTask, listContacts, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, trackerPaths, updateContact, updateJob, updatePerson, updateTask, verifyArtifacts, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
+import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocumentsForJob, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, trackerPaths, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
 import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
+import {
+  documentMediaTypes,
+  managedDocumentTypes,
+} from "../../core/src/documents";
 import {
   jobUpdateSchema,
   networkingContactUpdateSchema,
@@ -33,6 +37,12 @@ Usage:
   job-search events list [--entity-type <type>] [--entity-id <id>]
   job-search events add <id> --patch-file <path> [--dry-run]
   job-search artifacts verify
+  job-search artifacts sync
+  job-search documents list --job <job-id>
+  job-search documents get <document-reference>
+  job-search documents create --job <job-id> --type <type> --title <text> --media-type <type> --content-file <path> [--source-description <text>]
+  job-search documents update <document-reference> --expected-version <number> --change-summary <text> --content-file <path>
+  job-search documents versions <document-reference>
 
 Patch files are recommended for long or sensitive text. Arrays are replaced;
 objects are deep-merged; null explicitly clears a value. All writes are atomic.`;
@@ -69,8 +79,120 @@ async function patchFrom(flags: Flags): Promise<Record<string, unknown>> {
   return value;
 }
 
+const positiveInteger = (flags: Flags, key: string): number => {
+  const raw = required(flags, key);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`--${key} must be a positive integer.`);
+  }
+  return value;
+};
+
+const acceptedValue = <T extends string>(
+  flags: Flags,
+  key: string,
+  values: readonly T[],
+): T => {
+  const value = required(flags, key);
+  const accepted = values.find(candidate => candidate === value);
+  if (!accepted) {
+    throw new Error(`--${key} must be one of: ${values.join(", ")}.`);
+  }
+  return accepted;
+};
+
+async function handleDocuments(args: string[]): Promise<boolean> {
+  if (args[0] !== "documents") return false;
+  const command = args[1];
+  const paths = trackerPaths(repoRoot);
+
+  if (command === "list") {
+    const flags = parseFlags(args.slice(2));
+    const jobId = required(flags, "job");
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      owner: { type: "job", id: jobId },
+      records: listDocumentsForJob(paths, jobId),
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "get" || command === "versions") {
+    const reference = args[2];
+    if (!reference || args.length !== 3) throw new Error(usage);
+    const document = getDocument(paths, reference);
+    if (!document) throw new Error(`Document not found: ${reference}`);
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      reference,
+      [command === "get" ? "record" : "records"]:
+        command === "get" ? document : listDocumentVersions(paths, reference),
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "create") {
+    const flags = parseFlags(args.slice(2));
+    const content = await readFile(
+      path.resolve(required(flags, "content-file")),
+      "utf8",
+    );
+    const result = createDocument(paths, {
+      ownerType: "job",
+      ownerId: required(flags, "job"),
+      documentType: acceptedValue(flags, "type", managedDocumentTypes),
+      title: required(flags, "title"),
+      mediaType: acceptedValue(flags, "media-type", documentMediaTypes),
+      sourceDescription: optional(flags, "source-description") ?? null,
+      content,
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      record: result.document,
+      changeId: result.changeId,
+      changed: result.changed,
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "update") {
+    const reference = args[2];
+    if (!reference) throw new Error(usage);
+    const flags = parseFlags(args.slice(3));
+    const content = await readFile(
+      path.resolve(required(flags, "content-file")),
+      "utf8",
+    );
+    const result = updateDocument(paths, {
+      reference,
+      expectedVersion: positiveInteger(flags, "expected-version"),
+      changeSummary: required(flags, "change-summary"),
+      content,
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      reference,
+      record: result.document,
+      changeId: result.changeId,
+      changed: result.changed,
+    }, null, 2));
+    return true;
+  }
+
+  throw new Error(usage);
+}
+
 async function main(args: string[]) {
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) { console.log(usage); return; }
+  if (await handleDocuments(args)) return;
   if(args[0]==="artifacts"&&args[1]==="verify"){const result=await verifyArtifacts(trackerPaths(repoRoot));console.log(JSON.stringify({ok:result.ok,result},null,2));if(!result.ok)process.exitCode=1;return}
   if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(trackerPaths(repoRoot));console.log(JSON.stringify({ok:true,result},null,2));return}
   const aliases:Record<string,string>={jobs:"job",networking:"contact",contacts:"contact",tasks:"task",people:"person","job-people":"job-person",meetings:"meeting",events:"event"};

@@ -43,6 +43,13 @@
       "when": 1785024456137,
       "tag": "0005_illegal_crusher_hogan",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785209110506,
+      "tag": "0006_flimsy_bastion",
+      "breakpoints": true
     }
   ]
 }

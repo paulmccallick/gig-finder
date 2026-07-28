@@ -26,15 +26,17 @@ flowchart LR
 
 ## Persistence and history
 
-- `store.ts` provides generic change and history behavior shared by all entity
-  tables.
+- [`store.ts`](../../src/sqlite/src/store.ts) gives mutable entities revision
+  numbers, soft deletion, and generic change transactions.
 - Each mutable entity table has a companion `*_history` table in the
-  [SQLite schema](../../src/sqlite/src/schema.ts)
-- Before an update or delete, the current row is
-  inserted into history with the operation and `change_id`.
-- The `changes` table groups multiple record updates into one audited change.
-- Each record has a revision number
-- Soft deletes use `is_deleted`
+  [SQLite schema](../../src/sqlite/src/schema.ts); updates and deletes copy the
+  prior row there with its operation and `change_id`.
+- The `changes` table groups all records written by one transaction into one
+  audited change.
+- Managed document metadata lives in `managed_documents`; immutable content
+  revisions and their parent version live in `managed_document_versions`, as
+  implemented by
+  [`document-store.ts`](../../src/sqlite/src/document-store.ts).
 
 ## Context Files
 

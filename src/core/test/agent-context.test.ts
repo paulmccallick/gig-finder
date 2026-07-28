@@ -199,9 +199,25 @@ describe("JobSearchAgentContext", () => {
   });
 
   test("lists stable document references and resolves only registered documents", async () => {
+    let ownerVisible = true;
+    const managedDocument = {
+      id: "doc_00000000-0000-4000-8000-000000000001",
+      reference: "document:doc_00000000-0000-4000-8000-000000000001",
+      ownerType: "job" as const,
+      ownerId: "job-1",
+      documentType: "notes" as const,
+      title: "Role notes",
+      mediaType: "text/markdown" as const,
+      sourceDescription: null,
+      currentVersion: 2,
+      content: "Current notes",
+      contentHash: "hash-v2",
+      createdAt: "2026-07-20T12:00:00.000Z",
+      updatedAt: "2026-07-21T12:00:00.000Z",
+    };
     const documentSource = new ApplicationAgentDocumentSource({
       jobs: {
-        get: (id) => id === "job-1"
+        get: (id) => ownerVisible && id === "job-1"
           ? job("job-1", { hasJobDescription: true, hasInterviewPrep: true })
           : null,
         description: async () => "Job description content",
@@ -213,6 +229,14 @@ describe("JobSearchAgentContext", () => {
       },
       contacts: {
         personId: (id) => id === "contact-1" ? "person-1" : null,
+      },
+      managed: {
+        get: (reference) =>
+          reference === managedDocument.reference ? managedDocument : null,
+        list: (ownerType, ownerId) =>
+          ownerType === "job" && ownerId === "job-1"
+            ? [managedDocument]
+            : [],
       },
     });
     const source = <T extends { id: string }>(records: T[]) => ({
@@ -235,6 +259,11 @@ describe("JobSearchAgentContext", () => {
         reference: "job:job-1:interview_prep:screen.md",
         title: "screen.md",
       }),
+      expect.objectContaining({
+        reference: managedDocument.reference,
+        storage: "managed",
+        currentVersion: 2,
+      }),
     ]);
     expect(await context.getDocument("job:job-1:interview_prep:screen.md")).toMatchObject({
       status: "ok",
@@ -251,6 +280,19 @@ describe("JobSearchAgentContext", () => {
     expect(await context.getDocument("job:job-1:interview_prep:missing.md")).toEqual({
       status: "not_found",
       id: "job:job-1:interview_prep:missing.md",
+    });
+    expect(await context.getDocument(managedDocument.reference)).toMatchObject({
+      status: "ok",
+      record: {
+        content: "Current notes",
+        storage: "managed",
+        currentVersion: 2,
+      },
+    });
+    ownerVisible = false;
+    expect(await context.getDocument(managedDocument.reference)).toEqual({
+      status: "not_found",
+      id: managedDocument.reference,
     });
   });
 

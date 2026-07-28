@@ -29,6 +29,7 @@ import {
   type TaskStatus,
   type TaskType,
 } from "./tasks";
+import type { ManagedDocumentService } from "./documents";
 
 export const defaultAgentJobStages = [
   "applied",
@@ -66,9 +67,10 @@ export interface Page<T> {
 export type AgentDocumentType =
   | "job_description"
   | "interview_prep"
-  | "contact_profile";
+  | "contact_profile"
+  | "notes";
 
-export interface AgentDocumentReference {
+interface AgentDocumentReferenceBase {
   reference: string;
   entityType: "job" | "contact";
   entityId: string;
@@ -76,11 +78,16 @@ export interface AgentDocumentReference {
   title: string;
 }
 
-export interface AgentDocument extends AgentDocumentReference {
+export type AgentDocumentReference = AgentDocumentReferenceBase & (
+  | { storage: "artifact"; currentVersion: null }
+  | { storage: "managed"; currentVersion: number }
+);
+
+export type AgentDocument = AgentDocumentReference & {
   content: string;
   truncated: boolean;
   totalCharacters: number;
-}
+};
 
 export const agentDocumentContentLimit = 50_000;
 
@@ -451,6 +458,7 @@ export interface AgentDocumentServices {
   contacts: {
     personId(id: string): string | null;
   };
+  managed?: Pick<ManagedDocumentService, "get" | "list">;
 }
 
 export class ApplicationAgentDocumentSource implements AgentDocumentSource {
@@ -474,6 +482,8 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
             entityId,
             documentType: "contact_profile",
             title: "Contact profile",
+            storage: "artifact",
+            currentVersion: null,
           }]
         : [];
     }
@@ -487,6 +497,8 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
         entityId,
         documentType: "job_description",
         title: "Job description",
+        storage: "artifact",
+        currentVersion: null,
       });
     }
     if (job.hasInterviewPrep) {
@@ -497,13 +509,46 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
           entityId,
           documentType: "interview_prep",
           title: document.name,
+          storage: "artifact",
+          currentVersion: null,
         });
       }
+    }
+    for (const document of this.services.managed?.list("job", entityId) ?? []) {
+      references.push({
+        reference: document.reference,
+        entityType: "job",
+        entityId,
+        documentType: document.documentType,
+        title: document.title,
+        storage: "managed",
+        currentVersion: document.currentVersion,
+      });
     }
     return references;
   }
 
   async get(reference: string): Promise<GetResult<AgentDocument>> {
+    if (reference.startsWith("document:")) {
+      const managed = this.services.managed?.get(reference) ?? null;
+      const owner = managed?.ownerType === "job"
+        ? this.services.jobs.get(managed.ownerId)
+        : null;
+      return managed && owner
+        ? {
+            status: "ok",
+            record: documentRecord({
+              reference: managed.reference,
+              entityType: managed.ownerType,
+              entityId: managed.ownerId,
+              documentType: managed.documentType,
+              title: managed.title,
+              storage: "managed",
+              currentVersion: managed.currentVersion,
+            }, managed.content),
+          }
+        : { status: "not_found", id: reference };
+    }
     const parts = reference.split(":");
     const entityType = parts[0];
     const entityId = parts[1] ? decoded(parts[1]) : null;
