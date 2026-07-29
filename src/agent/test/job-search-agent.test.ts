@@ -8,6 +8,7 @@ import type {
   JobSummary,
   ManagedDocumentRecord,
 } from "../../core/src";
+import { StagedDocumentService } from "../../core/src";
 import { JobSearchAgent } from "../job-search-agent";
 import {
   createJobSearchTools,
@@ -347,6 +348,7 @@ describe("agent streaming", () => {
       title: "Director of Engineering job description",
       mediaType: "text/plain",
       sourceDescription: "Shared by Sunil via text message",
+      uploadProvenance: null,
       currentVersion: 1,
       content: "Lead the engineering organization.",
       contentHash: "content-hash",
@@ -467,6 +469,117 @@ describe("agent streaming", () => {
       documentType: "job_description",
       sourceDescription: "Shared by Sunil via text message",
     });
+  });
+
+  test("reads, resolves, and saves a staged upload without sending content in the user message", async () => {
+    const stagedDocuments = new StagedDocumentService();
+    const staged = stagedDocuments.stage({
+      markdown: "# Example Company\n\nDirector of Engineering source text.",
+      provenance: {
+        originalFilename: "role.pdf",
+        detectedMediaType: "application/pdf",
+        sourceContentHash: "a".repeat(64),
+        converter: "pdfjs-dist",
+        converterVersion: "6.2.108",
+        extractionWarnings: [],
+        uploadedAt: "2026-07-29T12:00:00.000Z",
+      },
+    });
+    const job = {
+      id: "job-example",
+      company: "Example Company",
+      title: "Director of Engineering",
+      stage: "identified",
+      outcome: "pending",
+    } as const;
+    let savedContent: string | undefined;
+    const model = new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: simulateReadableStream({ chunks: [
+            { type: "stream-start", warnings: [] },
+            { type: "tool-call", toolCallId: "read-upload", toolName: "get_staged_document", input: JSON.stringify({ reference: staged.reference }) },
+            { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+          ] }),
+        },
+        {
+          stream: simulateReadableStream({ chunks: [
+            { type: "stream-start", warnings: [] },
+            { type: "tool-call", toolCallId: "resolve-upload", toolName: "search_jobs_and_contacts", input: JSON.stringify({ companyNames: ["Example Company"], personNames: [] }) },
+            { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+          ] }),
+        },
+        {
+          stream: simulateReadableStream({ chunks: [
+            { type: "stream-start", warnings: [] },
+            { type: "tool-call", toolCallId: "save-upload", toolName: "create_uploaded_document", input: JSON.stringify({ stagedReference: staged.reference, ownerType: "job", ownerId: job.id, documentType: "job_description", title: "Director of Engineering job description", sourceDescription: null }) },
+            { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
+          ] }),
+        },
+        {
+          stream: simulateReadableStream({ chunks: [
+            { type: "stream-start", warnings: [] },
+            { type: "text-start", id: "text-upload" },
+            { type: "text-delta", id: "text-upload", delta: "Saved the uploaded source to Example Company." },
+            { type: "text-end", id: "text-upload" },
+            { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage },
+          ] }),
+        },
+      ],
+    });
+    const tools = createJobSearchTools(
+      readerWithJobs([]),
+      logger,
+      documentMutations((context, input) => {
+        savedContent = input.content;
+        return {
+          document: {
+            id: "doc_11111111-1111-4111-8111-111111111111",
+            reference: "document:doc_11111111-1111-4111-8111-111111111111",
+            ownerType: "job",
+            ownerId: job.id,
+            documentType: "job_description",
+            title: input.title,
+            mediaType: input.mediaType,
+            sourceDescription: input.sourceDescription,
+            uploadProvenance: input.uploadProvenance ?? null,
+            currentVersion: 1,
+            content: input.content,
+            contentHash: "content-hash",
+            createdAt: "2026-07-29T12:00:00.000Z",
+            updatedAt: "2026-07-29T12:00:00.000Z",
+          },
+          changeId: context.changeId ?? null,
+          changed: true,
+        };
+      }),
+      { actor: "Candidate", requestId: "request-upload" },
+      {
+        stagedDocuments,
+        contextSearch: {
+          search: () => ({
+            jobs: [{ ...job, matchedCompanyNames: ["Example Company"] }],
+            networkingContacts: [],
+            truncated: false,
+          }),
+        },
+      },
+    );
+    const agent = new JobSearchAgent({
+      profile: testJobSearchProfile,
+      model,
+      logger,
+      tools,
+      canUpdateDashboardRecords: true,
+    });
+    const message = `The web application staged a source document as ${staged.reference}.`;
+
+    expect(message).not.toContain("Director of Engineering source text");
+    expect(await agent.respond([userMessage(message)]).text).toBe(
+      "Saved the uploaded source to Example Company.",
+    );
+    expect(savedContent).toBe(staged.markdown);
+    expect(model.doStreamCalls).toHaveLength(4);
   });
 
   test("asks one targeted question instead of creating when job matches are ambiguous", async () => {

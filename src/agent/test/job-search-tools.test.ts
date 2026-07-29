@@ -10,6 +10,7 @@ import {
   type ChangeContext,
   type Job,
   type ManagedDocumentRecord,
+  StagedDocumentService,
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
 import {
@@ -38,6 +39,7 @@ const managedDocument: ManagedDocumentRecord = {
   title: "Job description",
   mediaType: "text/plain",
   sourceDescription: "Provided by the recruiter",
+  uploadProvenance: null,
   currentVersion: 1,
   content: "Original source text",
   contentHash: "abc123",
@@ -169,6 +171,85 @@ describe("JobSearchAgent tools", () => {
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
+  });
+
+  test("registers staged-upload tools and persists application-owned content", async () => {
+    const stagedDocuments = new StagedDocumentService();
+    const staged = stagedDocuments.stage({
+      markdown: "# Exact uploaded source",
+      provenance: {
+        originalFilename: "role.pdf",
+        detectedMediaType: "application/pdf",
+        sourceContentHash: "a".repeat(64),
+        converter: "pdfjs-dist",
+        converterVersion: "6.2.108",
+        extractionWarnings: [],
+        uploadedAt: "2026-07-29T12:00:00.000Z",
+      },
+    });
+    let createdInput: unknown;
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      {
+        ...mutations,
+        documents: {
+          create: (_context, input) => {
+            createdInput = input;
+            return {
+              document: {
+                ...managedDocument,
+                mediaType: "text/markdown",
+                content: input.content,
+                uploadProvenance: input.uploadProvenance ?? null,
+              },
+              changeId: "agent-tool:call-upload",
+              changed: true,
+            };
+          },
+          update: () => { throw new Error("not executed"); },
+        },
+      },
+      { actor: "Candidate", requestId: "request-upload" },
+      {
+        contextSearch: {
+          search: () => ({
+            jobs: [],
+            networkingContacts: [],
+            truncated: false,
+          }),
+        },
+        stagedDocuments,
+      },
+    );
+    expect(Object.keys(tools)).toContain("search_jobs_and_contacts");
+    expect(Object.keys(tools)).toContain("get_staged_document");
+    expect(Object.keys(tools)).toContain("create_uploaded_document");
+    if (!("create_uploaded_document" in tools)) throw new Error("Upload tool missing.");
+    const createUploadedDocument = tools.create_uploaded_document;
+    if (!createUploadedDocument) throw new Error("Upload tool missing.");
+
+    const result = await createUploadedDocument.execute?.({
+      stagedReference: staged.reference,
+      ownerType: "job",
+      ownerId: "job-1",
+      documentType: "job_description",
+      title: "Director role",
+      sourceDescription: null,
+    }, {
+      toolCallId: "call-upload",
+      messages: [],
+      abortSignal: undefined,
+      context: {},
+    });
+
+    expect(createdInput).toMatchObject({
+      content: "# Exact uploaded source",
+      mediaType: "text/markdown",
+      uploadProvenance: { originalFilename: "role.pdf" },
+    });
+    expect(result).toMatchObject({ status: "ok", changed: true });
+    expect(stagedDocuments.get(staged.reference)).toBeNull();
   });
 
   test("accepts explicit mutation operations and rejects invalid fields", () => {

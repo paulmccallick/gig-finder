@@ -209,6 +209,7 @@ describe("JobSearchAgentContext", () => {
       title: "Role notes",
       mediaType: "text/markdown" as const,
       sourceDescription: null,
+      uploadProvenance: null,
       currentVersion: 2,
       content: "Current notes",
       contentHash: "hash-v2",

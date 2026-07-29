@@ -11,6 +11,9 @@ Job Search Agent is a local-first workspace for running a job search.
 - The agent window uses the candidate profile, reads current records and
   registered documents, updates existing jobs and contacts, and creates or
   revises managed job documents.
+- The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
+  locally to Markdown, and helps attach them to an existing job without
+  altering the extracted source.
 - Agent conversations last only for the current page load.
 
 ## Entities
@@ -36,7 +39,7 @@ Application source is generic. By default, a user's profile, operational
 records, documents, logs, database, and backups live in the ignored `context/`
 workspace.
 
-Agent tools cannot create or delete jobs, contacts, or tasks, delete documents,
+Agent tools cannot create or delete jobs, contacts, or tasks, delete managed documents,
 or access arbitrary files, meetings, history, email, calendars, or external
 services. Agent mutations are audited; job and contact updates can be reverted
 when no later edit would be overwritten.

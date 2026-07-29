@@ -1,5 +1,8 @@
 import type { Database } from "bun:sqlite";
-import { documentReference } from "../../core/src/documents";
+import {
+  documentReference,
+  uploadedDocumentProvenanceSchema,
+} from "../../core/src/documents";
 import type {
   DocumentOwnerType,
   ManagedDocumentData,
@@ -23,6 +26,7 @@ type DocumentRow = {
   title: string;
   media_type: ManagedDocumentData["mediaType"];
   source_description: string | null;
+  upload_provenance_json: string | null;
   current_version: number;
   created_at: string;
   updated_at: string;
@@ -54,6 +58,9 @@ const fromRow = (row: DocumentRow): ManagedDocumentRecord => ({
   title: row.title,
   mediaType: row.media_type,
   sourceDescription: row.source_description,
+  uploadProvenance: row.upload_provenance_json
+    ? uploadedDocumentProvenanceSchema.parse(JSON.parse(row.upload_provenance_json))
+    : null,
   currentVersion: row.current_version,
   content: row.content,
   contentHash: row.content_hash,
@@ -133,8 +140,9 @@ export class SqliteDocumentWriteRepository
     this.database.query(
       `INSERT INTO managed_documents (
         id, owner_type, owner_id, document_type, title, media_type,
-        source_description, current_version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        source_description, upload_provenance_json, current_version,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     ).run(
       input.document.id,
       input.document.ownerType,
@@ -143,6 +151,9 @@ export class SqliteDocumentWriteRepository
       input.document.title,
       input.document.mediaType,
       input.document.sourceDescription,
+      input.document.uploadProvenance
+        ? JSON.stringify(input.document.uploadProvenance)
+        : null,
       occurredAt,
       occurredAt,
     );

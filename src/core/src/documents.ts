@@ -19,6 +19,23 @@ export type DocumentMediaType = typeof documentMediaTypes[number];
 
 export const managedDocumentContentLimit = 50_000;
 
+export const uploadedSourceMediaTypes = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/markdown",
+] as const;
+export type UploadedSourceMediaType = typeof uploadedSourceMediaTypes[number];
+
+export interface UploadedDocumentProvenance {
+  originalFilename: string;
+  detectedMediaType: UploadedSourceMediaType;
+  sourceContentHash: string;
+  converter: string;
+  converterVersion: string;
+  extractionWarnings: string[];
+  uploadedAt: string;
+}
+
 export interface ManagedDocumentData {
   id: string;
   ownerType: DocumentOwnerType;
@@ -27,6 +44,7 @@ export interface ManagedDocumentData {
   title: string;
   mediaType: DocumentMediaType;
   sourceDescription: string | null;
+  uploadProvenance: UploadedDocumentProvenance | null;
 }
 
 export interface ManagedDocumentVersionData {
@@ -66,6 +84,7 @@ export interface CreateManagedDocumentInput {
   mediaType: DocumentMediaType;
   sourceDescription: string | null;
   content: string;
+  uploadProvenance?: UploadedDocumentProvenance | null;
 }
 
 export interface UpdateManagedDocumentInput {
@@ -88,6 +107,16 @@ const contentSchema = z.string()
     `Document content cannot exceed ${managedDocumentContentLimit} characters.`,
   );
 
+export const uploadedDocumentProvenanceSchema = z.object({
+  originalFilename: z.string().trim().min(1).max(255),
+  detectedMediaType: z.enum(uploadedSourceMediaTypes),
+  sourceContentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  converter: z.string().trim().min(1).max(100),
+  converterVersion: z.string().trim().min(1).max(100),
+  extractionWarnings: z.array(z.string().trim().min(1).max(500)).max(20),
+  uploadedAt: z.string().datetime(),
+}).strict();
+
 export const createManagedDocumentSchema = z.object({
   ownerType: z.enum(documentOwnerTypes),
   ownerId: z.string().trim().min(1).max(200),
@@ -96,6 +125,7 @@ export const createManagedDocumentSchema = z.object({
   mediaType: z.enum(documentMediaTypes),
   sourceDescription: z.string().trim().min(1).max(500).nullable(),
   content: contentSchema,
+  uploadProvenance: uploadedDocumentProvenanceSchema.nullable().default(null),
 }).strict();
 
 export const updateManagedDocumentSchema = z.object({
@@ -163,6 +193,7 @@ export class ManagedDocumentService {
             title: parsed.title,
             mediaType: parsed.mediaType,
             sourceDescription: parsed.sourceDescription,
+            uploadProvenance: parsed.uploadProvenance,
           },
           content: parsed.content,
           contentHash,
@@ -186,6 +217,11 @@ export class ManagedDocumentService {
       );
     }
     const current = this.persistence.documents.get(id);
+    if (current?.uploadProvenance) {
+      throw new DomainValidationError(
+        "Uploaded source documents are immutable and cannot be updated.",
+      );
+    }
     const contentHash = hashContent(parsed.content);
     if (
       current

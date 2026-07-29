@@ -98,7 +98,7 @@ export class JobSearchAgent {
           modelOutput: {
             text,
             reasoning: reasoningText ?? null,
-            toolCalls: toolCalls.map(toolCall => ({
+            toolCalls: toolCalls.filter(toolCall => toolCall !== undefined).map(toolCall => ({
               toolCallId: toolCall.toolCallId,
               toolName: toolCall.toolName,
               input: toolCall.input,
@@ -112,11 +112,11 @@ export class JobSearchAgent {
             cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
             reasoningTokens: usage.outputTokenDetails.reasoningTokens,
           },
-          toolCalls: toolCalls.map(call => ({
+          toolCalls: toolCalls.filter(call => call !== undefined).map(call => ({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
           })),
-          toolResults: toolResults.map(result => ({
+          toolResults: toolResults.filter(result => result !== undefined).map(result => ({
             toolCallId: result.toolCallId,
             toolName: result.toolName,
           })),

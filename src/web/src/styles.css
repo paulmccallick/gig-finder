@@ -272,6 +272,21 @@ h1, h2, h3, p { margin-top: 0; }
 .agent-error p { margin: 7px 0; color: #d5aaa7; font-size: 10px; line-height: 1.4; }
 .agent-error button { padding: 0; border: 0; background: transparent; color: var(--red); font-size: 9px; text-decoration: underline; }
 .agent-composer { padding: 15px 22px 20px; border-top: 1px solid var(--line-bright); background: #0b171c; }
+.agent-upload-control { margin-bottom: 10px; display: flex; align-items: center; gap: 9px; }
+.agent-upload-control input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.agent-upload-control button { padding: 0; color: var(--amber); border: 0; background: transparent; text-transform: uppercase; font: 8px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .09em; }
+.agent-upload-control button:disabled { opacity: .35; cursor: default; }
+.agent-upload-control > span { color: var(--dim); font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; }
+.agent-upload-status, .agent-upload-error { margin-bottom: 10px; padding: 8px 9px; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; border: 1px solid var(--line); background: #071216; color: #9badaa; font-size: 9px; line-height: 1.35; }
+.agent-upload-status span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-upload-status i { width: 7px; height: 7px; margin-right: 7px; display: inline-block; border: 1px solid var(--amber); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.agent-upload-status.is-ready { border-color: rgba(104,224,187,.3); }
+.agent-upload-status.is-ready span { color: var(--signal); }
+.agent-upload-status.is-ready i { display: none; }
+.agent-upload-status small { grid-column: 1 / -1; color: var(--dim); }
+.agent-upload-status button, .agent-upload-error button { padding: 0; border: 0; background: transparent; color: var(--amber); font-size: 9px; text-decoration: underline; }
+.agent-upload-error { border-color: rgba(255,113,109,.42); color: #d5aaa7; }
+.agent-upload-error button { color: var(--red); }
 .agent-composer label { display: block; margin-bottom: 8px; color: var(--amber); text-transform: uppercase; font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; }
 .agent-composer textarea { width: 100%; resize: none; padding: 11px 12px; color: #d8e3e0; border: 1px solid var(--line); outline: 0; background: #071216; font-size: 11px; line-height: 1.45; }
 .agent-composer textarea:focus { border-color: rgba(240,184,107,.55); box-shadow: 0 0 0 1px rgba(240,184,107,.15); }

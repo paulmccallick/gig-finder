@@ -105,6 +105,7 @@ export const managedDocuments = sqliteTable("managed_documents", {
     enum: ["text/plain", "text/markdown"],
   }).notNull(),
   sourceDescription: text("source_description"),
+  uploadProvenanceJson: text("upload_provenance_json"),
   currentVersion: integer("current_version").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

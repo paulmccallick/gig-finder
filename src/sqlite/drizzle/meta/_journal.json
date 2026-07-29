@@ -50,6 +50,13 @@
       "when": 1785209110506,
       "tag": "0006_flimsy_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785338355352,
+      "tag": "0007_late_deathstrike",
+      "breakpoints": true
     }
   ]
 }

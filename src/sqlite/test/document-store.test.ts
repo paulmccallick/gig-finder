@@ -64,6 +64,7 @@ const document: ManagedDocumentData = {
   title: "Job description",
   mediaType: "text/plain",
   sourceDescription: "Received by text message",
+  uploadProvenance: null,
 };
 
 beforeEach(() => {
@@ -98,6 +99,29 @@ describe("managed document persistence", () => {
     expect(store.documents.get(document.id)).toEqual(created.value);
     expect(store.documents.list("job", job.id)).toEqual([created.value]);
     expect(store.documents.list("job", "another-job")).toEqual([]);
+  });
+
+  test("round-trips uploaded source provenance", () => {
+    const uploadProvenance = {
+      originalFilename: "role.pdf",
+      detectedMediaType: "application/pdf" as const,
+      sourceContentHash: "a".repeat(64),
+      converter: "pdfjs-dist",
+      converterVersion: "6.2.108",
+      extractionWarnings: ["Example warning"],
+      uploadedAt: timestamp,
+    };
+    const created = store.change(
+      context("Capture uploaded source"),
+      transaction => transaction.documents.create({
+        document: { ...document, mediaType: "text/markdown", uploadProvenance },
+        content: "Converted Markdown",
+        contentHash: "hash-uploaded",
+      }),
+    );
+
+    expect(created.value.uploadProvenance).toEqual(uploadProvenance);
+    expect(store.documents.get(document.id)?.uploadProvenance).toEqual(uploadProvenance);
   });
 
   test("adds immutable versions while preserving earlier content", () => {

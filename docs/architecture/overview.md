@@ -5,11 +5,15 @@ The application is a Bun and TypeScript repository with one shared domain.
 ```mermaid
 flowchart LR
   Dashboard[React dashboard] <-->|Dashboard JSON and agent message stream| API[Bun Web API]
+  Dashboard -->|DOCX / MD / PDF upload| API
+  API --> Converter[Deterministic document conversion]
+  Converter --> Stage[Short-lived Markdown stage]
   API -->|Dashboard reads| Core[Core application services]
   API <-->|Agent messages and response stream| Agent[JobSearchAgent / AI SDK loop]
   Agent <-->|Model steps| Provider[Codex subscription provider]
   Provider <-->|Responses API| Model[Codex model]
   Agent -->|Validated tool calls| Tools[Agent tools]
+  Tools --> Stage
   Tools --> Reader[AgentContextReader]
   Tools --> Core
   Reader --> Core
@@ -26,17 +30,15 @@ flowchart LR
 
 ## Persistence and history
 
-- [`store.ts`](../../src/sqlite/src/store.ts) gives mutable entities revision
-  numbers, soft deletion, and generic change transactions.
-- Each mutable entity table has a companion `*_history` table in the
-  [SQLite schema](../../src/sqlite/src/schema.ts); updates and deletes copy the
+- all mutable entities use revision
+  numbers, soft deletion, and generic change transactions within the sqllite package
+- Each mutable entity table has a companion `*_history`
+  ; updates and deletes copy the
   prior row there with its operation and `change_id`.
 - The `changes` table groups all records written by one transaction into one
   audited change.
 - Managed document metadata lives in `managed_documents`; immutable content
-  revisions and their parent version live in `managed_document_versions`, as
-  implemented by
-  [`document-store.ts`](../../src/sqlite/src/document-store.ts).
+  revisions and their parent version live in `managed_document_versions`
 
 ## Context Files
 

@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-JobSearchAgent has seven read tools and five mutation tools.
+JobSearchAgent has nine read tools and six mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -11,9 +11,12 @@ JobSearchAgent has seven read tools and five mutation tools.
 | `list_tasks` | Lists tasks; filters by status, priority, type, related entity, overdue state, and text. |
 | `get_task` | Returns one complete task. |
 | `get_document` | Resolves an exact reference returned by a detail tool. |
+| `search_jobs_and_contacts` | Resolves company or person names to existing jobs and contacts, ignoring punctuation and case. |
+| `get_staged_document` | Reads converted Markdown and provenance from an exact short-lived upload reference. |
 | `update_job` | Updates mutable fields on one existing job. |
 | `update_networking_contact` | Atomically updates mutable person and networking fields for one contact. |
 | `create_document` | Creates a versioned text document owned by an existing job. |
+| `create_uploaded_document` | Saves one staged upload unchanged as an immutable managed job document. |
 | `update_document` | Replaces a managed document's current content while preserving prior versions. |
 | `revert_change` | Reverts one eligible change unless a later revision exists. |
 
@@ -49,7 +52,7 @@ operations into, and validates them against, the update schemas in
 `src/core/src/update-contracts.ts`. The CLI uses those core schemas directly.
 See [ADR 0001](decisions/0001-agent-update-contracts.md).
 
-Document tools use strict, domain-enum-backed schemas. Creation accepts an
+Document tools use strict, domain-enum-backed schemas. Text creation accepts an
 owner, type, title, media type, source description, and content. Updates accept
 an exact document reference, expected current version, replacement content,
 and change summary. They return the owner, stable reference, current version,
@@ -63,3 +66,17 @@ later-revision conflicts. Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
 limited to 50,000 characters. Managed document reads return current content;
 their version history remains immutable.
+
+## Source uploads
+
+The web API accepts DOCX, Markdown, and PDF files within configured byte, page,
+and extracted-character limits. It validates the extension, declared media
+type, and file signature; converts content deterministically to Markdown; and
+stages it in memory for 15 minutes by default. The binary is not persisted.
+
+The chat receives only the staged reference. The agent reads the staged source,
+uses `search_jobs_and_contacts` to resolve its owner, and calls
+`create_uploaded_document` when one existing job is unambiguous; otherwise it
+asks one targeted question. Saved uploads retain filename, detected media type,
+source hash, converter/version, warnings, and upload time. They can be read with
+`get_document` but not changed with `update_document`.

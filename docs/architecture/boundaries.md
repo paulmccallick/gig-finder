@@ -2,6 +2,8 @@
 
 - Domain behavior and validation belong in `src/core`.
 - HTTP parsing, status codes, and streaming belong in `src/web`.
+- Uploaded binaries and format conversion remain in `src/web`; core receives
+  only Markdown and validated provenance.
 - SQL, migrations, repositories, and filesystem artifacts belong in
   `src/sqlite`.
 - CLI and web code call application services; they do not query SQLite.

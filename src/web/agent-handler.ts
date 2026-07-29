@@ -8,7 +8,10 @@ import type { Logger } from "pino";
 import { createCodexLanguageModel } from "../agent/codex-provider";
 import { JobSearchAgent } from "../agent/job-search-agent";
 import type { JobSearchProfile } from "../agent/types";
-import { createJobSearchTools } from "../agent/job-search-tools";
+import {
+  createJobSearchTools,
+  type JobSearchToolExtensions,
+} from "../agent/job-search-tools";
 import type { JobSearchMutationCapabilities } from "../agent/job-search-tools";
 import type { AgentContextReader } from "../core/src";
 import { logger as defaultLogger } from "../observability/logger";
@@ -95,6 +98,7 @@ export function createAgentHandler(
   contextReader?: AgentContextReader,
   mutations?: JobSearchMutationCapabilities,
   actor = "JobSearchAgent",
+  toolExtensions?: JobSearchToolExtensions,
 ) {
   return async (request: Request) => {
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -128,6 +132,7 @@ export function createAgentHandler(
           agentLogger,
           mutations,
           { actor, requestId },
+          toolExtensions,
         )
         : undefined,
       canUpdateDashboardRecords: mutations !== undefined,
