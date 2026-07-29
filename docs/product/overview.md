@@ -12,8 +12,8 @@ Job Search Agent is a local-first workspace for running a job search.
   registered documents, updates existing jobs and contacts, and creates or
   revises managed job documents.
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
-  locally to Markdown, and helps attach them to an existing job without
-  altering the extracted source.
+  locally to Markdown, and attaches a staged reference to the user's next
+  message so the agent can determine what to do without altering the source.
 - Agent conversations last only for the current page load.
 
 ## Entities

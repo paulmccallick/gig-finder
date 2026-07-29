@@ -1,61 +1,117 @@
 import { describe, expect, test } from "bun:test";
+import type {
+  ContactSummary,
+  JobSummary,
+  ListContactsInput,
+  ListJobsInput,
+} from "../src/agent-context";
 import { SearchContextService } from "../src/context-search";
-import type { Job } from "../src/jobs";
-import type { NetworkContact } from "../src/network";
 
-const job = (company: string): Job => ({
-  id: "job-1", company, title: "Engineering Director", jobId: null,
-  roleDirectory: null, stage: "applied", outcome: "pending",
-  statusSummary: "Applied", lastActivity: "2026-07-29", nextAction: null,
-  fit: { rating: "good", summary: null }, payRange: null, sourceUrl: null,
-  tags: [], hasJobDescription: false, hasInterviewPrep: false, location: null,
-  workArrangement: null, postedDate: null, businessUnitTeam: null,
-  recruiterSource: null, bonus: null, equity: null, otherCompensation: null,
+const job = (company: string, id = "job-1"): JobSummary => ({
+  id,
+  company,
+  title: "Engineering Director",
+  stage: "applied",
+  outcome: "pending",
+  statusSummary: "Applied",
+  lastActivity: "2026-07-29",
+  nextAction: null,
+  fit: { rating: "good", summary: null },
+  location: null,
+  workArrangement: null,
 });
 
-const contact = (name: string, company: string): NetworkContact => ({
-  id: "contact-1", name, company, title: "Recruiter", linkedInProfileUrl: null,
-  profileStatus: "missing", connectedOn: null,
-  relationship: { type: "recruiter", strength: "warm", introducedBy: null, notes: null },
-  priority: "medium", status: "active_relationship",
-  outreach: { lastContacted: null, lastContactMethod: null, lastContactSummary: null, nextAction: null, nextActionDue: null },
-  whyInteresting: null, notes: [], tags: [], source: { files: [] },
-  createdAt: "2026-07-29", updatedAt: "2026-07-29",
+const contact = (name: string, company: string): ContactSummary => ({
+  id: "contact-1",
+  name,
+  company,
+  title: "Recruiter",
+  relationship: {
+    type: "recruiter",
+    strength: "warm",
+    introducedBy: null,
+    notes: null,
+  },
+  priority: "medium",
+  status: "active_relationship",
+  outreach: {
+    lastContacted: null,
+    lastContactMethod: null,
+    lastContactSummary: null,
+    nextAction: null,
+    nextActionDue: null,
+  },
+  whyInteresting: null,
+  updatedAt: "2026-07-29",
 });
+
+function existingSearches(jobs: JobSummary[], contacts: ContactSummary[]) {
+  const calls = { jobs: [] as string[], contacts: [] as string[] };
+  const page = <T>(items: T[]) => ({
+    items,
+    page: {
+      offset: 0,
+      limit: 50,
+      returned: items.length,
+      total: items.length,
+      hasMore: false,
+      nextOffset: null,
+    },
+  });
+  const matches = (query: string | undefined, values: Array<string | null>) =>
+    values.some(value => value?.toLocaleLowerCase().includes(query?.toLocaleLowerCase() ?? ""));
+  return {
+    calls,
+    reader: {
+      listJobs: (input: ListJobsInput) => {
+        calls.jobs.push(input.query ?? "");
+        return page(jobs.filter(item => matches(input.query, [item.company, item.title])));
+      },
+      listNetworkingContacts: (input: ListContactsInput) => {
+        calls.contacts.push(input.query ?? "");
+        return page(contacts.filter(item => matches(input.query, [item.name, item.company, item.title])));
+      },
+    },
+  };
+}
 
 describe("context search", () => {
-  test("resolves punctuation variants across jobs and contacts", () => {
-    const service = new SearchContextService({
-      jobs: { list: () => [job("J.D. Power")] },
-      networking: { list: () => [contact("Kimberly Smith", "J.D. Power")] },
-    });
+  test("composes existing searches and resolves punctuation variants", () => {
+    const searches = existingSearches(
+      [job("J.D. Power")],
+      [contact("Kimberly Smith", "J.D. Power")],
+    );
+    const service = new SearchContextService(searches.reader);
 
     const result = service.search({
       companyNames: ["JD Power"],
       personNames: ["Kimberly"],
     });
 
+    expect(searches.calls.jobs).toEqual(["JD Power", "Power"]);
+    expect(searches.calls.contacts).toEqual(["JD Power", "Power", "Kimberly"]);
     expect(result.jobs).toEqual([expect.objectContaining({ id: "job-1" })]);
     expect(result.networkingContacts).toEqual([
       expect.objectContaining({ id: "contact-1" }),
     ]);
   });
 
-  test("returns no records when neither company nor person matches", () => {
-    const service = new SearchContextService({
-      jobs: { list: () => [job("Example Company")] },
-      networking: { list: () => [contact("Alex Smith", "Example Company")] },
-    });
+  test("returns no records when existing searches find no relevant names", () => {
+    const searches = existingSearches(
+      [job("Example Company")],
+      [contact("Alex Smith", "Example Company")],
+    );
+    const service = new SearchContextService(searches.reader);
     expect(service.search({ companyNames: ["Different"], personNames: [] }))
       .toMatchObject({ jobs: [], networkingContacts: [], truncated: false });
   });
 
-  test("returns every plausible owner so the caller can resolve ambiguity", () => {
-    const secondJob = { ...job("Example Company"), id: "job-2", title: "VP Engineering" };
-    const service = new SearchContextService({
-      jobs: { list: () => [job("Example Company"), secondJob] },
-      networking: { list: () => [] },
-    });
+  test("returns every plausible owner from existing search results", () => {
+    const searches = existingSearches([
+      job("Example Company"),
+      { ...job("Example Company", "job-2"), title: "VP Engineering" },
+    ], []);
+    const service = new SearchContextService(searches.reader);
     expect(service.search({ companyNames: ["Example Company"], personNames: [] }).jobs)
       .toHaveLength(2);
   });

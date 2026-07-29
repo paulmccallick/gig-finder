@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-JobSearchAgent has nine read tools and six mutation tools.
+JobSearchAgent has eight read tools and five mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -10,13 +10,11 @@ JobSearchAgent has nine read tools and six mutation tools.
 | `get_networking_contact` | Returns one complete contact and its registered profile reference. |
 | `list_tasks` | Lists tasks; filters by status, priority, type, related entity, overdue state, and text. |
 | `get_task` | Returns one complete task. |
-| `get_document` | Resolves an exact reference returned by a detail tool. |
+| `get_document` | Resolves an exact registered or staged document reference. |
 | `search_jobs_and_contacts` | Resolves company or person names to existing jobs and contacts, ignoring punctuation and case. |
-| `get_staged_document` | Reads converted Markdown and provenance from an exact short-lived upload reference. |
 | `update_job` | Updates mutable fields on one existing job. |
 | `update_networking_contact` | Atomically updates mutable person and networking fields for one contact. |
-| `create_document` | Creates a versioned text document owned by an existing job. |
-| `create_uploaded_document` | Saves one staged upload unchanged as an immutable managed job document. |
+| `create_document` | Creates a versioned job document from inline content or an exact staged reference. |
 | `update_document` | Replaces a managed document's current content while preserving prior versions. |
 | `revert_change` | Reverts one eligible change unless a later revision exists. |
 
@@ -53,7 +51,8 @@ operations into, and validates them against, the update schemas in
 See [ADR 0001](decisions/0001-agent-update-contracts.md).
 
 Document tools use strict, domain-enum-backed schemas. Text creation accepts an
-owner, type, title, media type, source description, and content. Updates accept
+owner, type, title, media type, source description, source kind, and either
+inline content or a staged reference. Updates accept
 an exact document reference, expected current version, replacement content,
 and change summary. They return the owner, stable reference, current version,
 content hash, change ID, and whether content changed; identical content is a
@@ -74,9 +73,12 @@ and extracted-character limits. It validates the extension, declared media
 type, and file signature; converts content deterministically to Markdown; and
 stages it in memory for 15 minutes by default. The binary is not persisted.
 
-The chat receives only the staged reference. The agent reads the staged source,
-uses `search_jobs_and_contacts` to resolve its owner, and calls
-`create_uploaded_document` when one existing job is unambiguous; otherwise it
-asks one targeted question. Saved uploads retain filename, detected media type,
-source hash, converter/version, warnings, and upload time. They can be read with
-`get_document` but not changed with `update_document`.
+Staging does not invoke the agent. The panel retains the upload as an attachment
+and adds only its staged reference to the user's next message. The agent can
+read it with `get_document`, determine an appropriate action, and use
+`search_jobs_and_contacts` when names need resolution; that core service
+composes the existing job and contact list searches. If context is ambiguous,
+the agent asks one targeted question. `create_document` resolves staged content
+server-side, preserving its filename, detected media type, source hash,
+converter/version, warnings, and upload time. Saved uploads cannot be changed
+with `update_document`.

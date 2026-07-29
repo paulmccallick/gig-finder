@@ -25,19 +25,21 @@ export function hasSuccessfulMutation(parts: Parameters<typeof messageText>[0]) 
   });
 }
 
-function hasSavedUpload(parts: Parameters<typeof messageText>[0]) {
+export function hasSavedUpload(parts: Parameters<typeof messageText>[0]) {
   return parts.some(part => {
     if (!isToolUIPart(part)) return false;
     const toolName = part.type === "dynamic-tool"
       ? part.toolName
       : part.type.slice("tool-".length);
-    if (toolName !== "create_uploaded_document") return false;
+    if (toolName !== "create_document") return false;
     if (part.state !== "output-available") return false;
     const output = part.output;
     return typeof output === "object"
       && output !== null
       && "status" in output
-      && output.status === "ok";
+      && output.status === "ok"
+      && "stagedReference" in output
+      && typeof output.stagedReference === "string";
   });
 }
 
@@ -178,9 +180,19 @@ export function AgentPanel({
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [open, onClose]);
 
-  const submit = async (text = input, allowDuringUpload = false) => {
+  const submit = async (text = input) => {
     const value = text.trim();
-    if (!value || activeRef.current || (uploadingRef.current && !allowDuringUpload)) return;
+    const attachedUpload = upload;
+    if (
+      (!value && !attachedUpload)
+      || activeRef.current
+      || uploadingRef.current
+    ) return;
+    const outgoingText = attachedUpload
+      ? [value, `Attached staged document: ${attachedUpload.reference}`]
+          .filter(Boolean)
+          .join("\n\n")
+      : value;
     const sequence = sequenceRef.current + 1;
     sequenceRef.current = sequence;
     diagnosticRef.current = {
@@ -193,13 +205,14 @@ export function AgentPanel({
     console.debug("[JobSearchAgent]", {
       event: "agent.ui.request.submitted",
       interactionSequence: sequence,
-      promptCharacters: value.length,
+      promptCharacters: outgoingText.length,
+      stagedDocumentAttached: attachedUpload !== null,
       messageCount: messages.length + 1,
     });
     clearError();
     setInteractionFailure(null);
     setInput("");
-    await sendMessage({ text: value });
+    await sendMessage({ text: outgoingText });
   };
 
   const retry = () => {
@@ -259,10 +272,6 @@ export function AgentPanel({
         throw new Error(message);
       }
       setUpload(result);
-      await submit(
-        `The web application staged a source document as ${result.reference}. Process this upload using the uploaded-source workflow.`,
-        true,
-      );
     } catch (error) {
       if (!controller.signal.aborted) {
         setUploadFailure(
@@ -407,7 +416,7 @@ export function AgentPanel({
                 });
                 stop();
               }}>Stop <i /></button>
-            : <button className="agent-send" type="submit" disabled={!input.trim()}>Send <span>↗</span></button>}
+            : <button className="agent-send" type="submit" disabled={!input.trim() && !upload}>Send <span>↗</span></button>}
         </div>
       </form>
     </aside>

@@ -173,7 +173,7 @@ describe("JobSearchAgent tools", () => {
     expect(tools.revert_change.strict).toBe(true);
   });
 
-  test("registers staged-upload tools and persists application-owned content", async () => {
+  test("reads staged references and persists them through generic document tools", async () => {
     const stagedDocuments = new StagedDocumentService();
     const staged = stagedDocuments.stage({
       markdown: "# Exact uploaded source",
@@ -223,18 +223,36 @@ describe("JobSearchAgent tools", () => {
       },
     );
     expect(Object.keys(tools)).toContain("search_jobs_and_contacts");
-    expect(Object.keys(tools)).toContain("get_staged_document");
-    expect(Object.keys(tools)).toContain("create_uploaded_document");
-    if (!("create_uploaded_document" in tools)) throw new Error("Upload tool missing.");
-    const createUploadedDocument = tools.create_uploaded_document;
-    if (!createUploadedDocument) throw new Error("Upload tool missing.");
+    expect(Object.keys(tools)).not.toContain("get_staged_document");
+    expect(Object.keys(tools)).not.toContain("create_uploaded_document");
+    const stagedRead = await tools.get_document.execute?.({
+      reference: staged.reference,
+    }, {
+      toolCallId: "read-upload",
+      messages: [],
+      abortSignal: undefined,
+      context: {},
+    });
+    expect(stagedRead).toMatchObject({
+      status: "ok",
+      record: {
+        reference: staged.reference,
+        storage: "staged",
+        content: "# Exact uploaded source",
+      },
+    });
+    if (!("create_document" in tools)) throw new Error("Document tool missing.");
+    const createDocument = tools.create_document;
+    if (!createDocument) throw new Error("Document tool missing.");
 
-    const result = await createUploadedDocument.execute?.({
-      stagedReference: staged.reference,
+    const result = await createDocument.execute?.({
       ownerType: "job",
       ownerId: "job-1",
       documentType: "job_description",
       title: "Director role",
+      sourceKind: "staged_document",
+      source: staged.reference,
+      mediaType: "text/markdown",
       sourceDescription: null,
     }, {
       toolCallId: "call-upload",
@@ -280,9 +298,10 @@ describe("JobSearchAgent tools", () => {
       ownerId: "job-1",
       documentType: "job_description",
       title: "Job description",
+      sourceKind: "inline_content",
+      source: "Supplied source text",
       mediaType: "text/plain",
       sourceDescription: null,
-      content: "Supplied source text",
     })).toMatchObject({
       ownerType: "job",
       documentType: "job_description",
@@ -293,9 +312,10 @@ describe("JobSearchAgent tools", () => {
       ownerId: "contact-1",
       documentType: "job_description",
       title: "Job description",
+      sourceKind: "inline_content",
+      source: "Supplied source text",
       mediaType: "text/plain",
       sourceDescription: null,
-      content: "Supplied source text",
     }).success).toBe(false);
     expect(jobSearchToolSchemas.update_document.safeParse({
       reference: managedDocument.reference,
@@ -340,9 +360,10 @@ describe("JobSearchAgent tools", () => {
         ownerId: "job-1",
         documentType: "job_description",
         title: "Job description",
+        sourceKind: "inline_content",
+        source: "Original source text",
         mediaType: "text/plain",
         sourceDescription: "Provided by the recruiter",
-        content: "Original source text",
       },
       {
         toolCallId: "call-document",

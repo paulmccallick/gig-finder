@@ -18,6 +18,6 @@ export class JobSearchApplication {
       tasks:this.tasks,
       documents:new ApplicationAgentDocumentSource({jobs:this.jobs,people:this.people,contacts:this.networking,managed:this.documents}),
     });
-    this.contextSearch=new SearchContextService({jobs:this.jobs,networking:this.networking});
+    this.contextSearch=new SearchContextService(this.agentContext);
   }
 }

@@ -177,8 +177,9 @@ test("JobSearchAgent surfaces and retries an interrupted empty response", async 
   expect(attempts).toBe(2);
 });
 
-test("JobSearchAgent uploads a source document and sends only its staged reference", async ({ page }) => {
+test("document upload stages without the agent and attaches to the next message", async ({ page }) => {
   const stagedReference = "staged-document:11111111-1111-4111-8111-111111111111";
+  let agentRequests = 0;
   await page.route("**/api/agent/documents", async route => {
     expect(route.request().method()).toBe("POST");
     expect(route.request().postDataBuffer()?.toString()).toContain("Exact source text");
@@ -200,6 +201,7 @@ test("JobSearchAgent uploads a source document and sends only its staged referen
     });
   });
   await page.route("**/api/agent/messages", async route => {
+    agentRequests += 1;
     const body = route.request().postDataJSON() as {
       messages: Array<{ role: string; parts: Array<{ type: string; text?: string }> }>;
     };
@@ -208,6 +210,7 @@ test("JobSearchAgent uploads a source document and sends only its staged referen
       .map(part => part.text)
       .join("");
     expect(prompt).toContain(stagedReference);
+    expect(prompt).toContain("The recruiter sent this job description.");
     expect(prompt).not.toContain("Exact source text");
     await route.fulfill({
       status: 200,
@@ -237,5 +240,11 @@ test("JobSearchAgent uploads a source document and sends only its staged referen
     buffer: Buffer.from("# Director Role\n\nExact source text"),
   });
   await expect(panel).toContainText("Staged: role.md");
+  expect(agentRequests).toBe(0);
+  await panel.getByLabel("Message JobSearchAgent").fill(
+    "The recruiter sent this job description.",
+  );
+  await panel.getByRole("button", { name: /Send/ }).click();
   await expect(panel).toContainText("saved the uploaded source");
+  expect(agentRequests).toBe(1);
 });

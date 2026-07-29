@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "ai";
-import { hasSuccessfulMutation } from "./AgentPanel";
+import { hasSavedUpload, hasSuccessfulMutation } from "./AgentPanel";
 
 describe("agent dashboard refresh signal", () => {
   test("recognizes successful update and revert tool output", () => {
@@ -54,4 +54,27 @@ describe("agent dashboard refresh signal", () => {
     ];
     expect(hasSuccessfulMutation(parts)).toBe(false);
   });
+});
+
+test("staged attachment clears only after generic document creation saves it", () => {
+  expect(hasSavedUpload([{
+    type: "dynamic-tool",
+    toolName: "create_document",
+    toolCallId: "call-document",
+    state: "output-available",
+    input: {},
+    output: {
+      status: "ok",
+      changeId: "agent-tool:call-document",
+      stagedReference: "staged-document:11111111-1111-4111-8111-111111111111",
+    },
+  }])).toBe(true);
+  expect(hasSavedUpload([{
+    type: "dynamic-tool",
+    toolName: "create_document",
+    toolCallId: "call-inline",
+    state: "output-available",
+    input: {},
+    output: { status: "ok", changeId: "agent-tool:call-inline" },
+  }])).toBe(false);
 });

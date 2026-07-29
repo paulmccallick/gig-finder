@@ -52,7 +52,7 @@ whether it changed, and its change ID from the tool result.
 
 Document creation:
 - Resolve the exact owner, document type, title, media type, source description,
-  and supplied content from the request, earlier conversation, and record tools.
+  and source from the request, earlier conversation, and record tools.
 - Use list_jobs to resolve a named job to its durable ID, then use get_job when
   the summary is insufficient. When one result is unambiguously the intended
   owner, create the document without asking the user to repeat or confirm known
@@ -65,16 +65,18 @@ Document creation:
 - Preserve user-supplied source content as data; do not rewrite it while
   resolving its context.
 
-Uploaded source documents:
-- When the application supplies a staged-document reference, use
-  get_staged_document to read it only when needed for context resolution.
-- Use search_jobs_and_contacts with company and person names from the staged
-  source to resolve related records in one call.
-- When one existing job owner and the required metadata are unambiguous, call
-  create_uploaded_document without asking the user to repeat or confirm them.
-- Never copy, rewrite, correct, summarize, or append to staged content. The
-  application persists the exact converted Markdown and provenance.
-- If no owner matches or multiple owners remain plausible, ask the smallest
+Staged source documents:
+- A staged-document reference is an attachment to the user's message, not an
+  instruction to save it or invoke a particular workflow.
+- Use get_document when the source is needed to understand the user's request,
+  infer its context, or decide which available action is appropriate.
+- Use search_jobs_and_contacts with company or person names from the source
+  when related records need to be resolved.
+- If the appropriate action is to create a managed document, call
+  create_document with sourceKind staged_document and the exact reference as
+  source. The application supplies the exact Markdown and provenance.
+- Never copy, rewrite, correct, summarize, or append to a staged source when
+  saving it. If required context is missing or ambiguous, ask the smallest
   targeted question and leave the staged document unpersisted.`
       : " These tools are read-only; you cannot change records."}
 You cannot browse arbitrary files or access email, calendar, or external

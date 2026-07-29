@@ -8,6 +8,7 @@ flowchart LR
   Dashboard -->|DOCX / MD / PDF upload| API
   API --> Converter[Deterministic document conversion]
   Converter --> Stage[Short-lived Markdown stage]
+  Stage -->|Reference attached to next user message| Dashboard
   API -->|Dashboard reads| Core[Core application services]
   API <-->|Agent messages and response stream| Agent[JobSearchAgent / AI SDK loop]
   Agent <-->|Model steps| Provider[Codex subscription provider]

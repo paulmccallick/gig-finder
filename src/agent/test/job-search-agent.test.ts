@@ -150,6 +150,12 @@ describe("JobSearchAgent instructions", () => {
     expect(writableInstructions).toContain(
       "Use null for an unknown source",
     );
+    expect(writableInstructions).toContain(
+      "not an\n  instruction to save it or invoke a particular workflow",
+    );
+    expect(writableInstructions).toContain(
+      "create_document with sourceKind staged_document",
+    );
   });
 
   test("composes the current user's profile separately", () => {
@@ -402,9 +408,10 @@ describe("agent streaming", () => {
                   ownerId: job.id,
                   documentType: "job_description",
                   title: "Director of Engineering job description",
+                  sourceKind: "inline_content",
+                  source: "Lead the engineering organization.",
                   mediaType: "text/plain",
                   sourceDescription: "Shared by Sunil via text message",
-                  content: "Lead the engineering organization.",
                 }),
               },
               {
@@ -498,7 +505,7 @@ describe("agent streaming", () => {
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "read-upload", toolName: "get_staged_document", input: JSON.stringify({ reference: staged.reference }) },
+            { type: "tool-call", toolCallId: "read-upload", toolName: "get_document", input: JSON.stringify({ reference: staged.reference }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
@@ -512,7 +519,7 @@ describe("agent streaming", () => {
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "save-upload", toolName: "create_uploaded_document", input: JSON.stringify({ stagedReference: staged.reference, ownerType: "job", ownerId: job.id, documentType: "job_description", title: "Director of Engineering job description", sourceDescription: null }) },
+            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ ownerType: "job", ownerId: job.id, documentType: "job_description", title: "Director of Engineering job description", sourceKind: "staged_document", source: staged.reference, mediaType: "text/markdown", sourceDescription: null }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
