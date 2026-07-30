@@ -1,36 +1,22 @@
-import path from "node:path";
-import { createAgentHandler } from "./agent-handler";
+import type { Logger } from "pino";
+import type { JobSearchApplication } from "../core/src/application";
 import { toWebError } from "./error-response";
-import {
-  activeLogFile,
-  configuredLogLevel,
-  logger,
-  requestLogger,
-} from "../observability/logger";
-import { loadJobSearchProfile } from "../agent/profile-loader";
-import { openLocalApplication, resolveJobSearchContext } from "../sqlite/src";
-import { registerDevelopmentTelemetry } from "../observability/devtools";
 
-const repoRoot = path.resolve(import.meta.dir, "../..");
-const devToolsEnabled = await registerDevelopmentTelemetry();
-const context = resolveJobSearchContext(repoRoot);
-const {application:jobSearch}=openLocalApplication({database:context.database,artifacts:context.artifacts});
-const port = Number(process.env.API_PORT ?? 3001);
 const agentIdleTimeoutSeconds = 120;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
-const agentHandler = createAgentHandler(
-  loadJobSearchProfile(context.profile),
-  undefined,
-  logger,
-  jobSearch.agentContext,
-  jobSearch,
-  context.actor,
-);
 
-Bun.serve({
-  port,
-  hostname: "127.0.0.1",
-  async fetch(request, server) {
+export interface WebHandlerDependencies {
+  jobSearch: JobSearchApplication;
+  agentHandler(request: Request): Promise<Response>;
+  requestLogger(requestId: string): Logger;
+}
+
+interface RequestTimeoutController {
+  timeout(request: Request, seconds: number): void;
+}
+
+export function createWebHandler({jobSearch,agentHandler,requestLogger}:WebHandlerDependencies) {
+  return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
     const log = requestLogger(requestId);
@@ -90,13 +76,5 @@ Bun.serve({
       latencyMs: Math.round(performance.now() - startedAt),
     }, streaming ? "Started streaming HTTP response" : "Completed HTTP request");
     return response;
-  },
-});
-
-logger.info({
-  event: "server.started",
-  address: `http://127.0.0.1:${port}`,
-  logFile: activeLogFile,
-  logLevel: configuredLogLevel,
-  aiSdkDevTools: devToolsEnabled,
-}, "Read-only jobs API listening");
+  };
+}

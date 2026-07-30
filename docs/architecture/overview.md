@@ -14,7 +14,12 @@ flowchart LR
   Tools --> Core
   Reader --> Core
   CLI[CLI] --> Core
-  Core --> SQLite[(SQLite)]
+  CLIEntry[CLI entry point] --> CLI
+  CLIEntry --> SQLite
+  WebEntry[Web entry point] --> API
+  WebEntry --> Agent
+  WebEntry --> SQLite
+  SQLite -->|implements persistence ports| Core
   Core --> Artifacts[Local artifacts]
 ```
 
@@ -23,6 +28,9 @@ flowchart LR
 - `src/cli/` adapts commands to shared services.
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
 - `src/web/` owns the Bun HTTP API and React dashboard.
+- `src/entrypoints/` owns runtime composition. Entry points resolve local
+  configuration, construct SQLite-backed application services, inject them into
+  the CLI or web adapter, and close runtime resources.
 
 ## Persistence and history
 
