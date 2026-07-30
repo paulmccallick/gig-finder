@@ -1,6 +1,6 @@
 const root = new URL("../../", import.meta.url).pathname;
 
-const api = Bun.spawn(["bun", "--watch", "src/web/server.ts"], {
+const api = Bun.spawn(["bun", "--watch", "src/entrypoints/web.ts"], {
   cwd: root,
   env: {
     ...process.env,

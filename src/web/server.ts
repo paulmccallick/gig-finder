@@ -1,75 +1,25 @@
-import path from "node:path";
-import { createAgentHandler } from "./agent-handler";
+import type { Logger } from "pino";
+import type { JobSearchApplication } from "../core/src/application";
 import { toWebError } from "./error-response";
-import {
-  activeLogFile,
-  configuredLogLevel,
-  logger,
-  requestLogger,
-} from "../observability/logger";
-import { loadJobSearchProfile } from "../agent/profile-loader";
-import { openLocalApplication, resolveJobSearchContext } from "../sqlite/src";
-import { registerDevelopmentTelemetry } from "../observability/devtools";
-import { managedDocumentContentLimit, StagedDocumentService } from "../core/src";
-import { LocalDocumentConverter } from "./document-conversion";
-import { createDocumentUploadHandler } from "./document-upload-handler";
 
-const repoRoot = path.resolve(import.meta.dir, "../..");
-const devToolsEnabled = await registerDevelopmentTelemetry();
-const context = resolveJobSearchContext(repoRoot);
-const {application:jobSearch}=openLocalApplication({database:context.database,artifacts:context.artifacts});
-const port = Number(process.env.API_PORT ?? 3001);
 const agentIdleTimeoutSeconds = 120;
 const documentUploadTimeoutSeconds = 60;
-const positiveInteger = (value: string | undefined, fallback: number) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-};
-const uploadLimits = {
-  maxBytes: positiveInteger(process.env.DOCUMENT_UPLOAD_MAX_BYTES, 10_000_000),
-  maxCharacters: positiveInteger(
-    process.env.DOCUMENT_EXTRACTION_MAX_CHARACTERS,
-    managedDocumentContentLimit,
-  ),
-  maxPdfPages: positiveInteger(process.env.DOCUMENT_PDF_MAX_PAGES, 100),
-  maxDocxUncompressedBytes: positiveInteger(
-    process.env.DOCUMENT_DOCX_MAX_UNCOMPRESSED_BYTES,
-    25_000_000,
-  ),
-};
-const maxRequestBodySize = uploadLimits.maxBytes + 1_000_000;
-const stagedDocuments = new StagedDocumentService({
-  lifetimeMs: positiveInteger(
-    process.env.DOCUMENT_STAGE_TTL_MS,
-    15 * 60 * 1000,
-  ),
-  maxDocuments: positiveInteger(process.env.DOCUMENT_STAGE_MAX_DOCUMENTS, 20),
-  maxTotalCharacters: positiveInteger(
-    process.env.DOCUMENT_STAGE_MAX_CHARACTERS,
-    managedDocumentContentLimit * 10,
-  ),
-});
-const uploadHandler = createDocumentUploadHandler(
-  new LocalDocumentConverter(uploadLimits),
-  stagedDocuments,
-  uploadLimits.maxBytes,
-);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
-const agentHandler = createAgentHandler(
-  loadJobSearchProfile(context.profile),
-  undefined,
-  logger,
-  jobSearch.agentContext,
-  jobSearch,
-  context.actor,
-  { contextSearch: jobSearch.contextSearch, stagedDocuments },
-);
 
-Bun.serve({
-  port,
-  hostname: "127.0.0.1",
-  maxRequestBodySize,
-  async fetch(request, server) {
+export interface WebHandlerDependencies {
+  jobSearch: JobSearchApplication;
+  agentHandler(request: Request): Promise<Response>;
+  uploadHandler(request: Request): Promise<Response>;
+  discardStagedDocument(reference: string): boolean;
+  requestLogger(requestId: string): Logger;
+}
+
+interface RequestTimeoutController {
+  timeout(request: Request, seconds: number): void;
+}
+
+export function createWebHandler({jobSearch,agentHandler,uploadHandler,discardStagedDocument,requestLogger}:WebHandlerDependencies) {
+  return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
     const log = requestLogger(requestId);
@@ -109,7 +59,7 @@ Bun.serve({
           url.pathname.slice("/api/agent/documents/".length),
         );
         response = request.method === "DELETE"
-          ? stagedDocuments.discard(reference)
+          ? discardStagedDocument(reference)
             ? new Response(null, { status: 204 })
             : json({ error: "Staged document not found" }, 404)
           : json({ error: "Method not allowed" }, 405);
@@ -146,13 +96,5 @@ Bun.serve({
       latencyMs: Math.round(performance.now() - startedAt),
     }, streaming ? "Started streaming HTTP response" : "Completed HTTP request");
     return response;
-  },
-});
-
-logger.info({
-  event: "server.started",
-  address: `http://127.0.0.1:${port}`,
-  logFile: activeLogFile,
-  logLevel: configuredLogLevel,
-  aiSdkDevTools: devToolsEnabled,
-}, "Read-only jobs API listening");
+  };
+}

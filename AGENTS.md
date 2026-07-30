@@ -14,8 +14,10 @@ Project](https://github.com/users/paulmccallick/projects/5).
   documents, logs, SQLite files, or backups to this repository.
 - Use synthetic fixtures in tests and examples.
 - Add regression tests for changed documented behavior.
-- Run `bun run typecheck`, `bun test`, and `bun run build` for application
-  changes. Run `bun run test:e2e` for dashboard behavior changes.
+- Run `bun run check` and `bun run build` for application changes.
+- Run `bun run test:e2e` for dashboard behavior changes.
+- Definition of done: all required checks pass, and any issues found by those
+  checks are fixed as part of the change.
 - Limit scope to the requested feature
 - Apply SOLID principles
 - Be pragmatic - avoid unecessary obfuscation

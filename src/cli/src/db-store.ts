@@ -8,23 +8,15 @@ import type { NetworkContact } from "../../core/src/network";
 import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../../core/src/tasks";
 import type { ContactTouchInput,JobTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
 import type { JobUpdate, NetworkingContactUpdate } from "../../core/src/update-contracts";
-import { openLocalApplication,resolveJobSearchContext } from "../../sqlite/src";
+import type { JobSearchApplication } from "../../core/src/application";
 
-export interface TrackerPaths{database:string;artifacts:string;actor:string}
+export interface CliRuntime{application:JobSearchApplication;actor:string}
+type TrackerPaths=CliRuntime;
 export interface UpdateOptions{dryRun?:boolean;date?:string}
-export const trackerPaths=(repoRoot:string):TrackerPaths=>{const resolved=resolveJobSearchContext(repoRoot);return{database:resolved.database,artifacts:resolved.artifacts,actor:resolved.actor}};
 export function pacificDate(now=new Date()){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(now);const get=(type:Intl.DateTimeFormatPartTypes)=>parts.find(part=>part.type===type)?.value??"";return`${get("year")}-${get("month")}-${get("day")}`}
 const timestamp=(date?:string)=>`${date??pacificDate()}T12:00:00-07:00`;
 const context=(paths:TrackerPaths,summary:string,date?:string)=>({actor:paths.actor,source:"user_request" as const,summary,occurredAt:timestamp(date)});
-function withApplication<T>(paths:TrackerPaths,action:(app:ReturnType<typeof openLocalApplication>["application"])=>T):T{
-  const local=openLocalApplication(paths);
-  try{
-    const result=action(local.application);
-    if(result instanceof Promise)return result.finally(local.close) as T;
-    local.close();
-    return result;
-  }catch(error){local.close();throw error}
-}
+function withApplication<T>(runtime:TrackerPaths,action:(app:JobSearchApplication)=>T):T{return action(runtime.application)}
 
 export const getJob=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.jobs.get(id));
 export const listJobs=(paths:TrackerPaths)=>withApplication(paths,app=>app.jobs.list());

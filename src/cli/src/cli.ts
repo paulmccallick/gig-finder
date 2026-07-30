@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, trackerPaths, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
+import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
 import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
@@ -13,7 +13,7 @@ import {
   networkingContactUpdateSchema,
 } from "../../core/src/update-contracts";
 
-const usage = `job-search — job-search application CLI
+export const cliUsage = `job-search — job-search application CLI
 
 Usage:
   job-search jobs get <id>
@@ -46,6 +46,7 @@ Usage:
 
 Patch files are recommended for long or sensitive text. Arrays are replaced;
 objects are deep-merged; null explicitly clears a value. All writes are atomic.`;
+const usage = cliUsage;
 
 type Flags = Record<string, string | boolean>;
 const parseFlags = (args: string[]): Flags => {
@@ -69,8 +70,6 @@ const required = (flags: Flags, key: string): string => {
 const optional = (flags: Flags, key: string): string | undefined => typeof flags[key] === "string" ? flags[key] : undefined;
 const commaList = (flags: Flags, key: string): string[] => (optional(flags, key) ?? "").split(",").map(value => value.trim()).filter(Boolean);
 const nullable = (value: string | undefined): string | null | undefined => value === "none" ? null : value;
-const repoRoot = path.resolve(import.meta.dir, "../../..");
-
 async function patchFrom(flags: Flags): Promise<Record<string, unknown>> {
   const inline = optional(flags, "patch");
   const file = optional(flags, "patch-file");
@@ -102,10 +101,10 @@ const acceptedValue = <T extends string>(
   return accepted;
 };
 
-async function handleDocuments(args: string[]): Promise<boolean> {
+async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boolean> {
   if (args[0] !== "documents") return false;
   const command = args[1];
-  const paths = trackerPaths(repoRoot);
+  const paths = runtime;
 
   if (command === "list") {
     const flags = parseFlags(args.slice(2));
@@ -199,22 +198,22 @@ async function handleDocuments(args: string[]): Promise<boolean> {
   throw new Error(usage);
 }
 
-async function main(args: string[]) {
+export async function runCli(args: string[], runtime: CliRuntime) {
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) { console.log(usage); return; }
-  if (await handleDocuments(args)) return;
-  if(args[0]==="artifacts"&&args[1]==="verify"){const result=await verifyArtifacts(trackerPaths(repoRoot));console.log(JSON.stringify({ok:result.ok,result},null,2));if(!result.ok)process.exitCode=1;return}
-  if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(trackerPaths(repoRoot));console.log(JSON.stringify({ok:true,result},null,2));return}
+  if (await handleDocuments(args, runtime)) return;
+  if(args[0]==="artifacts"&&args[1]==="verify"){const result=await verifyArtifacts(runtime);console.log(JSON.stringify({ok:result.ok,result},null,2));if(!result.ok)process.exitCode=1;return}
+  if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(runtime);console.log(JSON.stringify({ok:true,result},null,2));return}
   const aliases:Record<string,string>={jobs:"job",networking:"contact",contacts:"contact",tasks:"task",people:"person","job-people":"job-person",meetings:"meeting",events:"event"};
   const [rawEntity, command, id, ...rest] = args;const entity=aliases[rawEntity??""]??rawEntity;
   if (!["job", "contact", "person", "job-person", "task", "meeting", "event"].includes(entity ?? "") || !["get", "list", "update", "touch", "add", "complete"].includes(command ?? "")) throw new Error(usage);
   if (entity === "event" && command === "list") {
     const flags = parseFlags(args.slice(2));
-    console.log(JSON.stringify({ok:true,entity,command,records:listEvents(trackerPaths(repoRoot),optional(flags,"entity-type"),optional(flags,"entity-id"))},null,2));
+    console.log(JSON.stringify({ok:true,entity,command,records:listEvents(runtime,optional(flags,"entity-type"),optional(flags,"entity-id"))},null,2));
     return;
   }
   if (command === "get" || command === "list") {
     if ((command === "get" && !id) || (command === "list" && id)) throw new Error(usage);
-    const paths = trackerPaths(repoRoot);
+    const paths = runtime;
     const result = command === "list"
       ? entity === "job" ? listJobs(paths) : entity === "contact" ? listContacts(paths) : entity === "person" ? listPeople(paths) : entity === "meeting" ? listMeetings(paths) : listTasks(paths)
       : entity === "job" ? getJob(paths, id!) : entity === "contact" ? getContact(paths, id!) : entity === "person" ? getPerson(paths,id!) : entity === "meeting" ? getMeeting(paths,id!) : getTask(paths, id!);
@@ -224,7 +223,7 @@ async function main(args: string[]) {
   }
   if (!id) throw new Error(usage);
   const flags = parseFlags(rest);
-  const paths = trackerPaths(repoRoot);
+  const paths = runtime;
   const dryRun = flags["dry-run"] === true;
   let result: JobRole | NetworkContact | TaskRecord | PersonData | JobPersonData | MeetingData | BusinessEventInput;
 
@@ -277,5 +276,3 @@ async function main(args: string[]) {
   } else throw new Error(usage);
   console.log(JSON.stringify({ ok: true, dryRun, entity, command, id, record: result }, null, 2));
 }
-
-main(process.argv.slice(2)).catch((error: unknown) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });

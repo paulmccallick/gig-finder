@@ -32,11 +32,17 @@ describe("application boundaries", () => {
       expect(source).not.toMatch(/schemaVersion|parseJobIndex|parseNetworkIndex|parseTaskIndex|jobIndexProjection|networkProjection|taskProjection/);
     }
   });
-  test("adapters use the shared local application instead of constructing repositories",()=>{
-    for(const relative of ["src/cli/src/db-store.ts","src/web/server.ts"]){
+  test("composition roots construct the local application outside adapters",()=>{
+    for(const relative of ["src/cli/src/db-store.ts","src/cli/src/cli.ts","src/web/server.ts"]){
       const source=readFileSync(path.join(root,relative),"utf8");
       expect(source).not.toMatch(/new DataStore|new JobSearchApplication|openDatabase/);
+      expect(source).not.toContain("openLocalApplication");
+      expect(source).not.toContain("src/sqlite");
+    }
+    for(const relative of ["src/entrypoints/cli.ts","src/entrypoints/web.ts"]){
+      const source=readFileSync(path.join(root,relative),"utf8");
       expect(source).toContain("openLocalApplication");
+      expect(source).toContain("local.close()");
     }
   });
 
@@ -58,9 +64,9 @@ describe("application boundaries", () => {
     );
     expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
     expect(source).toContain("AgentContextReader");
-    expect(source).toContain("JobDomainService");
-    expect(source).toContain("ContactDomainService");
     expect(source).toContain("ChangeService");
+    expect(source).toContain("ManagedDocumentService");
+    expect(source).toContain("SearchContextService");
     expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(12);
     expect(source).not.toMatch(/z\.enum\((pipelineStages|outcomes|contactStatuses)/);
     const cli = readFileSync(path.join(root, "src/cli/src/cli.ts"), "utf8");

@@ -5,8 +5,6 @@ import type {
   AgentContextReader,
   ChangeContext,
   ChangeService,
-  ContactDomainService,
-  JobDomainService,
   JobUpdate,
   ListContactsInput,
   ListJobsInput,

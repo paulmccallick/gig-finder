@@ -1,4 +1,4 @@
-import type { ArtifactPort, AuditPort, Persistence } from "./ports";
+import type { ArtifactPort, Persistence } from "./ports";
 import type { ChangeContext, EntityRecord, JobData, NetworkingContactData, PersonData, TaskData } from "./models";
 import { fitRatings, outcomes, pipelineStages, type Job, type JobRole } from "./jobs";
 import { DomainValidationError } from "./errors";
