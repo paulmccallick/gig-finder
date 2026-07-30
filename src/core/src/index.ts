@@ -1,6 +1,6 @@
 export * from "./application";
-export * from "./agent-context";
 export * from "./changes";
+export * from "./document-reader";
 export * from "./documents";
 export * from "./staged-documents";
 export * from "./context-search";
@@ -9,7 +9,9 @@ export * from "./jobs";
 export * from "./network";
 export * from "./tasks";
 export * from "./models";
+export * from "./people";
 export * from "./ports";
+export * from "./queries";
 export * from "./tracker-services";
 export * from "./services";
 export * from "./update-contracts";

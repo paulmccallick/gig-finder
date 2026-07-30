@@ -1,8 +1,10 @@
+import type { JobRecord } from "./jobs";
+import type { NetworkContactRecord } from "./network";
 import type {
-  AgentContextReader,
-  ContactSummary,
-  JobSummary,
-} from "./agent-context";
+  JobQueryInput,
+  NetworkingContactQueryInput,
+  Page,
+} from "./queries";
 
 export interface SearchContextInput {
   companyNames: string[];
@@ -11,13 +13,13 @@ export interface SearchContextInput {
 
 export interface SearchContextResult {
   jobs: Array<Pick<
-    JobSummary,
+    JobRecord,
     "id" | "company" | "title" | "stage" | "outcome"
   > & {
     matchedCompanyNames: string[];
   }>;
   networkingContacts: Array<Pick<
-    ContactSummary,
+    NetworkContactRecord,
     "id" | "name" | "company" | "title" | "status"
   > & {
     matchedCompanyNames: string[];
@@ -26,10 +28,12 @@ export interface SearchContextResult {
   truncated: boolean;
 }
 
-type ContextSearchReader = Pick<
-  AgentContextReader,
-  "listJobs" | "listNetworkingContacts"
->;
+interface ContextSearchSources {
+  jobs: { query(input: JobQueryInput): Page<JobRecord> };
+  networking: {
+    query(input: NetworkingContactQueryInput): Page<NetworkContactRecord>;
+  };
+}
 
 const normalized = (value: string) => value
   .normalize("NFKD")
@@ -61,22 +65,22 @@ const searchTerms = (query: string) => [
 ].filter((term, index, values) => term && values.indexOf(term) === index);
 
 export class SearchContextService {
-  constructor(private readonly reader: ContextSearchReader) {}
+  constructor(private readonly sources: ContextSearchSources) {}
 
   search(input: SearchContextInput): SearchContextResult {
     const companyNames = uniqueQueries(input.companyNames);
     const personNames = uniqueQueries(input.personNames);
-    const jobCandidates = new Map<string, JobSummary>();
-    const contactCandidates = new Map<string, ContactSummary>();
+    const jobCandidates = new Map<string, JobRecord>();
+    const contactCandidates = new Map<string, NetworkContactRecord>();
     let truncated = false;
 
     for (const query of companyNames) {
       for (const term of searchTerms(query)) {
-        const jobs = this.reader.listJobs({ query: term, offset: 0, limit: 50 });
+        const jobs = this.sources.jobs.query({ query: term, offset: 0, limit: 50 });
         truncated ||= jobs.page.hasMore;
         for (const job of jobs.items) jobCandidates.set(job.id, job);
 
-        const contacts = this.reader.listNetworkingContacts({
+        const contacts = this.sources.networking.query({
           query: term,
           offset: 0,
           limit: 50,
@@ -87,7 +91,7 @@ export class SearchContextService {
     }
     for (const query of personNames) {
       for (const term of searchTerms(query)) {
-        const contacts = this.reader.listNetworkingContacts({
+        const contacts = this.sources.networking.query({
           query: term,
           offset: 0,
           limit: 50,

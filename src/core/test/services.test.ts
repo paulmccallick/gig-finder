@@ -28,23 +28,23 @@ describe("application services",()=>{
  test("networking service composes a person with outreach state",()=>{app.networking.create(context,{id:"network-person",name:"Network Person",company:null,title:null,linkedInProfileUrl:null,profileStatus:"missing",connectedOn:null,relationship:{type:"colleague",strength:"warm",introducedBy:null,notes:null},priority:"high",status:"not_contacted",outreach:{lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:null,nextActionDue:null},whyInteresting:null,notes:[],tags:[],source:{files:[]},createdAt:"2026-07-22",updatedAt:"2026-07-22"});expect(app.networking.get("network-person")?.name).toBe("Network Person")});
  test("task service creates and updates tasks",()=>{const created=app.tasks.createNew(context,{id:"task",title:"Task",type:"other",dueDate:null,relatedEntity:{type:"general",id:null,label:"General"},date:"2026-07-22"});expect(app.tasks.complete(context,created.id,"2026-07-22").status).toBe("completed")});
  test("meeting service stores meetings",()=>{app.meetings.create(context,{id:"meeting",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:null,description:null,status:"confirmed",relatedEntityType:null,relatedEntityId:null,externalCalendarId:null,externalEventId:null});expect(app.meetings.list()).toHaveLength(1)});
- test("job-people service filters relationships",()=>{app.jobPeople.create(context,{id:"relation",jobId:"job",personId:"person",relationship:"interviewer",notes:null});expect(app.jobPeople.forJob("job")).toHaveLength(1)});
+ test("job-people service filters relationships",()=>{app.jobPeople.create(context,{id:"relation",jobId:"job",personId:"person",relationship:"interviewer",notes:null});const result=app.jobPeople.query({jobIds:["job"]});expect(result.status==="ok"?result.items:[]).toHaveLength(1)});
  test("event service records sourced business events",()=>{expect(app.events.record(context,{id:"event",type:"message_received",entityType:"job",entityId:"job",occurredAt:"2026-07-22T12:00:00-07:00",summary:"Recruiter wrote",sources:[{sourceSystem:"linkedin",importedAt:"2026-07-22T12:00:00-07:00"}]})).toBe("event");expect(recordedEvents).toContain("event")});
  test("history service delegates audit queries",()=>{expect(app.history.entity("job","job")).toBeTruthy()});
  test("managed document service creates immutable versions and deduplicates identical content",async()=>{
   if(!app.jobs.get("job"))app.jobs.create(context,{id:"job",company:"Company",title:"VP",jobId:null,roleDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-07-22",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[],hasJobDescription:true,hasInterviewPrep:true});
   const created=app.documents.create({...context,changeId:"document-create"},{links:[{entityType:"job",entityId:"job"}],documentType:"job_description",title:"Job description",mediaType:"text/plain",sourceDescription:"Provided by the user",content:"Original description"});
   expect(created).toMatchObject({changed:true,changeId:"document-create",document:{currentVersion:1,content:"Original description"}});
-  const jobDetail=await app.agentContext.getJob("job");
+  const jobDetail=app.jobs.read("job");
   expect(jobDetail.status).toBe("ok");
   expect(jobDetail.status==="ok" ? jobDetail.record.documents : []).toContainEqual(expect.objectContaining({id:created.document.id,type:"job_description"}));
-  expect(await app.agentContext.getDocument(created.document.id)).toMatchObject({status:"ok",record:{content:"Original description"}});
+  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Original description"}});
   const unchanged=app.documents.update({...context,changeId:"document-noop"},{documentId:created.document.id,expectedVersion:1,content:"Original description",changeSummary:"No content change"});
   expect(unchanged).toMatchObject({changed:false,changeId:null,document:{currentVersion:1}});
   const updated=app.documents.update({...context,changeId:"document-update"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Correct source text"});
   expect(updated).toMatchObject({changed:true,changeId:"document-update",document:{currentVersion:2,content:"Corrected description"}});
   expect(app.documents.versions(created.document.id).map(version=>version.content)).toEqual(["Corrected description","Original description"]);
-  expect(await app.agentContext.getDocument(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description"}});
+  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description"}});
  expect(()=>app.documents.update(context,{documentId:created.document.id,expectedVersion:1,content:"Stale description",changeSummary:"Stale update"})).toThrow(new MutationError("revision_conflict",`Document ${created.document.id} expected version 1 but is at version 2.`));
  });
  test("uploaded source documents preserve provenance and cannot be edited",()=>{
