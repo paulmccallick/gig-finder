@@ -1,4 +1,8 @@
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
+import type {
+  CreateManagedDocumentInput,
+  UpdateManagedDocumentInput,
+} from "../../core/src/documents";
 import type { JobRole } from "../../core/src/jobs";
 import type { NetworkContact } from "../../core/src/network";
 import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../../core/src/tasks";
@@ -46,4 +50,9 @@ export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)
 
 export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
 export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));
+export const listDocuments=(paths:TrackerPaths,entityType:"job"|"person",entityId:string)=>withApplication(paths,app=>app.documents.list(entityType,entityId));
+export const getDocument=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.get(documentId));
+export const listDocumentVersions=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.versions(documentId));
+export const createDocument=(paths:TrackerPaths,input:CreateManagedDocumentInput)=>withApplication(paths,app=>app.documents.create(context(paths,`CLI document create ${input.documentType}`),input));
+export const updateDocument=(paths:TrackerPaths,input:UpdateManagedDocumentInput)=>withApplication(paths,app=>app.documents.update(context(paths,input.changeSummary),input));
 export type{TaskPriority,TaskRecord,TaskStatus,TaskType};

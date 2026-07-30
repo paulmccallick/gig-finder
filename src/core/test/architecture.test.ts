@@ -64,10 +64,10 @@ describe("application boundaries", () => {
     );
     expect(source).not.toMatch(/src\/sqlite|openDatabase|DataStore|bun:sqlite/);
     expect(source).toContain("AgentContextReader");
-    expect(source).toContain("JobDomainService");
-    expect(source).toContain("ContactDomainService");
     expect(source).toContain("ChangeService");
-    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(10);
+    expect(source).toContain("ManagedDocumentService");
+    expect(source).toContain("SearchContextService");
+    expect(source.match(/^\s{4}[a-z_]+: tool\(/gm)).toHaveLength(12);
     expect(source).not.toMatch(/z\.enum\((pipelineStages|outcomes|contactStatuses)/);
     const cli = readFileSync(path.join(root, "src/cli/src/cli.ts"), "utf8");
     expect(cli).not.toMatch(/as Partial<(Job|JobRole|NetworkContact)>/);

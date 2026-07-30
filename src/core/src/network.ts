@@ -16,7 +16,6 @@ export interface NetworkContact {
   title: string | null;
   linkedInProfileUrl: string | null;
   profileStatus: "missing" | "verified";
-  hasLocalProfile?: boolean;
   connectedOn: string | null;
   relationship: { type: string; strength: RelationshipStrength; introducedBy: string | null; notes: string | null };
   priority: ContactPriority;
@@ -28,6 +27,12 @@ export interface NetworkContact {
   source: { files: string[] };
   createdAt: string;
   updatedAt: string;
+}
+
+export interface NetworkContactRecord extends NetworkContact {
+  personId: string;
+  hasProfile: boolean;
+  documents: DocumentSummary[];
 }
 
 export const statusLabels: Record<ContactStatus, string> = {
@@ -49,3 +54,4 @@ export function compareContacts(a: NetworkContact, b: NetworkContact, today: str
   if (priority) return priority;
   return (a.outreach.nextActionDue ?? "9999-12-31").localeCompare(b.outreach.nextActionDue ?? "9999-12-31") || a.name.localeCompare(b.name);
 }
+import type { DocumentSummary } from "./documents";

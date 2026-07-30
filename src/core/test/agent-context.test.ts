@@ -5,11 +5,11 @@ import {
   agentDocumentContentLimit,
   type AgentContextSources,
 } from "../src/agent-context";
-import type { Job } from "../src/jobs";
-import type { NetworkContact } from "../src/network";
+import type { JobRecord } from "../src/jobs";
+import type { NetworkContactRecord } from "../src/network";
 import type { TaskRecord } from "../src/tasks";
 
-const job = (id: string, patch: Partial<Job> = {}): Job => ({
+const job = (id: string, patch: Partial<JobRecord> = {}): JobRecord => ({
   id,
   company: `Company ${id}`,
   title: `Role ${id}`,
@@ -34,13 +34,14 @@ const job = (id: string, patch: Partial<Job> = {}): Job => ({
   bonus: null,
   equity: null,
   otherCompensation: null,
+  documents: [],
   ...patch,
 });
 
 const contact = (
   id: string,
-  patch: Partial<NetworkContact> = {},
-): NetworkContact => ({
+  patch: Partial<NetworkContactRecord> = {},
+): NetworkContactRecord => ({
   id,
   name: `Person ${id}`,
   company: "Example",
@@ -69,6 +70,9 @@ const contact = (
   source: { files: [] },
   createdAt: "2026-07-01",
   updatedAt: "2026-07-20",
+  personId: id,
+  hasProfile: false,
+  documents: [],
   ...patch,
 });
 
@@ -88,8 +92,8 @@ const task = (id: string, patch: Partial<TaskRecord> = {}): TaskRecord => ({
 });
 
 function reader(
-  jobs: Job[] = [],
-  contacts: NetworkContact[] = [],
+  jobs: JobRecord[] = [],
+  contacts: NetworkContactRecord[] = [],
   tasks: TaskRecord[] = [],
 ) {
   const source = <T extends { id: string }>(records: T[]) => ({
@@ -198,7 +202,22 @@ describe("JobSearchAgentContext", () => {
     });
   });
 
-  test("lists stable document references and resolves only registered documents", async () => {
+  test("lists artifact references and resolves managed document IDs", async () => {
+    const managedDocument = {
+      id: "doc_00000000-0000-4000-8000-000000000001",
+      links: [{ entityType: "job" as const, entityId: "job-1" }],
+      documentType: "notes" as const,
+      title: "Role notes",
+      displayName: "Role notes",
+      mediaType: "text/markdown" as const,
+      sourceDescription: null,
+      uploadProvenance: null,
+      currentVersion: 2,
+      content: "Current notes",
+      contentHash: "hash-v2",
+      createdAt: "2026-07-20T12:00:00.000Z",
+      updatedAt: "2026-07-21T12:00:00.000Z",
+    };
     const documentSource = new ApplicationAgentDocumentSource({
       jobs: {
         get: (id) => id === "job-1"
@@ -207,12 +226,16 @@ describe("JobSearchAgentContext", () => {
         description: async () => "Job description content",
         prep: async () => [{ name: "screen.md", content: "Interview notes" }],
       },
-      people: {
-        get: (id) => id === "person-1" ? { hasLocalProfile: true } : null,
-        profile: async (id) => id === "person-1" ? "" : null,
-      },
       contacts: {
         personId: (id) => id === "contact-1" ? "person-1" : null,
+      },
+      managed: {
+        get: (documentId) =>
+          documentId === managedDocument.id ? managedDocument : null,
+        list: (entityType, entityId) =>
+          entityType === "job" && entityId === "job-1"
+            ? [managedDocument]
+            : [],
       },
     });
     const source = <T extends { id: string }>(records: T[]) => ({
@@ -221,12 +244,11 @@ describe("JobSearchAgentContext", () => {
     });
     const context = new JobSearchAgentContext({
       jobs: source([job("job-1", { hasJobDescription: true, hasInterviewPrep: true })]),
-      networking: source([contact("contact-1", { hasLocalProfile: true })]),
+      networking: source([contact("contact-1")]),
       tasks: source([]),
       documents: documentSource,
     });
-    const detail = await context.getJob("job-1");
-    expect(detail.status === "ok" ? detail.record.documents : []).toEqual([
+    expect(await documentSource.list("job", "job-1")).toEqual([
       expect.objectContaining({
         reference: "job:job-1:job_description",
         title: "Job description",
@@ -234,6 +256,11 @@ describe("JobSearchAgentContext", () => {
       expect.objectContaining({
         reference: "job:job-1:interview_prep:screen.md",
         title: "screen.md",
+      }),
+      expect.objectContaining({
+        reference: managedDocument.id,
+        storage: "managed",
+        currentVersion: 2,
       }),
     ]);
     expect(await context.getDocument("job:job-1:interview_prep:screen.md")).toMatchObject({
@@ -244,13 +271,21 @@ describe("JobSearchAgentContext", () => {
         totalCharacters: 15,
       },
     });
-    expect(await context.getDocument("contact:contact-1:contact_profile")).toMatchObject({
-      status: "ok",
-      record: { entityId: "contact-1", content: "", totalCharacters: 0 },
+    expect(await context.getDocument("contact:contact-1:contact_profile")).toEqual({
+      status: "not_found",
+      id: "contact:contact-1:contact_profile",
     });
     expect(await context.getDocument("job:job-1:interview_prep:missing.md")).toEqual({
       status: "not_found",
       id: "job:job-1:interview_prep:missing.md",
+    });
+    expect(await context.getDocument(managedDocument.id)).toMatchObject({
+      status: "ok",
+      record: {
+        content: "Current notes",
+        storage: "managed",
+        currentVersion: 2,
+      },
     });
   });
 
@@ -263,10 +298,6 @@ describe("JobSearchAgentContext", () => {
           : null,
         description: async () => content,
         prep: async () => [],
-      },
-      people: {
-        get: () => null,
-        profile: async () => null,
       },
       contacts: {
         personId: () => null,

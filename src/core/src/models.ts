@@ -23,7 +23,7 @@ export interface JobData {
   id: string; company: string; title: string; externalJobId: string | null; stage: string; outcome: string; statusSummary: string; lastActivity: string; nextActionDescription: string | null; nextActionDue: string | null; fitRating: string; fitSummary: string | null; payCurrency: string | null; payMinimum: number | null; payMaximum: number | null; payPeriod: string | null; payNotes: string | null; sourceUrl: string | null; location: string | null; workArrangement: string | null; postedDate: string | null; businessUnitTeam: string | null; recruiterSource: string | null; bonus: string | null; equity: string | null; otherCompensation: string | null; tagsJson: string; hasJobDescription:boolean; hasInterviewPrep:boolean;
 }
 export interface PersonData {
-  id:string; name:string; company:string|null; title:string|null; linkedInProfileUrl:string|null; connectedOn:string|null; hasLocalProfile:boolean;
+  id:string; name:string; company:string|null; title:string|null; linkedInProfileUrl:string|null; connectedOn:string|null;
 }
 export interface NetworkingContactData {
   id:string; personId:string; relationshipType:string; relationshipStrength:string; introducedBy:string|null; relationshipNotes:string|null; priority:string; status:string; lastContacted:string|null; lastContactMethod:string|null; lastContactSummary:string|null; nextAction:string|null; nextActionDue:string|null; whyInteresting:string|null; notesJson:string; tagsJson:string;

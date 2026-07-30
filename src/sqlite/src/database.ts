@@ -13,6 +13,10 @@ export function openDatabase(filename: string, options: { create?: boolean } = {
 }
 
 export function migrateDatabase(database: Database): void {
-  migrate(drizzle(database), { migrationsFolder });
+  database.exec("PRAGMA foreign_keys = OFF");
+  try {
+    migrate(drizzle(database), { migrationsFolder });
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
+  }
 }
-

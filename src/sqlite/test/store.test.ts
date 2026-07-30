@@ -16,7 +16,7 @@ const timestamp = "2026-07-21T12:00:00.000Z";
 const context = (summary = "Test change"): ChangeContext => ({ actor: "test-suite", source: "test", summary, occurredAt: timestamp });
 
 const job: JobData = { id:"job-1",company:"Company",title:"VP Engineering",externalJobId:"123",stage:"identified",outcome:"pending",statusSummary:"Identified",lastActivity:"2026-07-21",nextActionDescription:"Review",nextActionDue:"2026-07-22",fitRating:"good",fitSummary:"Good role shape",payCurrency:"USD",payMinimum:200000,payMaximum:250000,payPeriod:"year",payNotes:null,sourceUrl:"https://example.com/jobs/123",location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"Annual bonus",equity:null,otherCompensation:null,tagsJson:'["platform"]',hasJobDescription:false,hasInterviewPrep:false };
-const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01",hasLocalProfile:false};
+const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01"};
 const networking:NetworkingContactData={id:"person-1",personId:"person-1",relationshipType:"former_colleague",relationshipStrength:"strong",introducedBy:null,relationshipNotes:null,priority:"high",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:"Reach out",nextActionDue:"2026-07-22",whyInteresting:"Strong relationship",notesJson:"[]",tagsJson:"[]"};
 const task: TaskData = { id:"task-1",title:"Review role",type:"application",status:"open",priority:"high",dueDate:"2026-07-22",relatedEntityType:"job",relatedEntityId:"job-1",relatedEntityLabel:"Company VP Engineering",notes:"Review the JD",completedAt:null };
 const meeting: MeetingData = { id:"meeting-1",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:"Seattle",description:"Networking",status:"confirmed",relatedEntityType:"contact",relatedEntityId:"person-1",externalCalendarId:"job-search",externalEventId:"google-1" };
@@ -27,7 +27,7 @@ afterEach(() => database.close());
 describe("migrations", () => {
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","changes","business_events","event_sources","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
   });
   test("can be applied repeatedly without duplicating migrations", () => { const before = (database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count; migrateDatabase(database); expect((database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count).toBe(before); });
   test("enables foreign key enforcement", () => { expect((database.query("PRAGMA foreign_keys").get() as {foreign_keys:number}).foreign_keys).toBe(1); });
@@ -77,10 +77,8 @@ describe("typed CRUD repositories", () => {
       tx.tasks.create(task);
     });
     const artifacts = {
-      personProfile: async () => "",
       jobDescription: async () => "",
       interviewPrep: async () => [],
-      personProfileExists: async () => false,
       jobDescriptionExists: async () => false,
       interviewPrepExists: async () => false,
       verify: async () => ({ ok: true, errors: [], unregistered: [] }),

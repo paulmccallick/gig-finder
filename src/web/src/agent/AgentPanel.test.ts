@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "ai";
-import { hasSuccessfulMutation } from "./AgentPanel";
+import {
+  hasSavedUpload,
+  hasSuccessfulMutation,
+  parseStagedUpload,
+  savedUploadReferences,
+} from "./AgentPanel";
 
 describe("agent dashboard refresh signal", () => {
   test("recognizes successful update and revert tool output", () => {
@@ -54,4 +59,50 @@ describe("agent dashboard refresh signal", () => {
     ];
     expect(hasSuccessfulMutation(parts)).toBe(false);
   });
+});
+
+test("staged attachment clears only after generic document creation saves it", () => {
+  const parts: UIMessage["parts"] = [{
+    type: "dynamic-tool",
+    toolName: "create_document",
+    toolCallId: "call-document",
+    state: "output-available",
+    input: {},
+    output: {
+      status: "ok",
+      changeId: "agent-tool:call-document",
+      stagedReference: "staged-document:11111111-1111-4111-8111-111111111111",
+    },
+  }];
+  expect(hasSavedUpload(parts)).toBe(true);
+  expect(savedUploadReferences(parts)).toEqual([
+    "staged-document:11111111-1111-4111-8111-111111111111",
+  ]);
+  expect(hasSavedUpload([{
+    type: "dynamic-tool",
+    toolName: "create_document",
+    toolCallId: "call-inline",
+    state: "output-available",
+    input: {},
+    output: { status: "ok", changeId: "agent-tool:call-inline" },
+  }])).toBe(false);
+});
+
+test("validates staged upload responses before storing UI state", () => {
+  const valid = {
+    reference: "staged-document:11111111-1111-4111-8111-111111111111",
+    filename: "role.md",
+    extractionWarnings: [],
+    markdownCharacters: 15,
+    expiresAt: "2026-07-29T12:15:00.000Z",
+  };
+  expect(parseStagedUpload(valid)).toEqual(valid);
+  expect(() => parseStagedUpload({
+    ...valid,
+    markdownCharacters: "15",
+  })).toThrow("invalid response");
+  expect(() => parseStagedUpload({
+    ...valid,
+    extractionWarnings: [null],
+  })).toThrow("invalid response");
 });

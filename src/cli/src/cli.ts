@@ -1,15 +1,19 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createContact, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getJob, getMeeting, getPerson, getTask, listContacts, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, updateContact, updateJob, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
+import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
 import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
+import {
+  documentMediaTypes,
+  managedDocumentTypes,
+} from "../../core/src/documents";
 import {
   jobUpdateSchema,
   networkingContactUpdateSchema,
 } from "../../core/src/update-contracts";
 
-const usage = `job-search — job-search application CLI
+export const cliUsage = `job-search — job-search application CLI
 
 Usage:
   job-search jobs get <id>
@@ -33,9 +37,16 @@ Usage:
   job-search events list [--entity-type <type>] [--entity-id <id>]
   job-search events add <id> --patch-file <path> [--dry-run]
   job-search artifacts verify
+  job-search artifacts sync
+  job-search documents list (--job <job-id> | --person <person-id>)
+  job-search documents get <document-id>
+  job-search documents create [--jobs <id,...>] [--people <id,...>] --type <type> --media-type <type> --content-file <path> [--title <text>] [--source-description <text>]
+  job-search documents update <document-id> --expected-version <number> --change-summary <text> --content-file <path>
+  job-search documents versions <document-id>
 
 Patch files are recommended for long or sensitive text. Arrays are replaced;
 objects are deep-merged; null explicitly clears a value. All writes are atomic.`;
+const usage = cliUsage;
 
 type Flags = Record<string, string | boolean>;
 const parseFlags = (args: string[]): Flags => {
@@ -57,6 +68,7 @@ const required = (flags: Flags, key: string): string => {
   return value;
 };
 const optional = (flags: Flags, key: string): string | undefined => typeof flags[key] === "string" ? flags[key] : undefined;
+const commaList = (flags: Flags, key: string): string[] => (optional(flags, key) ?? "").split(",").map(value => value.trim()).filter(Boolean);
 const nullable = (value: string | undefined): string | null | undefined => value === "none" ? null : value;
 async function patchFrom(flags: Flags): Promise<Record<string, unknown>> {
   const inline = optional(flags, "patch");
@@ -67,8 +79,128 @@ async function patchFrom(flags: Flags): Promise<Record<string, unknown>> {
   return value;
 }
 
+const positiveInteger = (flags: Flags, key: string): number => {
+  const raw = required(flags, key);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`--${key} must be a positive integer.`);
+  }
+  return value;
+};
+
+const acceptedValue = <T extends string>(
+  flags: Flags,
+  key: string,
+  values: readonly T[],
+): T => {
+  const value = required(flags, key);
+  const accepted = values.find(candidate => candidate === value);
+  if (!accepted) {
+    throw new Error(`--${key} must be one of: ${values.join(", ")}.`);
+  }
+  return accepted;
+};
+
+async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boolean> {
+  if (args[0] !== "documents") return false;
+  const command = args[1];
+  const paths = runtime;
+
+  if (command === "list") {
+    const flags = parseFlags(args.slice(2));
+    const jobId = optional(flags, "job");
+    const personId = optional(flags, "person");
+    if (Boolean(jobId) === Boolean(personId)) throw new Error("Provide exactly one of --job or --person.");
+    const entityType = jobId ? "job" as const : "person" as const;
+    const entityId = jobId ?? personId!;
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      link: { entityType, entityId },
+      records: listDocuments(paths, entityType, entityId),
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "get" || command === "versions") {
+    const reference = args[2];
+    if (!reference || args.length !== 3) throw new Error(usage);
+    const document = getDocument(paths, reference);
+    if (!document) throw new Error(`Document not found: ${reference}`);
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      reference,
+      [command === "get" ? "record" : "records"]:
+        command === "get" ? document : listDocumentVersions(paths, reference),
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "create") {
+    const flags = parseFlags(args.slice(2));
+    const content = await readFile(
+      path.resolve(required(flags, "content-file")),
+      "utf8",
+    );
+    const result = createDocument(paths, {
+      links: [
+        ...(optional(flags, "job") ? [{ entityType: "job" as const, entityId: optional(flags, "job")! }] : []),
+        ...(optional(flags, "person") ? [{ entityType: "person" as const, entityId: optional(flags, "person")! }] : []),
+        ...commaList(flags, "jobs").map(entityId => ({ entityType: "job" as const, entityId })),
+        ...commaList(flags, "people").map(entityId => ({ entityType: "person" as const, entityId })),
+      ],
+      documentType: acceptedValue(flags, "type", managedDocumentTypes),
+      title: optional(flags, "title") ?? null,
+      mediaType: acceptedValue(flags, "media-type", documentMediaTypes),
+      sourceDescription: optional(flags, "source-description") ?? null,
+      content,
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      record: result.document,
+      changeId: result.changeId,
+      changed: result.changed,
+    }, null, 2));
+    return true;
+  }
+
+  if (command === "update") {
+    const reference = args[2];
+    if (!reference) throw new Error(usage);
+    const flags = parseFlags(args.slice(3));
+    const content = await readFile(
+      path.resolve(required(flags, "content-file")),
+      "utf8",
+    );
+    const result = updateDocument(paths, {
+      documentId: reference,
+      expectedVersion: positiveInteger(flags, "expected-version"),
+      changeSummary: required(flags, "change-summary"),
+      content,
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      entity: "document",
+      command,
+      reference,
+      record: result.document,
+      changeId: result.changeId,
+      changed: result.changed,
+    }, null, 2));
+    return true;
+  }
+
+  throw new Error(usage);
+}
+
 export async function runCli(args: string[], runtime: CliRuntime) {
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) { console.log(usage); return; }
+  if (await handleDocuments(args, runtime)) return;
   if(args[0]==="artifacts"&&args[1]==="verify"){const result=await verifyArtifacts(runtime);console.log(JSON.stringify({ok:result.ok,result},null,2));if(!result.ok)process.exitCode=1;return}
   if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(runtime);console.log(JSON.stringify({ok:true,result},null,2));return}
   const aliases:Record<string,string>={jobs:"job",networking:"contact",contacts:"contact",tasks:"task",people:"person","job-people":"job-person",meetings:"meeting",events:"event"};

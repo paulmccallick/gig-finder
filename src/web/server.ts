@@ -3,11 +3,14 @@ import type { JobSearchApplication } from "../core/src/application";
 import { toWebError } from "./error-response";
 
 const agentIdleTimeoutSeconds = 120;
+const documentUploadTimeoutSeconds = 60;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 
 export interface WebHandlerDependencies {
   jobSearch: JobSearchApplication;
   agentHandler(request: Request): Promise<Response>;
+  uploadHandler(request: Request): Promise<Response>;
+  discardStagedDocument(reference: string): boolean;
   requestLogger(requestId: string): Logger;
 }
 
@@ -15,7 +18,7 @@ interface RequestTimeoutController {
   timeout(request: Request, seconds: number): void;
 }
 
-export function createWebHandler({jobSearch,agentHandler,requestLogger}:WebHandlerDependencies) {
+export function createWebHandler({jobSearch,agentHandler,uploadHandler,discardStagedDocument,requestLogger}:WebHandlerDependencies) {
   return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -23,6 +26,8 @@ export function createWebHandler({jobSearch,agentHandler,requestLogger}:WebHandl
     const url = new URL(request.url);
     if (url.pathname === "/api/agent/messages") {
       server.timeout(request, agentIdleTimeoutSeconds);
+    } else if (url.pathname === "/api/agent/documents") {
+      server.timeout(request, documentUploadTimeoutSeconds);
     }
     log.debug({
       event: "http.request",
@@ -34,6 +39,8 @@ export function createWebHandler({jobSearch,agentHandler,requestLogger}:WebHandl
       },
       ...(url.pathname === "/api/agent/messages"
         ? { idleTimeoutSeconds: agentIdleTimeoutSeconds }
+        : url.pathname === "/api/agent/documents"
+          ? { idleTimeoutSeconds: documentUploadTimeoutSeconds }
         : {}),
     }, "Received HTTP request");
 
@@ -42,6 +49,19 @@ export function createWebHandler({jobSearch,agentHandler,requestLogger}:WebHandl
       if (url.pathname === "/api/agent/messages") {
         response = request.method === "POST"
           ? await agentHandler(new Request(request, { headers: new Headers([...request.headers, ["x-request-id", requestId]]) }))
+          : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname === "/api/agent/documents") {
+        response = request.method === "POST"
+          ? await uploadHandler(request)
+          : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname.startsWith("/api/agent/documents/")) {
+        const reference = decodeURIComponent(
+          url.pathname.slice("/api/agent/documents/".length),
+        );
+        response = request.method === "DELETE"
+          ? discardStagedDocument(reference)
+            ? new Response(null, { status: 204 })
+            : json({ error: "Staged document not found" }, 404)
           : json({ error: "Method not allowed" }, 405);
       } else if (request.method !== "GET") {
         response = json({ error: "Read-only API" }, 405);
