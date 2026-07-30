@@ -44,8 +44,8 @@ export class JobSearchAgent {
     const result = streamText({
       model,
       instructions: buildJobSearchInstructions(this.options.profile, {
-        liveDashboardRecords: this.options.tools !== undefined,
-        updateDashboardRecords: this.options.canUpdateDashboardRecords,
+        liveRecords: this.options.tools !== undefined,
+        canUpdateRecords: this.options.canUpdateRecords,
       }),
       messages,
       tools: this.options.tools,

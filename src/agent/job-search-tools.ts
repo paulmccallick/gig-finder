@@ -2,18 +2,25 @@ import { tool } from "ai";
 import type { Logger } from "pino";
 import { z } from "zod";
 import type {
-  AgentContextReader,
   ChangeContext,
   ChangeService,
+  ContactDomainService,
+  DocumentReader,
+  JobDomainService,
+  JobPeopleService,
+  JobPersonRelationshipQueryInput,
+  JobQueryInput,
   JobUpdate,
-  ListContactsInput,
-  ListJobsInput,
-  ListTasksInput,
   ManagedDocumentMutationResult,
   ManagedDocumentService,
+  NetworkingContactQueryInput,
   NetworkingContactUpdate,
+  PeopleQueryInput,
+  PeopleService,
   SearchContextService,
   StagedDocumentAccess,
+  TaskDomainService,
+  TaskQueryInput,
 } from "../core/src";
 import { DomainValidationError, MutationError } from "../core/src/errors";
 import {
@@ -34,6 +41,7 @@ import {
   managedDocumentTypes,
 } from "../core/src/documents";
 import { stagedDocumentReferencePattern } from "../core/src/staged-documents";
+import { jobPersonRelationships } from "../core/src/people";
 import {
   contactChangesSchema,
   jobChangesSchema,
@@ -41,6 +49,7 @@ import {
 
 const nonEmptyArray = <T extends readonly [string, ...string[]]>(values: T) =>
   z.array(z.enum(values)).min(1);
+const nonEmptyIdArray = z.array(z.string().trim().min(1).max(200)).min(1);
 
 const pageSchema = {
   offset: z.number().int().min(0).nullable()
@@ -59,7 +68,7 @@ const listJobsInputSchema = z.object({
   overdueOnly: z.boolean().nullable()
     .describe("When true, include only jobs whose next action is overdue."),
   query: z.string().trim().nullable()
-    .describe("Case-insensitive text to search across job summary fields."),
+    .describe("Case-insensitive text to search across job company, title, status summary, and next action."),
   ...pageSchema,
 }).strict();
 
@@ -73,7 +82,7 @@ const listContactsInputSchema = z.object({
   overdueOnly: z.boolean().nullable()
     .describe("When true, include only contacts whose next outreach is overdue."),
   query: z.string().trim().nullable()
-    .describe("Case-insensitive text to search across contact summary fields."),
+    .describe("Case-insensitive text to search across contact name, company, title, and why-interesting text."),
   ...pageSchema,
 }).strict();
 
@@ -91,7 +100,23 @@ const listTasksInputSchema = z.object({
   overdueOnly: z.boolean().nullable()
     .describe("When true, include only tasks whose due date is overdue."),
   query: z.string().trim().nullable()
-    .describe("Case-insensitive text to search across task summary fields."),
+    .describe("Case-insensitive text to search across task title, related-entity label, and notes."),
+  ...pageSchema,
+}).strict();
+
+const listPeopleInputSchema = z.object({
+  query: z.string().trim().nullable()
+    .describe("Case-insensitive text to search across person name, company, and title."),
+  ...pageSchema,
+}).strict();
+
+const listJobPersonRelationshipsInputSchema = z.object({
+  jobIds: nonEmptyIdArray.nullable()
+    .describe("Include relationships for any of these exact durable job IDs."),
+  personIds: nonEmptyIdArray.nullable()
+    .describe("Include relationships for any of these exact durable person IDs."),
+  relationships: nonEmptyArray(jobPersonRelationships).nullable()
+    .describe("Include relationships with any of these relationship values."),
   ...pageSchema,
 }).strict();
 
@@ -129,29 +154,6 @@ const revertChangeInputSchema = z.object({
     .describe("Exact change ID of the update to revert."),
 }).strict();
 
-const documentSourceSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("inline_content")
-      .describe("Use inline content for source text supplied in the conversation."),
-    content: z.string().min(1).max(managedDocumentContentLimit)
-      .describe("Complete source text to preserve as the managed document."),
-    reference: z.null()
-      .describe("Always null for inline content."),
-    mediaType: z.enum(documentMediaTypes)
-      .describe("Whether the supplied inline content is plain text or Markdown."),
-  }).strict(),
-  z.object({
-    kind: z.literal("staged_document")
-      .describe("Use a staged document for an attachment supplied by the web application."),
-    content: z.null()
-      .describe("Always null for staged documents; the application reads the staged content."),
-    reference: z.string().regex(stagedDocumentReferencePattern)
-      .describe("Exact staged-document reference supplied by the web application."),
-    mediaType: z.literal("text/markdown")
-      .describe("Staged documents are converted to Markdown by the application."),
-  }).strict(),
-]).describe("Exactly one valid source form: inline content or a staged document reference.");
-
 const createDocumentInputSchema = z.object({
   links: z.array(z.object({
     entityType: z.enum(documentLinkEntityTypes)
@@ -164,10 +166,56 @@ const createDocumentInputSchema = z.object({
     .describe("Document category: job_description, notes, interview_prep, or profile."),
   title: z.string().trim().min(1).max(200).nullable()
     .describe("Optional friendly document title; use null to derive a display name from the upload filename or document type."),
-  source: documentSourceSchema,
+  sourceKind: z.enum(["inline_content", "staged_document"])
+    .describe("Whether the source is inline conversation content or an exact staged-document reference."),
+  content: z.string().min(1).max(managedDocumentContentLimit).nullable()
+    .describe("Complete inline source text, or null when sourceKind is staged_document."),
+  reference: z.string().regex(stagedDocumentReferencePattern).nullable()
+    .describe("Exact staged-document reference, or null when sourceKind is inline_content."),
+  mediaType: z.enum(documentMediaTypes)
+    .describe("Source media type; staged documents must use text/markdown."),
   sourceDescription: z.string().trim().min(1).max(500).nullable()
     .describe("How the content was obtained, without inventing details; use null when unknown or not applicable."),
-}).strict();
+}).strict().superRefine((input, context) => {
+  if (input.sourceKind === "inline_content") {
+    if (input.content === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["content"],
+        message: "Inline content is required when sourceKind is inline_content.",
+      });
+    }
+    if (input.reference !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["reference"],
+        message: "Reference must be null when sourceKind is inline_content.",
+      });
+    }
+    return;
+  }
+  if (input.content !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["content"],
+      message: "Content must be null when sourceKind is staged_document.",
+    });
+  }
+  if (input.reference === null) {
+    context.addIssue({
+      code: "custom",
+      path: ["reference"],
+      message: "A staged-document reference is required when sourceKind is staged_document.",
+    });
+  }
+  if (input.mediaType !== "text/markdown") {
+    context.addIssue({
+      code: "custom",
+      path: ["mediaType"],
+      message: "Staged documents must use text/markdown.",
+    });
+  }
+});
 
 const updateDocumentInputSchema = z.object({
   documentId: z.string().trim().min(1)
@@ -186,7 +234,7 @@ type ToolInput = {
   limit?: number | null;
   relatedEntityId?: string | null;
   id?: string;
-  reference?: string;
+  reference?: string | null;
   documentId?: string;
   query?: string | null;
   changeId?: string;
@@ -194,12 +242,9 @@ type ToolInput = {
   links?: Array<{ entityType: string; entityId: string }>;
   documentType?: string;
   expectedVersion?: number;
-  source?: {
-    kind: string;
-    content: string | null;
-    reference: string | null;
-    mediaType: string;
-  };
+  sourceKind?: "inline_content" | "staged_document";
+  content?: string | null;
+  mediaType?: string;
 };
 
 export interface ToolFailure {
@@ -212,6 +257,15 @@ export interface ToolFailure {
     | "validation_failed"
     | "tool_failed";
   message: string;
+}
+
+export interface JobSearchReadCapabilities {
+  jobs: Pick<JobDomainService, "query" | "read">;
+  networking: Pick<ContactDomainService, "query" | "read">;
+  people: Pick<PeopleService, "query" | "read">;
+  jobPeople: Pick<JobPeopleService, "query" | "read">;
+  tasks: Pick<TaskDomainService, "query" | "read">;
+  documents: Pick<DocumentReader, "get" | "list">;
 }
 
 export interface JobSearchMutationCapabilities {
@@ -230,6 +284,22 @@ export interface JobSearchToolExtensions {
   stagedDocuments?: StagedDocumentAccess;
 }
 
+function jobReferencesForPerson(
+  jobPeople: JobSearchReadCapabilities["jobPeople"],
+  personId: string,
+) {
+  const jobs: Array<{ jobId: string; relationship: typeof jobPersonRelationships[number] }> = [];
+  let offset = 0;
+
+  while (true) {
+    const result = jobPeople.query({ personIds: [personId], offset, limit: 50 });
+    if (result.status !== "ok") return result;
+    jobs.push(...result.items.map(({ jobId, relationship }) => ({ jobId, relationship })));
+    if (result.page.nextOffset === null) return { status: "ok" as const, jobs };
+    offset = result.page.nextOffset;
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -241,7 +311,7 @@ function toolInvocationDetails(input: ToolInput) {
           "id", "reference", "query", "offset", "limit", "relatedEntityId",
           "changes", "changeId", "links", "documentType", "documentId",
           "expectedVersion", "title", "mediaType", "sourceDescription", "content",
-          "changeSummary", "source",
+          "changeSummary", "sourceKind",
         ].includes(key)
       )
       .filter(([, value]) =>
@@ -265,20 +335,22 @@ function toolInvocationDetails(input: ToolInput) {
 
   return {
     ...(input.id === undefined ? {} : { recordId: input.id }),
-    ...(input.reference === undefined ? {} : { documentReference: input.reference }),
+    ...(input.reference === undefined || input.sourceKind !== undefined
+      ? {}
+      : { documentReference: input.reference }),
     ...(input.documentId === undefined ? {} : { documentId: input.documentId }),
     ...(input.links === undefined ? {} : { documentLinks: input.links }),
     ...(input.documentType === undefined
       ? {}
       : { documentType: input.documentType }),
-    ...(input.source === undefined
+    ...(input.sourceKind === undefined
       ? {}
       : {
-          documentSource: input.source.kind === "staged_document"
-            ? { kind: input.source.kind, reference: input.source.reference }
+          documentSource: input.sourceKind === "staged_document"
+            ? { kind: input.sourceKind, reference: input.reference }
             : {
-                kind: input.source.kind,
-                contentCharacters: input.source.content?.length ?? 0,
+                kind: input.sourceKind,
+                contentCharacters: input.content?.length ?? 0,
               },
         }),
     ...(input.expectedVersion === undefined
@@ -335,7 +407,7 @@ function contactPatchFromOperations(
 
 function normalizeJobsInput(
   input: z.infer<typeof listJobsInputSchema>,
-): ListJobsInput {
+): JobQueryInput {
   return {
     ...(input.stages === null ? {} : { stages: input.stages }),
     ...(input.outcomes === null ? {} : { outcomes: input.outcomes }),
@@ -349,7 +421,7 @@ function normalizeJobsInput(
 
 function normalizeContactsInput(
   input: z.infer<typeof listContactsInputSchema>,
-): ListContactsInput {
+): NetworkingContactQueryInput {
   return {
     ...(input.statuses === null ? {} : { statuses: input.statuses }),
     ...(input.priorities === null ? {} : { priorities: input.priorities }),
@@ -365,7 +437,7 @@ function normalizeContactsInput(
 
 function normalizeTasksInput(
   input: z.infer<typeof listTasksInputSchema>,
-): ListTasksInput {
+): TaskQueryInput {
   return {
     ...(input.statuses === null ? {} : { statuses: input.statuses }),
     ...(input.priorities === null ? {} : { priorities: input.priorities }),
@@ -381,8 +453,30 @@ function normalizeTasksInput(
   };
 }
 
+function normalizePeopleInput(
+  input: z.infer<typeof listPeopleInputSchema>,
+): PeopleQueryInput {
+  return {
+    ...(input.query === null ? {} : { query: input.query }),
+    ...(input.offset === null ? {} : { offset: input.offset }),
+    ...(input.limit === null ? {} : { limit: input.limit }),
+  };
+}
+
+function normalizeJobPersonRelationshipsInput(
+  input: z.infer<typeof listJobPersonRelationshipsInputSchema>,
+): JobPersonRelationshipQueryInput {
+  return {
+    ...(input.jobIds === null ? {} : { jobIds: input.jobIds }),
+    ...(input.personIds === null ? {} : { personIds: input.personIds }),
+    ...(input.relationships === null ? {} : { relationships: input.relationships }),
+    ...(input.offset === null ? {} : { offset: input.offset }),
+    ...(input.limit === null ? {} : { limit: input.limit }),
+  };
+}
+
 type ToolResultSummary = {
-  outcome: "found" | "not_found" | "page" | "updated" | "reverted" | "unknown";
+  outcome: "found" | "not_found" | "consistency_error" | "page" | "updated" | "reverted" | "unknown";
   returned?: number;
   total?: number;
   recordIds?: string[];
@@ -394,6 +488,9 @@ type ToolResultSummary = {
 
 function safeResultSummary(result: unknown): ToolResultSummary {
   if (typeof result !== "object" || result === null) return { outcome: "unknown" };
+  if ("status" in result && result.status === "consistency_error") {
+    return { outcome: "consistency_error" };
+  }
   if ("status" in result && result.status === "ok" && "changeId" in result) {
     return {
       outcome: "revertedChangeId" in result ? "reverted" : "updated",
@@ -485,7 +582,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         ...summary,
         durationMs: Math.round(performance.now() - startedAt),
       };
-      if (summary.outcome === "not_found") {
+      if (summary.outcome === "not_found" || summary.outcome === "consistency_error") {
         logger.warn(details, "Agent tool lookup returned no record");
       } else {
         logger.debug(details, "Completed agent tool");
@@ -536,7 +633,7 @@ function documentMutationResult(result: ManagedDocumentMutationResult) {
 }
 
 export function createJobSearchTools(
-  reader: AgentContextReader,
+  reads: JobSearchReadCapabilities,
   logger: Logger,
   mutations?: JobSearchMutationCapabilities,
   requestContext?: { actor: string; requestId: string },
@@ -559,42 +656,97 @@ export function createJobSearchTools(
       : {}),
     list_jobs: tool({
       strict: true,
-      description: "List job opportunities in the candidate's pipeline. Use optional filters if desired. Results are summaries and may be paginated; use get_job with an ID when you need the complete current record.",
+      description: "List complete current job records in the candidate's pipeline. Use optional filters if desired. Results may be paginated; each job ID can be used with relationship and document tools.",
       inputSchema: listJobsInputSchema,
-      execute: loggedExecution(logger, "list_jobs", (input) =>
-        reader.listJobs(normalizeJobsInput(input))),
+      execute: loggedExecution(logger, "list_jobs", async (input) => {
+        const result = reads.jobs.query(normalizeJobsInput(input));
+        return {
+          ...result,
+          items: await Promise.all(result.items.map(async record => ({
+            ...record,
+            legacyDocuments: (await reads.documents.list("job", record.id))
+              .filter(document => document.storage === "artifact"),
+          }))),
+        };
+      }),
     }),
     get_job: tool({
       strict: true,
       description: "Get the complete current structured record for one job using its durable ID. The documents array contains managed-document IDs and friendly names; legacyDocuments contains registered artifact references. Use get_document to read either kind.",
       inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_job", ({ id }) => reader.getJob(id)),
+      execute: loggedExecution(logger, "get_job", async ({ id }) => {
+        const result = reads.jobs.read(id);
+        return result.status === "ok"
+          ? {
+              ...result,
+              record: {
+                ...result.record,
+                legacyDocuments: (await reads.documents.list("job", id))
+                  .filter(document => document.storage === "artifact"),
+              },
+            }
+          : result;
+      }),
     }),
     list_networking_contacts: tool({
       strict: true,
-      description: "List people in the candidate's networking pipeline. Use optional filters if desired. Results are summaries and may be paginated; use get_networking_contact with an ID when you need the complete current record.",
+      description: "List complete current Networking Contact records. A Networking Contact is relationship and outreach state for one canonical Person; contact ID and personId are both returned. Use optional filters if desired. Results may be paginated.",
       inputSchema: listContactsInputSchema,
       execute: loggedExecution(logger, "list_networking_contacts", (input) =>
-        reader.listNetworkingContacts(normalizeContactsInput(input))),
+        reads.networking.query(normalizeContactsInput(input))),
     }),
     get_networking_contact: tool({
       strict: true,
-      description: "Get the complete current structured networking record for one contact using its durable ID. The documents array contains managed profiles and other linked documents; use get_document with an exact document ID to read one.",
+      description: "Get one complete current Networking Contact using its contact ID. The result includes the canonical Person fields, compact document summaries, and related job IDs with relationship types; do not call get_person for the same contact.",
       inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_networking_contact", ({ id }) => reader.getNetworkingContact(id)),
+      execute: loggedExecution(logger, "get_networking_contact", async ({ id }) => {
+        const contact = reads.networking.read(id);
+        if (contact.status !== "ok") return contact;
+        const references = jobReferencesForPerson(reads.jobPeople, contact.record.personId);
+        return references.status === "ok"
+          ? { ...contact, record: { ...contact.record, jobs: references.jobs } }
+          : references;
+      }),
+    }),
+    list_people: tool({
+      strict: true,
+      description: "List complete current Person records, including people who have no Networking Contact. A Person is the canonical identity referenced by Networking Contact personId and Job-Person Relationship personId. Use optional filters if desired.",
+      inputSchema: listPeopleInputSchema,
+      execute: loggedExecution(logger, "list_people", input =>
+        reads.people.query(normalizePeopleInput(input))),
+    }),
+    get_person: tool({
+      strict: true,
+      description: "Get one complete canonical Person using the durable person ID returned by a Person, Networking Contact, or Job-Person Relationship tool.",
+      inputSchema: getInputSchema,
+      execute: loggedExecution(logger, "get_person", ({ id }) => reads.people.read(id)),
+    }),
+    list_job_person_relationships: tool({
+      strict: true,
+      description: "List Job-Person Relationships connecting canonical People to Jobs. Filter by multiple job IDs, person IDs, or relationship values to find who is connected to a job or which jobs are connected to a person. Use returned jobId and personId with get_job and get_person.",
+      inputSchema: listJobPersonRelationshipsInputSchema,
+      execute: loggedExecution(logger, "list_job_person_relationships", input =>
+        reads.jobPeople.query(normalizeJobPersonRelationshipsInput(input))),
+    }),
+    get_job_person_relationship: tool({
+      strict: true,
+      description: "Get one Job-Person Relationship using its durable relationship ID. The result identifies the linked jobId, personId, and the person's role in relation to that opportunity.",
+      inputSchema: getInputSchema,
+      execute: loggedExecution(logger, "get_job_person_relationship", ({ id }) =>
+        reads.jobPeople.read(id)),
     }),
     list_tasks: tool({
       strict: true,
-      description: "List job-search tasks. Use optional filters if desired. Results are summaries and may be paginated; use get_task with an ID when you need the complete current record.",
+      description: "List complete current job-search task records. Use optional filters if desired. Results may be paginated.",
       inputSchema: listTasksInputSchema,
       execute: loggedExecution(logger, "list_tasks", (input) =>
-        reader.listTasks(normalizeTasksInput(input))),
+        reads.tasks.query(normalizeTasksInput(input))),
     }),
     get_task: tool({
       strict: true,
-      description: "Get the complete current structured record for one job-search task using its durable ID. Use this after list_tasks when summary fields are not sufficient.",
+      description: "Get one complete current job-search task using the durable task ID returned by list_tasks.",
       inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_task", ({ id }) => reader.getTask(id)),
+      execute: loggedExecution(logger, "get_task", ({ id }) => reads.tasks.read(id)),
     }),
     get_document: tool({
       strict: true,
@@ -605,7 +757,7 @@ export function createJobSearchTools(
         "get_document",
         async ({ reference }) => {
           const staged = extensions?.stagedDocuments?.get(reference);
-          if (!staged) return await reader.getDocument(reference);
+          if (!staged) return await reads.documents.get(reference);
           return {
             status: "ok" as const,
             record: {
@@ -670,13 +822,13 @@ export function createJobSearchTools(
         logger,
         "create_document",
         (input, { toolCallId }) => {
-          const staged = input.source.kind === "staged_document"
-            ? extensions?.stagedDocuments?.get(input.source.reference)
+          const staged = input.sourceKind === "staged_document" && input.reference
+            ? extensions?.stagedDocuments?.get(input.reference)
             : null;
-          if (input.source.kind === "staged_document" && !staged) {
+          if (input.sourceKind === "staged_document" && !staged) {
             throw new MutationError(
               "not_found",
-              `Staged document not found: ${input.source.reference}`,
+              `Staged document not found: ${input.reference}`,
             );
           }
           if (staged?.consumption) {
@@ -686,14 +838,11 @@ export function createJobSearchTools(
               stagedReference: staged.reference,
             };
           }
-          const content = input.source.kind === "inline_content"
-            ? input.source.content
+          const content = input.sourceKind === "inline_content"
+            ? input.content
             : staged?.markdown;
-          if (content === undefined) {
-            throw new MutationError(
-              "not_found",
-              `Staged document not found: ${input.source.reference}`,
-            );
+          if (content === null || content === undefined) {
+            throw new DomainValidationError("Document source content is required.");
           }
           const result = mutations.documents.create({
             actor: requestContext.actor,
@@ -704,7 +853,7 @@ export function createJobSearchTools(
             links: input.links,
             documentType: input.documentType,
             title: input.title,
-            mediaType: input.source.mediaType,
+            mediaType: input.mediaType,
             sourceDescription: input.sourceDescription,
             content,
             ...(staged ? { uploadProvenance: staged.provenance } : {}),
@@ -781,6 +930,10 @@ export const jobSearchToolSchemas = {
   get_job: getInputSchema,
   list_networking_contacts: listContactsInputSchema,
   get_networking_contact: getInputSchema,
+  list_people: listPeopleInputSchema,
+  get_person: getInputSchema,
+  list_job_person_relationships: listJobPersonRelationshipsInputSchema,
+  get_job_person_relationship: getInputSchema,
   list_tasks: listTasksInputSchema,
   get_task: getInputSchema,
   get_document: getDocumentInputSchema,

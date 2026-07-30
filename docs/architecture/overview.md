@@ -15,9 +15,7 @@ flowchart LR
   Provider <-->|Responses API| Model[Codex model]
   Agent -->|Validated tool calls| Tools[Agent tools]
   Tools --> Stage
-  Tools --> Reader[AgentContextReader]
   Tools --> Core
-  Reader --> Core
   CLI[CLI] --> Core
   CLIEntry[CLI entry point] --> CLI
   CLIEntry --> SQLite
@@ -33,6 +31,11 @@ flowchart LR
 - `src/cli/` adapts commands to shared services.
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
 - `src/web/` owns the Bun HTTP API and React dashboard.
+
+Jobs, people, networking contacts, job-person relationships, and tasks expose
+caller-neutral query/read services from `JobSearchApplication`; agent tools
+receive only those narrow capabilities. Document lookup uses a separate shared
+document reader. There is no agent-specific domain context facade.
 - `src/entrypoints/` owns runtime composition. Entry points resolve local
   configuration, construct SQLite-backed application services, inject them into
   the CLI or web adapter, and close runtime resources.

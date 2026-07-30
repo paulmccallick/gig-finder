@@ -31,5 +31,5 @@ export interface JobSearchAgentOptions {
   model: import("ai").LanguageModel;
   logger?: import("pino").Logger;
   tools?: import("./job-search-tools").JobSearchTools;
-  canUpdateDashboardRecords?: boolean;
+  canUpdateRecords?: boolean;
 }

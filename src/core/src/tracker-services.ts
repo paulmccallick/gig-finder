@@ -1,9 +1,9 @@
 import type { ArtifactPort, Persistence } from "./ports";
 import type { ChangeContext, EntityRecord, JobData, NetworkingContactData, PersonData, TaskData } from "./models";
-import { fitRatings, outcomes, pipelineStages, type Job, type JobRole } from "./jobs";
+import { fitRatings, outcomes, pipelineStages, type Job, type JobRecord, type JobRole } from "./jobs";
 import { DomainValidationError } from "./errors";
-import { contactPriorities, contactStatuses, type NetworkContact } from "./network";
-import { taskPriorities, taskStatuses, taskTypes, type TaskRecord } from "./tasks";
+import { compareContacts, contactIsOverdue, contactPriorities, contactStatuses, type NetworkContact, type NetworkContactRecord } from "./network";
+import { compareTasks, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskRecord } from "./tasks";
 import {
   jobUpdateSchema,
   networkingContactUpdateSchema,
@@ -12,10 +12,36 @@ import {
 } from "./update-contracts";
 import { ChangeExecutor, type MutationOptions } from "./changes";
 import type { ManagedDocumentService } from "./documents";
+import {
+  hasMeaningfulFilters,
+  matchesQuery,
+  normalizedQuery,
+  pacificDate,
+  page,
+  type JobQueryInput,
+  type NetworkingContactQueryInput,
+  type Page,
+  type ReadResult,
+  type TaskQueryInput,
+} from "./queries";
 
 export interface JobTouchInput { date:string;stage:Job["stage"];summary:string;outcome?:Job["outcome"];nextAction?:string|null;due?:string|null }
 export interface ContactTouchInput { date:string;status:NetworkContact["status"];method:string;summary:string;nextAction?:string|null;due?:string|null }
 export interface TaskCreateInput { id:string;title:string;type:TaskRecord["type"];priority?:TaskRecord["priority"];dueDate:string|null;relatedEntity:TaskRecord["relatedEntity"];notes?:string|null;date:string }
+
+export const defaultJobStages = [
+  "applied",
+  "recruiter_contact",
+  "screening",
+  "technical_interview",
+] as const satisfies readonly Job["stage"][];
+export const defaultNetworkingContactStatuses = [
+  "active_relationship",
+] as const satisfies readonly NetworkContact["status"][];
+export const defaultTaskStatuses = [
+  "open",
+  "in_progress",
+] as const satisfies readonly TaskRecord["status"][];
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const assertDate = (value: unknown, label: string, nullable = false) => {
@@ -72,8 +98,8 @@ function validateContact(c: NetworkContact) {
   if (c.profileStatus==="verified"&&!c.linkedInProfileUrl?.match(/^https:\/\/(www\.)?linkedin\.com\/in\//)) throw new DomainValidationError(`${c.id} is verified without a LinkedIn profile URL.`);
   if (c.outreach.nextActionDue&&!c.outreach.nextAction) throw new DomainValidationError(`${c.id} has a next-action due date without a next action.`);
 }
-const personData=(c:NetworkContact):PersonData=>({id:c.id,name:c.name,company:c.company,title:c.title,linkedInProfileUrl:c.linkedInProfileUrl,connectedOn:c.connectedOn});
-const networkingData=(c:NetworkContact):NetworkingContactData=>({id:c.id,personId:c.id,relationshipType:c.relationship.type,relationshipStrength:c.relationship.strength,introducedBy:c.relationship.introducedBy,relationshipNotes:c.relationship.notes,priority:c.priority,status:c.status,lastContacted:c.outreach.lastContacted,lastContactMethod:c.outreach.lastContactMethod,lastContactSummary:c.outreach.lastContactSummary,nextAction:c.outreach.nextAction,nextActionDue:c.outreach.nextActionDue,whyInteresting:c.whyInteresting,notesJson:JSON.stringify(c.notes),tagsJson:JSON.stringify(c.tags)});
+const personData=(c:NetworkContact,personId=c.id):PersonData=>({id:personId,name:c.name,company:c.company,title:c.title,linkedInProfileUrl:c.linkedInProfileUrl,connectedOn:c.connectedOn});
+const networkingData=(c:NetworkContact,personId=c.id):NetworkingContactData=>({id:c.id,personId,relationshipType:c.relationship.type,relationshipStrength:c.relationship.strength,introducedBy:c.relationship.introducedBy,relationshipNotes:c.relationship.notes,priority:c.priority,status:c.status,lastContacted:c.outreach.lastContacted,lastContactMethod:c.outreach.lastContactMethod,lastContactSummary:c.outreach.lastContactSummary,nextAction:c.outreach.nextAction,nextActionDue:c.outreach.nextActionDue,whyInteresting:c.whyInteresting,notesJson:JSON.stringify(c.notes),tagsJson:JSON.stringify(c.tags)});
 const taskFromData=(t:TaskData&{createdAt:string;updatedAt:string}):TaskRecord=>({id:t.id,title:t.title,type:t.type as TaskRecord["type"],status:t.status as TaskRecord["status"],priority:t.priority as TaskRecord["priority"],dueDate:t.dueDate,relatedEntity:{type:t.relatedEntityType as TaskRecord["relatedEntity"]["type"],id:t.relatedEntityId,label:t.relatedEntityLabel},notes:t.notes,createdAt:t.createdAt.slice(0,10),updatedAt:t.updatedAt.slice(0,10),completedAt:t.completedAt});
 const taskData=(t:TaskRecord):TaskData=>({id:t.id,title:t.title,type:t.type,status:t.status,priority:t.priority,dueDate:t.dueDate,relatedEntityType:t.relatedEntity.type,relatedEntityId:t.relatedEntity.id,relatedEntityLabel:t.relatedEntity.label,notes:t.notes,completedAt:t.completedAt});
 function validateTask(t:TaskRecord){if(!t.id||!t.title)throw new Error("Task id and title are required.");if(!taskTypes.includes(t.type)||!taskStatuses.includes(t.status)||!taskPriorities.includes(t.priority))throw new Error(`${t.id} has an invalid type, status, or priority.`);assertDate(t.dueDate,`${t.id}.dueDate`,true)}
@@ -83,6 +109,22 @@ export class JobDomainService {
   private record(r:JobData){return{...jobFromData(r),documents:this.documents.summaries("job",r.id)}}
   get(id:string){const r=this.p.jobs.get(id);return r?this.record(r):null}
   list(){return this.p.jobs.list().map(r=>this.record(r))}
+  read(id:string):ReadResult<JobRecord>{const record=this.get(id);return record?{status:"ok",record}:{status:"not_found",id}}
+  query(input:JobQueryInput):Page<JobRecord>{
+    const today=pacificDate();
+    const hasFilters=hasMeaningfulFilters(input as Record<string,unknown>);
+    const stages=input.stages??(hasFilters?[...pipelineStages]:[...defaultJobStages]);
+    const query=normalizedQuery(input.query);
+    return page(this.list()
+      .filter(job=>stages.includes(job.stage))
+      .filter(job=>input.outcomes===undefined||input.outcomes.includes(job.outcome))
+      .filter(job=>input.fitRatings===undefined||input.fitRatings.includes(job.fit.rating))
+      .filter(job=>!input.overdueOnly||Boolean(job.nextAction?.due&&job.nextAction.due<today))
+      .filter(job=>matchesQuery(query,[job.company,job.title,job.statusSummary,job.nextAction?.description]))
+      .sort((a,b)=>Number(Boolean(b.nextAction?.due&&b.nextAction.due<today))-Number(Boolean(a.nextAction?.due&&a.nextAction.due<today))
+        ||(a.nextAction?.due??"9999-12-31").localeCompare(b.nextAction?.due??"9999-12-31")
+        ||b.lastActivity.localeCompare(a.lastActivity)||a.company.localeCompare(b.company)||a.id.localeCompare(b.id)),input)
+  }
   create(context:ChangeContext,job:JobRole,options:MutationOptions={}){const complete=jobFromData(jobToData(job));validateJob(complete);if(!options.dryRun)this.p.change(context,u=>u.jobs.create(jobToData(complete)));return{...complete,documents:[]}}
   update(context:ChangeContext,id:string,patch:JobUpdate,options:MutationOptions={}){const validatedPatch=jobUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Job not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateJob(updated);const raw=this.p.jobs.get(id)!;const{id:_,...data}=jobToData(updated);return this.changes.execute(context,updated,options,u=>this.record(u.jobs.update(id,raw.revision,data)))}
   touch(context:ChangeContext,id:string,input:JobTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
@@ -96,8 +138,27 @@ export class ContactDomainService {
   get(id:string){const c=this.p.networking.get(id);if(!c)return null;const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${id} references missing person ${c.personId}`);return this.record(c,person,c.createdAt,c.updatedAt)}
   personId(id:string){return this.p.networking.get(id)?.personId??null}
   list(){return this.p.networking.list().map(c=>{const person=this.p.people.get(c.personId);if(!person)throw new Error(`Contact ${c.id} references missing person ${c.personId}`);return this.record(c,person,c.createdAt,c.updatedAt)})}
+  read(id:string):ReadResult<NetworkContactRecord>{
+    const contact=this.p.networking.get(id);
+    if(!contact)return{status:"not_found",id};
+    const person=this.p.people.get(contact.personId);
+    return person?{status:"ok",record:this.record(contact,person,contact.createdAt,contact.updatedAt)}:{status:"consistency_error",id,message:`Contact ${id} references missing person ${contact.personId}.`};
+  }
+  query(input:NetworkingContactQueryInput):Page<NetworkContactRecord>{
+    const today=pacificDate();
+    const hasFilters=hasMeaningfulFilters(input as Record<string,unknown>);
+    const statuses=input.statuses??(hasFilters?[...contactStatuses]:[...defaultNetworkingContactStatuses]);
+    const query=normalizedQuery(input.query);
+    return page(this.list()
+      .filter(contact=>statuses.includes(contact.status))
+      .filter(contact=>input.priorities===undefined||input.priorities.includes(contact.priority))
+      .filter(contact=>input.relationshipStrengths===undefined||input.relationshipStrengths.includes(contact.relationship.strength))
+      .filter(contact=>!input.overdueOnly||contactIsOverdue(contact,today))
+      .filter(contact=>matchesQuery(query,[contact.name,contact.company,contact.title,contact.whyInteresting]))
+      .sort((a,b)=>compareContacts(a,b,today)||a.id.localeCompare(b.id)),input)
+  }
   create(context:ChangeContext,c:NetworkContact,options:MutationOptions={}){validateContact(c);if(!options.dryRun)this.p.change(context,u=>{u.people.create(personData(c));u.networking.create(networkingData(c))});return options.dryRun?{...c,personId:c.id,hasProfile:false,documents:[]}:this.get(c.id)!}
-  update(context:ChangeContext,id:string,patch:NetworkingContactUpdate,options:MutationOptions={}){const validatedPatch=networkingContactUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const candidate=deepPatch(current,validatedPatch);const updated={...candidate,profileStatus:candidate.linkedInProfileUrl?"verified" as const:"missing" as const};validateContact(updated);const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated),nd=networkingData(updated);const{id:_,...pp}=pd,{id:__,...np}=nd;return this.changes.execute(context,updated,options,u=>{const persistedPerson=u.people.update(person.id,person.revision,pp);const persistedNetworking=u.networking.update(id,raw.revision,np);return this.record(persistedNetworking,persistedPerson,persistedNetworking.createdAt,persistedNetworking.updatedAt)})}
+  update(context:ChangeContext,id:string,patch:NetworkingContactUpdate,options:MutationOptions={}){const validatedPatch=networkingContactUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Contact not found: ${id}`);const candidate=deepPatch(current,validatedPatch);const updated={...candidate,profileStatus:candidate.linkedInProfileUrl?"verified" as const:"missing" as const};validateContact(updated);const raw=this.p.networking.get(id)!,person=this.p.people.get(raw.personId)!;const pd=personData(updated,person.id),nd=networkingData(updated,person.id);const{id:_,...pp}=pd,{id:__,...np}=nd;return this.changes.execute(context,updated,options,u=>{const persistedPerson=u.people.update(person.id,person.revision,pp);const persistedNetworking=u.networking.update(id,raw.revision,np);return this.record(persistedNetworking,persistedPerson,persistedNetworking.createdAt,persistedNetworking.updatedAt)})}
   touch(context:ChangeContext,id:string,input:ContactTouchInput,options:MutationOptions={}){return this.update(context,id,{status:input.status,outreach:{lastContacted:input.date,lastContactMethod:input.method,lastContactSummary:input.summary,nextAction:input.nextAction??null,nextActionDue:input.due??null}},options).record}
 }
 
@@ -105,6 +166,22 @@ export class TaskDomainService {
   constructor(private p:Persistence){}
   get(id:string){const r=this.p.tasks.get(id);return r?taskFromData(r):null}
   list(){return this.p.tasks.list().map(taskFromData)}
+  read(id:string):ReadResult<TaskRecord>{const record=this.get(id);return record?{status:"ok",record}:{status:"not_found",id}}
+  query(input:TaskQueryInput):Page<TaskRecord>{
+    const today=pacificDate();
+    const hasFilters=hasMeaningfulFilters(input as Record<string,unknown>);
+    const statuses=input.statuses??(hasFilters?[...taskStatuses]:[...defaultTaskStatuses]);
+    const query=normalizedQuery(input.query);
+    return page(this.list()
+      .filter(task=>statuses.includes(task.status))
+      .filter(task=>input.priorities===undefined||input.priorities.includes(task.priority))
+      .filter(task=>input.types===undefined||input.types.includes(task.type))
+      .filter(task=>input.relatedEntityType===undefined||task.relatedEntity.type===input.relatedEntityType)
+      .filter(task=>input.relatedEntityId===undefined||task.relatedEntity.id===input.relatedEntityId)
+      .filter(task=>!input.overdueOnly||taskIsOverdue(task,today))
+      .filter(task=>matchesQuery(query,[task.title,task.relatedEntity.label,task.notes]))
+      .sort((a,b)=>compareTasks(a,b,today)||a.id.localeCompare(b.id)),input)
+  }
   create(context:ChangeContext,t:TaskRecord,options:MutationOptions={}){validateTask(t);if(!options.dryRun)this.p.change(context,u=>u.tasks.create(taskData(t)));return t}
   createNew(context:ChangeContext,input:TaskCreateInput,options:MutationOptions={}){return this.create(context,{id:input.id,title:input.title,type:input.type,status:"open",priority:input.priority??"medium",dueDate:input.dueDate,relatedEntity:input.relatedEntity,notes:input.notes??null,createdAt:input.date,updatedAt:input.date,completedAt:null},options)}
   update(context:ChangeContext,id:string,patch:Partial<TaskRecord>,options:MutationOptions={}){const current=this.get(id);if(!current)throw new Error(`Task not found: ${id}`);const updated=deepPatch(current,patch);validateTask(updated);if(!options.dryRun){const raw=this.p.tasks.get(id)!;const{id:_,...data}=taskData(updated);this.p.change(context,u=>u.tasks.update(id,raw.revision,data))}return updated}

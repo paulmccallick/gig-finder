@@ -10,10 +10,10 @@ import { JobSearchAgent } from "../agent/job-search-agent";
 import type { JobSearchProfile } from "../agent/types";
 import {
   createJobSearchTools,
+  type JobSearchReadCapabilities,
   type JobSearchToolExtensions,
 } from "../agent/job-search-tools";
 import type { JobSearchMutationCapabilities } from "../agent/job-search-tools";
-import type { AgentContextReader } from "../core/src";
 import { logger as defaultLogger } from "../observability/logger";
 
 type ModelFactory = () => Promise<LanguageModel>;
@@ -95,7 +95,7 @@ export function createAgentHandler(
   profile: JobSearchProfile,
   modelFactory: ModelFactory = createCodexLanguageModel,
   logger: Logger = defaultLogger,
-  contextReader?: AgentContextReader,
+  reads?: JobSearchReadCapabilities,
   mutations?: JobSearchMutationCapabilities,
   actor = "JobSearchAgent",
   toolExtensions?: JobSearchToolExtensions,
@@ -126,16 +126,16 @@ export function createAgentHandler(
       profile,
       model: await modelFactory(),
       logger: agentLogger,
-      tools: contextReader
+      tools: reads
         ? createJobSearchTools(
-          contextReader,
+          reads,
           agentLogger,
           mutations,
           { actor, requestId },
           toolExtensions,
         )
         : undefined,
-      canUpdateDashboardRecords: mutations !== undefined,
+      canUpdateRecords: mutations !== undefined,
     });
     const result = agent.respond(await convertToModelMessages(uiMessages), request.signal);
     return result.toUIMessageStreamResponse({

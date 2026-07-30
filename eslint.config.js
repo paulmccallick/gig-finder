@@ -5,9 +5,11 @@ export default tseslint.config(
   {
     ignores: [
       ".dependency-cruiser.cjs",
+      ".research/**",
       "dist/**",
       "node_modules/**",
       "context/**",
+      "tmp/**",
     ],
   },
   eslint.configs.recommended,

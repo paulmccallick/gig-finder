@@ -69,11 +69,12 @@ describe("typed CRUD repositories", () => {
     store.jobs.get("missing"); store.jobs.list();
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(0);
   });
-  test("agent context tools cannot change operational or audit state", async () => {
+  test("shared read services traverse persisted records without changing operational or audit state", async () => {
     store.change(context("Create records"), (tx) => {
       tx.jobs.create(job);
       tx.people.create(person);
       tx.networking.create(networking);
+      tx.jobPeople.create({ id: "relationship-1", jobId: job.id, personId: person.id, relationship: "hiring_manager", notes: null });
       tx.tasks.create(task);
     });
     const artifacts = {
@@ -86,12 +87,24 @@ describe("typed CRUD repositories", () => {
     const app = new JobSearchApplication(store, new AuditReader(database), artifacts);
     const before = database.serialize();
 
-    app.agentContext.listJobs({ stages: ["applied"], limit: 10 });
-    await app.agentContext.getJob(job.id);
-    app.agentContext.listNetworkingContacts({ statuses: ["not_contacted"] });
-    await app.agentContext.getNetworkingContact(networking.id);
-    app.agentContext.listTasks({ statuses: ["open"] });
-    await app.agentContext.getTask(task.id);
+    app.jobs.query({ stages: ["applied"], limit: 10 });
+    app.jobs.read(job.id);
+    app.networking.query({ statuses: ["not_contacted"] });
+    app.networking.read(networking.id);
+    app.people.query({ query: "CTO" });
+    app.people.read(person.id);
+    expect(app.jobPeople.query({ jobIds: [job.id], personIds: [person.id] }))
+      .toMatchObject({ status: "ok", items: [{ id: "relationship-1" }] });
+    expect(app.jobPeople.peopleForJob(job.id)).toMatchObject({
+      status: "ok",
+      record: { items: [{ id: person.id }] },
+    });
+    expect(app.jobPeople.jobsForPerson(person.id)).toMatchObject({
+      status: "ok",
+      record: { items: [{ id: job.id }] },
+    });
+    app.tasks.query({ statuses: ["open"] });
+    app.tasks.read(task.id);
 
     expect(database.serialize()).toEqual(before);
   });

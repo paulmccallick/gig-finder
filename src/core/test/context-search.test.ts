@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  ContactSummary,
-  JobSummary,
-  ListContactsInput,
-  ListJobsInput,
-} from "../src/agent-context";
+import type { JobRecord } from "../src/jobs";
+import type { NetworkContactRecord } from "../src/network";
+import type { JobQueryInput, NetworkingContactQueryInput } from "../src/queries";
 import { SearchContextService } from "../src/context-search";
 
-const job = (company: string, id = "job-1"): JobSummary => ({
+const job = (company: string, id = "job-1"): JobRecord => ({
   id,
   company,
   title: "Engineering Director",
@@ -20,9 +17,22 @@ const job = (company: string, id = "job-1"): JobSummary => ({
   location: null,
   workArrangement: null,
   documents: [],
+  jobId: null,
+  roleDirectory: null,
+  payRange: null,
+  sourceUrl: null,
+  tags: [],
+  hasJobDescription: false,
+  hasInterviewPrep: false,
+  postedDate: null,
+  businessUnitTeam: null,
+  recruiterSource: null,
+  bonus: null,
+  equity: null,
+  otherCompensation: null,
 });
 
-const contact = (name: string, company: string): ContactSummary => ({
+const contact = (name: string, company: string): NetworkContactRecord => ({
   id: "contact-1",
   name,
   company,
@@ -47,9 +57,16 @@ const contact = (name: string, company: string): ContactSummary => ({
   personId: "person-1",
   hasProfile: false,
   documents: [],
+  linkedInProfileUrl: null,
+  profileStatus: "missing",
+  connectedOn: null,
+  notes: [],
+  tags: [],
+  source: { files: [] },
+  createdAt: "2026-07-29",
 });
 
-function existingSearches(jobs: JobSummary[], contacts: ContactSummary[]) {
+function existingSearches(jobs: JobRecord[], contacts: NetworkContactRecord[]) {
   const calls = { jobs: [] as string[], contacts: [] as string[] };
   const page = <T>(items: T[]) => ({
     items,
@@ -66,15 +83,15 @@ function existingSearches(jobs: JobSummary[], contacts: ContactSummary[]) {
     values.some(value => value?.toLocaleLowerCase().includes(query?.toLocaleLowerCase() ?? ""));
   return {
     calls,
-    reader: {
-      listJobs: (input: ListJobsInput) => {
+    sources: {
+      jobs: { query: (input: JobQueryInput) => {
         calls.jobs.push(input.query ?? "");
         return page(jobs.filter(item => matches(input.query, [item.company, item.title])));
-      },
-      listNetworkingContacts: (input: ListContactsInput) => {
+      } },
+      networking: { query: (input: NetworkingContactQueryInput) => {
         calls.contacts.push(input.query ?? "");
         return page(contacts.filter(item => matches(input.query, [item.name, item.company, item.title])));
-      },
+      } },
     },
   };
 }
@@ -85,7 +102,7 @@ describe("context search", () => {
       [job("J.D. Power")],
       [contact("Kimberly Smith", "J.D. Power")],
     );
-    const service = new SearchContextService(searches.reader);
+    const service = new SearchContextService(searches.sources);
 
     const result = service.search({
       companyNames: ["JD Power"],
@@ -105,7 +122,7 @@ describe("context search", () => {
       [job("Example Company")],
       [contact("Alex Smith", "Example Company")],
     );
-    const service = new SearchContextService(searches.reader);
+    const service = new SearchContextService(searches.sources);
     expect(service.search({ companyNames: ["Different"], personNames: [] }))
       .toMatchObject({ jobs: [], networkingContacts: [], truncated: false });
   });
@@ -115,7 +132,7 @@ describe("context search", () => {
       job("Example Company"),
       { ...job("Example Company", "job-2"), title: "VP Engineering" },
     ], []);
-    const service = new SearchContextService(searches.reader);
+    const service = new SearchContextService(searches.sources);
     expect(service.search({ companyNames: ["Example Company"], personNames: [] }).jobs)
       .toHaveLength(2);
   });
@@ -125,7 +142,7 @@ describe("context search", () => {
       [job("株式会社サンプル")],
       [contact("李雷", "株式会社サンプル")],
     );
-    const service = new SearchContextService(searches.reader);
+    const service = new SearchContextService(searches.sources);
 
     expect(service.search({
       companyNames: ["株式会社サンプル"],

@@ -4,18 +4,20 @@ import type { Logger } from "pino";
 import {
   contactStatuses,
   fitRatings,
+  jobPersonRelationships,
   pipelineStages,
   taskTypes,
-  type AgentContextReader,
   type ChangeContext,
   type Job,
   type ManagedDocumentRecord,
+  type NetworkContactRecord,
   StagedDocumentService,
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
 import {
   createJobSearchTools,
   jobSearchToolSchemas,
+  type JobSearchReadCapabilities,
   type JobSearchMutationCapabilities,
 } from "../job-search-tools";
 
@@ -46,8 +48,37 @@ const managedDocument: ManagedDocumentRecord = {
   updatedAt: "2026-07-27T12:00:00.000Z",
 };
 
+const contactRecord: NetworkContactRecord = {
+  id: "contact-1",
+  personId: "person-1",
+  name: "Contact Person",
+  company: "Example Company",
+  title: "VP Engineering",
+  linkedInProfileUrl: null,
+  profileStatus: "missing",
+  connectedOn: null,
+  relationship: { type: "former_peer", strength: "strong", introducedBy: null, notes: null },
+  priority: "high",
+  status: "active_relationship",
+  outreach: {
+    lastContacted: null,
+    lastContactMethod: null,
+    lastContactSummary: null,
+    nextAction: null,
+    nextActionDue: null,
+  },
+  whyInteresting: null,
+  notes: [],
+  tags: [],
+  source: { files: [] },
+  createdAt: "2026-07-01",
+  updatedAt: "2026-07-01",
+  hasProfile: false,
+  documents: [],
+};
+
 const reader = {
-  listJobs: (input) => ({
+  jobs: { query: (input) => ({
     items: [],
     page: {
       offset: input.offset ?? 0,
@@ -57,9 +88,8 @@ const reader = {
       hasMore: false,
       nextOffset: null,
     },
-  }),
-  getJob: async (id) => ({ status: "not_found", id }),
-  listNetworkingContacts: (input) => ({
+  }), read: (id) => ({ status: "not_found" as const, id }) },
+  networking: { query: (input) => ({
     items: [],
     page: {
       offset: input.offset ?? 0,
@@ -69,9 +99,16 @@ const reader = {
       hasMore: false,
       nextOffset: null,
     },
-  }),
-  getNetworkingContact: async (id) => ({ status: "not_found", id }),
-  listTasks: (input) => ({
+  }), read: (id) => ({ status: "not_found" as const, id }) },
+  people: {
+    query: input => ({ items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
+    read: id => ({ status: "not_found" as const, id }),
+  },
+  jobPeople: {
+    query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
+    read: id => ({ status: "not_found" as const, id }),
+  },
+  tasks: { query: (input) => ({
     items: [],
     page: {
       offset: input.offset ?? 0,
@@ -81,10 +118,12 @@ const reader = {
       hasMore: false,
       nextOffset: null,
     },
-  }),
-  getTask: async (id) => ({ status: "not_found", id }),
-  getDocument: async (reference) => ({ status: "not_found", id: reference }),
-} satisfies AgentContextReader;
+  }), read: (id) => ({ status: "not_found" as const, id }) },
+  documents: {
+    list: async () => [],
+    get: async reference => ({ status: "not_found" as const, id: reference }),
+  },
+} satisfies JobSearchReadCapabilities;
 
 const mutations: JobSearchMutationCapabilities = {
   jobs: { update: () => { throw new Error("not executed"); } },
@@ -125,6 +164,15 @@ const nullTasksInput = {
   limit: null,
 } as const;
 
+const nullPeopleInput = { query: null, offset: null, limit: null } as const;
+const nullRelationshipsInput = {
+  jobIds: null,
+  personIds: null,
+  relationships: null,
+  offset: null,
+  limit: null,
+} as const;
+
 describe("JobSearchAgent tools", () => {
   test("registers the approved tools with agent-facing descriptions", () => {
     const tools = createJobSearchTools(reader, logger);
@@ -133,6 +181,10 @@ describe("JobSearchAgent tools", () => {
       "get_job",
       "list_networking_contacts",
       "get_networking_contact",
+      "list_people",
+      "get_person",
+      "list_job_person_relationships",
+      "get_job_person_relationship",
       "list_tasks",
       "get_task",
       "get_document",
@@ -155,6 +207,10 @@ describe("JobSearchAgent tools", () => {
       "get_job",
       "list_networking_contacts",
       "get_networking_contact",
+      "list_people",
+      "get_person",
+      "list_job_person_relationships",
+      "get_job_person_relationship",
       "list_tasks",
       "get_task",
       "get_document",
@@ -170,6 +226,102 @@ describe("JobSearchAgent tools", () => {
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
+  });
+
+  test("reads standalone people and traversable job-person relationships", async () => {
+    const tools = createJobSearchTools({
+      ...reader,
+      people: {
+        query: input => ({
+          items: [{
+            id: "person-1",
+            name: "Standalone Person",
+            company: "Example",
+            title: "VP Engineering",
+            linkedInProfileUrl: null,
+            connectedOn: null,
+          }],
+          page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
+        }),
+        read: id => ({ status: "not_found" as const, id }),
+      },
+      jobPeople: {
+        query: input => ({
+          status: "ok" as const,
+          items: [{ id: "relation-1", jobId: input.jobIds?.[0] ?? "job-1", personId: "person-1", relationship: "hiring_manager" as const, notes: null }],
+          page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
+        }),
+        read: id => ({ status: "not_found" as const, id }),
+      },
+    }, logger);
+    const options = { toolCallId: "call-read", messages: [], abortSignal: undefined, context: {} };
+    expect(await tools.list_people.execute?.(nullPeopleInput, options)).toMatchObject({
+      items: [{ id: "person-1", name: "Standalone Person" }],
+    });
+    expect(await tools.list_job_person_relationships.execute?.({
+      ...nullRelationshipsInput,
+      jobIds: ["job-1"],
+      relationships: ["hiring_manager"],
+    }, options)).toMatchObject({
+      status: "ok",
+      items: [{ id: "relation-1", jobId: "job-1", personId: "person-1" }],
+    });
+  });
+
+  test("includes every related job reference when getting a networking contact", async () => {
+    const relationshipQueries: number[] = [];
+    const tools = createJobSearchTools({
+      ...reader,
+      networking: {
+        ...reader.networking,
+        read: id => id === contactRecord.id
+          ? { status: "ok" as const, record: contactRecord }
+          : { status: "not_found" as const, id },
+      },
+      jobPeople: {
+        ...reader.jobPeople,
+        query: input => {
+          relationshipQueries.push(input.offset ?? 0);
+          const secondPage = input.offset === 1;
+          return {
+            status: "ok" as const,
+            items: [{
+              id: secondPage ? "relationship-2" : "relationship-1",
+              jobId: secondPage ? "job-2" : "job-1",
+              personId: "person-1",
+              relationship: secondPage ? "former_peer" as const : "hiring_manager" as const,
+              notes: null,
+            }],
+            page: {
+              offset: input.offset ?? 0,
+              limit: 50,
+              returned: 1,
+              total: 2,
+              hasMore: !secondPage,
+              nextOffset: secondPage ? null : 1,
+            },
+          };
+        },
+      },
+    }, logger);
+
+    const result = await tools.get_networking_contact.execute?.(
+      { id: "contact-1" },
+      { toolCallId: "call-contact", messages: [], abortSignal: undefined, context: {} },
+    );
+
+    expect(result).toMatchObject({
+      status: "ok",
+      record: {
+        id: "contact-1",
+        personId: "person-1",
+        jobs: [
+          { jobId: "job-1", relationship: "hiring_manager" },
+          { jobId: "job-2", relationship: "former_peer" },
+        ],
+      },
+    });
+    expect(relationshipQueries).toEqual([0, 1]);
   });
 
   test("reads staged references and persists them through generic document tools", async () => {
@@ -250,12 +402,10 @@ describe("JobSearchAgent tools", () => {
       links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
       title: "Director role",
-      source: {
-        kind: "staged_document",
-        content: null,
-        reference: staged.reference,
-        mediaType: "text/markdown",
-      },
+      sourceKind: "staged_document",
+      content: null,
+      reference: staged.reference,
+      mediaType: "text/markdown",
       sourceDescription: null,
     };
     const result = await createDocument.execute?.(stagedToolInput, {
@@ -312,40 +462,35 @@ describe("JobSearchAgent tools", () => {
       links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
       title: "Job description",
-      source: {
-        kind: "inline_content",
-        content: "Supplied source text",
-        reference: null,
-        mediaType: "text/plain",
-      },
+      sourceKind: "inline_content",
+      content: "Supplied source text",
+      reference: null,
+      mediaType: "text/plain",
       sourceDescription: null,
     })).toMatchObject({
       links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
-      source: { kind: "inline_content", mediaType: "text/plain" },
+      sourceKind: "inline_content",
+      mediaType: "text/plain",
     });
     expect(jobSearchToolSchemas.create_document.safeParse({
       links: [{ entityType: "contact", entityId: "contact-1" }],
       documentType: "job_description",
       title: "Job description",
-      source: {
-        kind: "inline_content",
-        content: "Supplied source text",
-        reference: null,
-        mediaType: "text/plain",
-      },
+      sourceKind: "inline_content",
+      content: "Supplied source text",
+      reference: null,
+      mediaType: "text/plain",
       sourceDescription: null,
     }).success).toBe(false);
     expect(jobSearchToolSchemas.create_document.safeParse({
       links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
       title: "Job description",
-      source: {
-        kind: "staged_document",
-        content: "Opaque references cannot be stored as content.",
-        reference: "staged-document:11111111-1111-4111-8111-111111111111",
-        mediaType: "text/markdown",
-      },
+      sourceKind: "staged_document",
+      content: "Opaque references cannot be stored as content.",
+      reference: "staged-document:11111111-1111-4111-8111-111111111111",
+      mediaType: "text/markdown",
       sourceDescription: null,
     }).success).toBe(false);
     expect(jobSearchToolSchemas.update_document.safeParse({
@@ -390,12 +535,10 @@ describe("JobSearchAgent tools", () => {
         links: [{ entityType: "job", entityId: "job-1" }],
         documentType: "job_description",
         title: "Job description",
-        source: {
-          kind: "inline_content",
-          content: "Original source text",
-          reference: null,
-          mediaType: "text/plain",
-        },
+        sourceKind: "inline_content",
+        content: "Original source text",
+        reference: null,
+        mediaType: "text/plain",
         sourceDescription: "Provided by the recruiter",
       },
       {
@@ -849,6 +992,10 @@ describe("JobSearchAgent tools", () => {
       ...nullTasksInput,
       types: [...taskTypes],
     }).types).toEqual([...taskTypes]);
+    expect(jobSearchToolSchemas.list_job_person_relationships.parse({
+      ...nullRelationshipsInput,
+      relationships: [...jobPersonRelationships],
+    }).relationships).toEqual([...jobPersonRelationships]);
   });
 
   test("rejects unknown fields, invalid enums, empty arrays, and pagination outside bounds", () => {
@@ -867,8 +1014,9 @@ describe("JobSearchAgent tools", () => {
       jobs: z.toJSONSchema(jobSearchToolSchemas.list_jobs),
       contacts: z.toJSONSchema(jobSearchToolSchemas.list_networking_contacts),
       tasks: z.toJSONSchema(jobSearchToolSchemas.list_tasks),
+      relationships: z.toJSONSchema(jobSearchToolSchemas.list_job_person_relationships),
     });
-    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes]) {
+    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes, ...jobPersonRelationships]) {
       expect(schemas).toContain(`"${value}"`);
     }
   });
@@ -889,6 +1037,8 @@ describe("JobSearchAgent tools", () => {
       [jobSearchToolSchemas.list_jobs, nullJobsInput],
       [jobSearchToolSchemas.list_networking_contacts, nullContactsInput],
       [jobSearchToolSchemas.list_tasks, nullTasksInput],
+      [jobSearchToolSchemas.list_people, nullPeopleInput],
+      [jobSearchToolSchemas.list_job_person_relationships, nullRelationshipsInput],
     ] as const) {
       const jsonSchema = z.toJSONSchema(schema);
       expect(jsonSchema.required?.sort()).toEqual(
@@ -925,6 +1075,15 @@ describe("JobSearchAgent tools", () => {
       const jsonSchema = z.toJSONSchema(schema);
       assertStrictObjects(jsonSchema);
     }
+  });
+
+  test("generates a Codex-compatible flat document source schema", () => {
+    const jsonSchema = z.toJSONSchema(jobSearchToolSchemas.create_document);
+    expect(jsonSchema.properties).toHaveProperty("sourceKind");
+    expect(jsonSchema.properties).toHaveProperty("content");
+    expect(jsonSchema.properties).toHaveProperty("reference");
+    expect(jsonSchema.properties).not.toHaveProperty("source");
+    expect(JSON.stringify(jsonSchema)).not.toContain('"oneOf"');
   });
 
   test("logs only filters applied to a tool invocation", async () => {
