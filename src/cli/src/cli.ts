@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocumentsForJob, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, trackerPaths, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
+import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, trackerPaths, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
 import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
 import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
@@ -38,11 +38,11 @@ Usage:
   job-search events add <id> --patch-file <path> [--dry-run]
   job-search artifacts verify
   job-search artifacts sync
-  job-search documents list --job <job-id>
-  job-search documents get <document-reference>
-  job-search documents create --job <job-id> --type <type> --title <text> --media-type <type> --content-file <path> [--source-description <text>]
-  job-search documents update <document-reference> --expected-version <number> --change-summary <text> --content-file <path>
-  job-search documents versions <document-reference>
+  job-search documents list (--job <job-id> | --person <person-id>)
+  job-search documents get <document-id>
+  job-search documents create [--jobs <id,...>] [--people <id,...>] --type <type> --media-type <type> --content-file <path> [--title <text>] [--source-description <text>]
+  job-search documents update <document-id> --expected-version <number> --change-summary <text> --content-file <path>
+  job-search documents versions <document-id>
 
 Patch files are recommended for long or sensitive text. Arrays are replaced;
 objects are deep-merged; null explicitly clears a value. All writes are atomic.`;
@@ -67,6 +67,7 @@ const required = (flags: Flags, key: string): string => {
   return value;
 };
 const optional = (flags: Flags, key: string): string | undefined => typeof flags[key] === "string" ? flags[key] : undefined;
+const commaList = (flags: Flags, key: string): string[] => (optional(flags, key) ?? "").split(",").map(value => value.trim()).filter(Boolean);
 const nullable = (value: string | undefined): string | null | undefined => value === "none" ? null : value;
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 
@@ -108,13 +109,17 @@ async function handleDocuments(args: string[]): Promise<boolean> {
 
   if (command === "list") {
     const flags = parseFlags(args.slice(2));
-    const jobId = required(flags, "job");
+    const jobId = optional(flags, "job");
+    const personId = optional(flags, "person");
+    if (Boolean(jobId) === Boolean(personId)) throw new Error("Provide exactly one of --job or --person.");
+    const entityType = jobId ? "job" as const : "person" as const;
+    const entityId = jobId ?? personId!;
     console.log(JSON.stringify({
       ok: true,
       entity: "document",
       command,
-      owner: { type: "job", id: jobId },
-      records: listDocumentsForJob(paths, jobId),
+      link: { entityType, entityId },
+      records: listDocuments(paths, entityType, entityId),
     }, null, 2));
     return true;
   }
@@ -142,10 +147,14 @@ async function handleDocuments(args: string[]): Promise<boolean> {
       "utf8",
     );
     const result = createDocument(paths, {
-      ownerType: "job",
-      ownerId: required(flags, "job"),
+      links: [
+        ...(optional(flags, "job") ? [{ entityType: "job" as const, entityId: optional(flags, "job")! }] : []),
+        ...(optional(flags, "person") ? [{ entityType: "person" as const, entityId: optional(flags, "person")! }] : []),
+        ...commaList(flags, "jobs").map(entityId => ({ entityType: "job" as const, entityId })),
+        ...commaList(flags, "people").map(entityId => ({ entityType: "person" as const, entityId })),
+      ],
       documentType: acceptedValue(flags, "type", managedDocumentTypes),
-      title: required(flags, "title"),
+      title: optional(flags, "title") ?? null,
       mediaType: acceptedValue(flags, "media-type", documentMediaTypes),
       sourceDescription: optional(flags, "source-description") ?? null,
       content,
@@ -170,7 +179,7 @@ async function handleDocuments(args: string[]): Promise<boolean> {
       "utf8",
     );
     const result = updateDocument(paths, {
-      reference,
+      documentId: reference,
       expectedVersion: positiveInteger(flags, "expected-version"),
       changeSummary: required(flags, "change-summary"),
       content,

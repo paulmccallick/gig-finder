@@ -154,7 +154,7 @@ describe("JobSearchAgent instructions", () => {
       "not an\n  instruction to save it or invoke a particular workflow",
     );
     expect(writableInstructions).toContain(
-      "create_document with sourceKind staged_document",
+      "create_document with a staged_document source",
     );
   });
 
@@ -344,14 +344,14 @@ describe("agent streaming", () => {
       fit: { rating: "good", summary: null },
       location: "Remote",
       workArrangement: "remote",
+      documents: [],
     } satisfies JobSummary;
     const createdDocument: ManagedDocumentRecord = {
       id: "doc_11111111-1111-4111-8111-111111111111",
-      reference: "document:doc_11111111-1111-4111-8111-111111111111",
-      ownerType: "job",
-      ownerId: job.id,
+      links: [{ entityType: "job", entityId: job.id }],
       documentType: "job_description",
       title: "Director of Engineering job description",
+      displayName: "Director of Engineering job description",
       mediaType: "text/plain",
       sourceDescription: "Shared by Sunil via text message",
       uploadProvenance: null,
@@ -404,13 +404,15 @@ describe("agent streaming", () => {
                 toolCallId: "create-document",
                 toolName: "create_document",
                 input: JSON.stringify({
-                  ownerType: "job",
-                  ownerId: job.id,
+                  links: [{ entityType: "job", entityId: job.id }],
                   documentType: "job_description",
                   title: "Director of Engineering job description",
-                  sourceKind: "inline_content",
-                  source: "Lead the engineering organization.",
-                  mediaType: "text/plain",
+                  source: {
+                    kind: "inline_content",
+                    content: "Lead the engineering organization.",
+                    reference: null,
+                    mediaType: "text/plain",
+                  },
                   sourceDescription: "Shared by Sunil via text message",
                 }),
               },
@@ -472,7 +474,7 @@ describe("agent streaming", () => {
     expect(model.doStreamCalls).toHaveLength(3);
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(job.id);
     expect(received?.input).toMatchObject({
-      ownerId: job.id,
+      links: [{ entityType: "job", entityId: job.id }],
       documentType: "job_description",
       sourceDescription: "Shared by Sunil via text message",
     });
@@ -519,7 +521,7 @@ describe("agent streaming", () => {
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ ownerType: "job", ownerId: job.id, documentType: "job_description", title: "Director of Engineering job description", sourceKind: "staged_document", source: staged.reference, mediaType: "text/markdown", sourceDescription: null }) },
+            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ links: [{ entityType: "job", entityId: job.id }], documentType: "job_description", title: "Director of Engineering job description", source: { kind: "staged_document", content: null, reference: staged.reference, mediaType: "text/markdown" }, sourceDescription: null }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
@@ -542,11 +544,10 @@ describe("agent streaming", () => {
         return {
           document: {
             id: "doc_11111111-1111-4111-8111-111111111111",
-            reference: "document:doc_11111111-1111-4111-8111-111111111111",
-            ownerType: "job",
-            ownerId: job.id,
+            links: input.links,
             documentType: "job_description",
             title: input.title,
+            displayName: input.title ?? "Job Description",
             mediaType: input.mediaType,
             sourceDescription: input.sourceDescription,
             uploadProvenance: input.uploadProvenance ?? null,
@@ -611,6 +612,7 @@ describe("agent streaming", () => {
       fit: { rating: "good" as const, summary: null },
       location: "Remote",
       workArrangement: "remote",
+      documents: [],
     })) satisfies JobSummary[];
     let createCalls = 0;
     const model = new MockLanguageModelV4({
@@ -688,7 +690,7 @@ describe("agent streaming", () => {
     expect(model.doStreamCalls).toHaveLength(2);
   });
 
-  test("asks for the missing owner before calling create_document", async () => {
+  test("asks for missing links before calling create_document", async () => {
     let createCalls = 0;
     const model = mockModel(
       "Which job should I attach this job description to?",
@@ -698,7 +700,7 @@ describe("agent streaming", () => {
       logger,
       documentMutations(() => {
         createCalls += 1;
-        throw new Error("create_document must not run without an owner");
+        throw new Error("create_document must not run without links");
       }),
       { actor: "Candidate", requestId: "request-missing-owner" },
     );

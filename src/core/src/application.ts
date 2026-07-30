@@ -11,12 +11,12 @@ export class JobSearchApplication {
   readonly jobs:JobDomainService;readonly people:PeopleService;readonly networking:ContactDomainService;readonly tasks:TaskDomainService;readonly meetings:MeetingService;readonly jobPeople:JobPeopleService;readonly events:EventService;readonly history:HistoryService;readonly changes:ChangeService;readonly artifacts:ArtifactDomainService;readonly documents:ManagedDocumentService;readonly agentContext:JobSearchAgentContext;readonly contextSearch:SearchContextService;
   constructor(persistence:Persistence,audit:AuditPort,artifacts:ArtifactPort){
     const changeExecutor=new ChangeExecutor(persistence);
-    this.jobs=new JobDomainService(persistence,artifacts,changeExecutor);this.people=new PeopleService(persistence,artifacts);this.networking=new ContactDomainService(persistence,changeExecutor);this.tasks=new TaskDomainService(persistence);this.meetings=new MeetingService(persistence);this.jobPeople=new JobPeopleService(persistence);this.events=new EventService(persistence);this.history=new HistoryService(audit);this.changes=new ChangeService(persistence);this.artifacts=new ArtifactDomainService(persistence,artifacts);this.documents=new ManagedDocumentService(persistence);
+    this.documents=new ManagedDocumentService(persistence);this.jobs=new JobDomainService(persistence,artifacts,changeExecutor,this.documents);this.people=new PeopleService(persistence);this.networking=new ContactDomainService(persistence,changeExecutor,this.documents);this.tasks=new TaskDomainService(persistence);this.meetings=new MeetingService(persistence);this.jobPeople=new JobPeopleService(persistence);this.events=new EventService(persistence);this.history=new HistoryService(audit);this.changes=new ChangeService(persistence);this.artifacts=new ArtifactDomainService(persistence,artifacts);
     this.agentContext=new JobSearchAgentContext({
       jobs:this.jobs,
       networking:this.networking,
       tasks:this.tasks,
-      documents:new ApplicationAgentDocumentSource({jobs:this.jobs,people:this.people,contacts:this.networking,managed:this.documents}),
+      documents:new ApplicationAgentDocumentSource({jobs:this.jobs,contacts:this.networking,managed:this.documents}),
     });
     this.contextSearch=new SearchContextService(this.agentContext);
   }

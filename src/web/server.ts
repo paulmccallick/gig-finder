@@ -32,11 +32,23 @@ const uploadLimits = {
     managedDocumentContentLimit,
   ),
   maxPdfPages: positiveInteger(process.env.DOCUMENT_PDF_MAX_PAGES, 100),
+  maxDocxUncompressedBytes: positiveInteger(
+    process.env.DOCUMENT_DOCX_MAX_UNCOMPRESSED_BYTES,
+    25_000_000,
+  ),
 };
 const maxRequestBodySize = uploadLimits.maxBytes + 1_000_000;
-const stagedDocuments = new StagedDocumentService(
-  positiveInteger(process.env.DOCUMENT_STAGE_TTL_MS, 15 * 60 * 1000),
-);
+const stagedDocuments = new StagedDocumentService({
+  lifetimeMs: positiveInteger(
+    process.env.DOCUMENT_STAGE_TTL_MS,
+    15 * 60 * 1000,
+  ),
+  maxDocuments: positiveInteger(process.env.DOCUMENT_STAGE_MAX_DOCUMENTS, 20),
+  maxTotalCharacters: positiveInteger(
+    process.env.DOCUMENT_STAGE_MAX_CHARACTERS,
+    managedDocumentContentLimit * 10,
+  ),
+});
 const uploadHandler = createDocumentUploadHandler(
   new LocalDocumentConverter(uploadLimits),
   stagedDocuments,

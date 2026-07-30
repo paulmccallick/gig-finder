@@ -96,3 +96,8 @@ export interface Job extends JobRole {
   equity: string | null;
   otherCompensation: string | null;
 }
+
+export interface JobRecord extends Job {
+  documents: DocumentSummary[];
+}
+import type { DocumentSummary } from "./documents";

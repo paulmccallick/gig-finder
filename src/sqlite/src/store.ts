@@ -14,7 +14,7 @@ interface RepositoryConfig<T extends DataRecord> { entity: string; table: string
 
 const baseColumns = { revision: "revision", isDeleted: "is_deleted", createdAt: "created_at", updatedAt: "updated_at" } as const;
 const jobColumns: ColumnMap<JobData> = { id:"id",company:"company",title:"title",externalJobId:"external_job_id",stage:"stage",outcome:"outcome",statusSummary:"status_summary",lastActivity:"last_activity",nextActionDescription:"next_action_description",nextActionDue:"next_action_due",fitRating:"fit_rating",fitSummary:"fit_summary",payCurrency:"pay_currency",payMinimum:"pay_minimum",payMaximum:"pay_maximum",payPeriod:"pay_period",payNotes:"pay_notes",sourceUrl:"source_url",location:"location",workArrangement:"work_arrangement",postedDate:"posted_date",businessUnitTeam:"business_unit_team",recruiterSource:"recruiter_source",bonus:"bonus",equity:"equity",otherCompensation:"other_compensation",tagsJson:"tags_json",hasJobDescription:"has_job_description",hasInterviewPrep:"has_interview_prep" };
-const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on",hasLocalProfile:"has_local_profile"};
+const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on"};
 const networkingColumns:ColumnMap<NetworkingContactData>={id:"id",personId:"person_id",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",lastContacted:"last_contacted",lastContactMethod:"last_contact_method",lastContactSummary:"last_contact_summary",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
 const jobPersonColumns:ColumnMap<JobPersonData>={id:"id",jobId:"job_id",personId:"person_id",relationship:"relationship",notes:"notes"};
 const taskColumns: ColumnMap<TaskData> = { id:"id",title:"title",type:"type",status:"status",priority:"priority",dueDate:"due_date",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",relatedEntityLabel:"related_entity_label",notes:"notes",completedAt:"completed_at" };
@@ -22,7 +22,7 @@ const meetingColumns: ColumnMap<MeetingData> = { id:"id",title:"title",startsAt:
 
 const configs = {
   jobs: { entity:"job", table:"jobs", historyTable:"job_history", columns: jobColumns,booleans:["hasJobDescription","hasInterviewPrep"] } satisfies RepositoryConfig<JobData>,
-  people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns,booleans:["hasLocalProfile"]} satisfies RepositoryConfig<PersonData>,
+  people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns} satisfies RepositoryConfig<PersonData>,
   networking:{entity:"networking",table:"networking_contacts",historyTable:"networking_contact_history",columns:networkingColumns} satisfies RepositoryConfig<NetworkingContactData>,
   jobPeople:{entity:"job-person",table:"job_people",historyTable:"job_people_history",columns:jobPersonColumns} satisfies RepositoryConfig<JobPersonData>,
   tasks: { entity:"task", table:"tasks", historyTable:"task_history", columns: taskColumns } satisfies RepositoryConfig<TaskData>,

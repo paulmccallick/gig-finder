@@ -1,10 +1,11 @@
 import type { Database } from "bun:sqlite";
 import {
-  documentReference,
+  documentDisplayName,
   uploadedDocumentProvenanceSchema,
 } from "../../core/src/documents";
 import type {
-  DocumentOwnerType,
+  DocumentLink,
+  DocumentLinkEntityType,
   ManagedDocumentData,
   ManagedDocumentRecord,
   ManagedDocumentVersionData,
@@ -20,10 +21,8 @@ import { NotFoundError, RevisionConflictError } from "./errors";
 
 type DocumentRow = {
   id: string;
-  owner_type: DocumentOwnerType;
-  owner_id: string;
   document_type: ManagedDocumentData["documentType"];
-  title: string;
+  title: string | null;
   media_type: ManagedDocumentData["mediaType"];
   source_description: string | null;
   upload_provenance_json: string | null;
@@ -49,24 +48,28 @@ type VersionRow = {
 const timestamp = (context: ChangeContext) =>
   context.occurredAt ?? new Date().toISOString();
 
-const fromRow = (row: DocumentRow): ManagedDocumentRecord => ({
-  id: row.id,
-  reference: documentReference(row.id),
-  ownerType: row.owner_type,
-  ownerId: row.owner_id,
-  documentType: row.document_type,
-  title: row.title,
-  mediaType: row.media_type,
-  sourceDescription: row.source_description,
-  uploadProvenance: row.upload_provenance_json
-    ? uploadedDocumentProvenanceSchema.parse(JSON.parse(row.upload_provenance_json))
-    : null,
-  currentVersion: row.current_version,
-  content: row.content,
-  contentHash: row.content_hash,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+const fromRow = (row: DocumentRow, links: DocumentLink[]): ManagedDocumentRecord => {
+  const document = {
+    id: row.id,
+    links,
+    documentType: row.document_type,
+    title: row.title,
+    mediaType: row.media_type,
+    sourceDescription: row.source_description,
+    uploadProvenance: row.upload_provenance_json
+      ? uploadedDocumentProvenanceSchema.parse(JSON.parse(row.upload_provenance_json))
+      : null,
+  };
+  return {
+    ...document,
+    displayName: documentDisplayName(document),
+    currentVersion: row.current_version,
+    content: row.content,
+    contentHash: row.content_hash,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 const versionFromRow = (row: VersionRow): ManagedDocumentVersionData => ({
   documentId: row.document_id,
@@ -93,19 +96,21 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
   get(id: string): ManagedDocumentRecord | null {
     const row = this.database.query(`${selectCurrent} WHERE d.id = ?`)
       .get(id) as DocumentRow | null;
-    return row ? fromRow(row) : null;
+    return row ? fromRow(row, this.links(id)) : null;
   }
 
   list(
-    ownerType: DocumentOwnerType,
-    ownerId: string,
+    entityType: DocumentLinkEntityType,
+    entityId: string,
   ): ManagedDocumentRecord[] {
+    const targetColumn = entityType === "job" ? "job_id" : "person_id";
     const rows = this.database.query(
       `${selectCurrent}
-       WHERE d.owner_type = ? AND d.owner_id = ?
-       ORDER BY d.document_type, d.title, d.id`,
-    ).all(ownerType, ownerId) as DocumentRow[];
-    return rows.map(fromRow);
+       JOIN managed_document_links l ON l.document_id = d.id
+       WHERE l.${targetColumn} = ?
+       ORDER BY d.document_type, COALESCE(d.title, ''), d.id`,
+    ).all(entityId) as DocumentRow[];
+    return rows.map(row => fromRow(row, this.links(row.id)));
   }
 
   listVersions(id: string): ManagedDocumentVersionData[] {
@@ -114,6 +119,16 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
        WHERE document_id = ? ORDER BY version DESC`,
     ).all(id) as VersionRow[];
     return rows.map(versionFromRow);
+  }
+
+  private links(documentId: string): DocumentLink[] {
+    const rows = this.database.query(
+      `SELECT job_id, person_id FROM managed_document_links
+       WHERE document_id = ? ORDER BY person_id, job_id`,
+    ).all(documentId) as Array<{ job_id: string | null; person_id: string | null }>;
+    return rows.map(row => row.job_id
+      ? { entityType: "job" as const, entityId: row.job_id }
+      : { entityType: "person" as const, entityId: row.person_id! });
   }
 }
 
@@ -139,14 +154,12 @@ export class SqliteDocumentWriteRepository
     const occurredAt = timestamp(this.context);
     this.database.query(
       `INSERT INTO managed_documents (
-        id, owner_type, owner_id, document_type, title, media_type,
+        id, document_type, title, media_type,
         source_description, upload_provenance_json, current_version,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     ).run(
       input.document.id,
-      input.document.ownerType,
-      input.document.ownerId,
       input.document.documentType,
       input.document.title,
       input.document.mediaType,
@@ -157,6 +170,16 @@ export class SqliteDocumentWriteRepository
       occurredAt,
       occurredAt,
     );
+    for (const link of input.document.links) {
+      this.database.query(
+        `INSERT INTO managed_document_links (document_id, job_id, person_id)
+         VALUES (?, ?, ?)`,
+      ).run(
+        input.document.id,
+        link.entityType === "job" ? link.entityId : null,
+        link.entityType === "person" ? link.entityId : null,
+      );
+    }
     this.insertVersion({
       documentId: input.document.id,
       version: 1,

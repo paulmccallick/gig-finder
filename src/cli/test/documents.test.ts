@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { JobData } from "../../core/src/models";
+import type { JobData, NetworkingContactData, PersonData } from "../../core/src/models";
 import {
   DataStore,
   migrateDatabase,
@@ -44,12 +44,49 @@ const job: JobData = {
   hasInterviewPrep: false,
 };
 
+const person: PersonData = {
+  id: "person-1", name: "Jordan Example", company: "Example Company",
+  title: "Director", linkedInProfileUrl: null, connectedOn: null,
+};
+const contact: NetworkingContactData = {
+  id: "contact-1", personId: person.id, relationshipType: "colleague",
+  relationshipStrength: "warm", introducedBy: null, relationshipNotes: null,
+  priority: "medium", status: "active_relationship", lastContacted: null,
+  lastContactMethod: null, lastContactSummary: null, nextAction: null,
+  nextActionDue: null, whyInteresting: null, notesJson: "[]", tagsJson: "[]",
+};
+
 afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
   directory = "";
 });
 
 describe("managed document CLI", () => {
+  test("creates a person profile with a friendly fallback and exposes it on linked records", async () => {
+    const { database, artifacts } = await workspace();
+    const contentFile = path.join(directory, "profile.md");
+    await Bun.write(contentFile, "# Profile");
+
+    const created = await run([
+      "documents", "create", "--person", person.id, "--job", job.id,
+      "--type", "profile", "--media-type", "text/markdown",
+      "--content-file", contentFile,
+    ], database, artifacts);
+
+    expect(created.record).toMatchObject({
+      title: null,
+      displayName: "Profile",
+      links: [
+        { entityType: "job", entityId: job.id },
+        { entityType: "person", entityId: person.id },
+      ],
+    });
+    expect((await run(["jobs", "get", job.id], database, artifacts)).record.documents)
+      .toContainEqual(expect.objectContaining({ id: created.record.id, type: "profile", displayName: "Profile" }));
+    expect((await run(["networking", "get", contact.id], database, artifacts)).record)
+      .toMatchObject({ hasProfile: true, documents: [{ id: created.record.id, type: "profile", displayName: "Profile" }] });
+  });
+
   test("creates, lists, and gets a job document from a content file", async () => {
     const { database, artifacts } = await workspace();
     const contentFile = path.join(directory, "job-description.txt");
@@ -71,7 +108,7 @@ describe("managed document CLI", () => {
       "--content-file",
       contentFile,
     ], database, artifacts);
-    const reference = created.record.reference as string;
+    const reference = created.record.id as string;
 
     expect(created).toMatchObject({
       ok: true,
@@ -79,9 +116,8 @@ describe("managed document CLI", () => {
       command: "create",
       changed: true,
       record: {
-        reference,
-        ownerType: "job",
-        ownerId: job.id,
+        id: reference,
+        links: [{ entityType: "job", entityId: job.id }],
         documentType: "job_description",
         sourceDescription: "Received by text message",
         currentVersion: 1,
@@ -93,15 +129,15 @@ describe("managed document CLI", () => {
       database,
       artifacts,
     )).toMatchObject({
-      owner: { type: "job", id: job.id },
-      records: [{ reference, currentVersion: 1 }],
+      link: { entityType: "job", entityId: job.id },
+      records: [{ id: reference, currentVersion: 1 }],
     });
     expect(await run(
       ["documents", "get", reference],
       database,
       artifacts,
     )).toMatchObject({
-      record: { reference, content: "Original job description" },
+      record: { id: reference, content: "Original job description" },
     });
   });
 
@@ -123,7 +159,7 @@ describe("managed document CLI", () => {
       "--content-file",
       contentFile,
     ], database, artifacts);
-    const reference = created.record.reference as string;
+    const reference = created.record.id as string;
 
     await Bun.write(contentFile, "# Revised draft");
     const updated = await run([
@@ -141,7 +177,7 @@ describe("managed document CLI", () => {
     expect(updated).toMatchObject({
       changed: true,
       record: {
-        reference,
+        id: reference,
         currentVersion: 2,
         content: "# Revised draft",
       },
@@ -203,7 +239,7 @@ describe("managed document CLI", () => {
       "--content-file",
       contentFile,
     ], database, artifacts);
-    const reference = created.record.reference as string;
+    const reference = created.record.id as string;
     await Bun.write(contentFile, "Changed");
 
     expect((await invoke([
@@ -259,8 +295,12 @@ async function workspace() {
   const connection = openDatabase(database);
   migrateDatabase(connection);
   new DataStore(connection).change(
-    { actor: "test", source: "test", summary: "Seed job" },
-    transaction => transaction.jobs.create(job),
+    { actor: "test", source: "test", summary: "Seed records" },
+    transaction => {
+      transaction.jobs.create(job);
+      transaction.people.create(person);
+      transaction.networking.create(contact);
+    },
   );
   connection.close();
   return { database, artifacts };

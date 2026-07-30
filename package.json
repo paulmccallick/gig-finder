@@ -8,6 +8,7 @@
     "dev:api": "NODE_ENV=development AI_SDK_DEVTOOLS=true bun --watch src/web/server.ts",
     "dev:client": "vite --config src/web/vite.config.ts --host 127.0.0.1",
     "dev:inspect": "bunx @ai-sdk/devtools",
+    "dev:restart": "bun run src/web/restart-dev.ts",
     "typecheck": "tsc --noEmit -p src/core/tsconfig.json && tsc --noEmit -p src/sqlite/tsconfig.json && tsc --noEmit -p src/cli/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json",
     "test": "bun test src/core/test src/sqlite/test src/cli/test src/agent/test src/web/src src/web/server",
     "test:e2e": "playwright test --config src/web/playwright.config.ts",

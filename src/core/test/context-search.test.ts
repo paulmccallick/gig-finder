@@ -19,6 +19,7 @@ const job = (company: string, id = "job-1"): JobSummary => ({
   fit: { rating: "good", summary: null },
   location: null,
   workArrangement: null,
+  documents: [],
 });
 
 const contact = (name: string, company: string): ContactSummary => ({
@@ -43,6 +44,9 @@ const contact = (name: string, company: string): ContactSummary => ({
   },
   whyInteresting: null,
   updatedAt: "2026-07-29",
+  personId: "person-1",
+  hasProfile: false,
+  documents: [],
 });
 
 function existingSearches(jobs: JobSummary[], contacts: ContactSummary[]) {

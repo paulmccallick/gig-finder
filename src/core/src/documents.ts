@@ -4,13 +4,14 @@ import type { ChangeContext } from "./models";
 import type { Persistence } from "./ports";
 import { DomainValidationError, MutationError, OptimisticConcurrencyError } from "./errors";
 
-export const documentOwnerTypes = ["job"] as const;
-export type DocumentOwnerType = typeof documentOwnerTypes[number];
+export const documentLinkEntityTypes = ["job", "person"] as const;
+export type DocumentLinkEntityType = typeof documentLinkEntityTypes[number];
 
 export const managedDocumentTypes = [
   "job_description",
   "notes",
   "interview_prep",
+  "profile",
 ] as const;
 export type ManagedDocumentType = typeof managedDocumentTypes[number];
 
@@ -36,12 +37,23 @@ export interface UploadedDocumentProvenance {
   uploadedAt: string;
 }
 
+export interface DocumentLink {
+  entityType: DocumentLinkEntityType;
+  entityId: string;
+}
+
+export interface DocumentSummary {
+  id: string;
+  type: ManagedDocumentType;
+  title: string | null;
+  displayName: string;
+}
+
 export interface ManagedDocumentData {
   id: string;
-  ownerType: DocumentOwnerType;
-  ownerId: string;
+  links: DocumentLink[];
   documentType: ManagedDocumentType;
-  title: string;
+  title: string | null;
   mediaType: DocumentMediaType;
   sourceDescription: string | null;
   uploadProvenance: UploadedDocumentProvenance | null;
@@ -60,7 +72,7 @@ export interface ManagedDocumentVersionData {
 }
 
 export interface ManagedDocumentRecord extends ManagedDocumentData {
-  reference: string;
+  displayName: string;
   currentVersion: number;
   content: string;
   contentHash: string;
@@ -68,19 +80,12 @@ export interface ManagedDocumentRecord extends ManagedDocumentData {
   updatedAt: string;
 }
 
-export interface ManagedDocumentSummary extends ManagedDocumentData {
-  reference: string;
-  currentVersion: number;
-  contentHash: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type ManagedDocumentSummary = Omit<ManagedDocumentRecord, "content">;
 
 export interface CreateManagedDocumentInput {
-  ownerType: DocumentOwnerType;
-  ownerId: string;
+  links: DocumentLink[];
   documentType: ManagedDocumentType;
-  title: string;
+  title: string | null;
   mediaType: DocumentMediaType;
   sourceDescription: string | null;
   content: string;
@@ -88,7 +93,7 @@ export interface CreateManagedDocumentInput {
 }
 
 export interface UpdateManagedDocumentInput {
-  reference: string;
+  documentId: string;
   expectedVersion: number;
   content: string;
   changeSummary: string;
@@ -117,11 +122,15 @@ export const uploadedDocumentProvenanceSchema = z.object({
   uploadedAt: z.string().datetime(),
 }).strict();
 
+export const documentLinkSchema = z.object({
+  entityType: z.enum(documentLinkEntityTypes),
+  entityId: z.string().trim().min(1).max(200),
+}).strict();
+
 export const createManagedDocumentSchema = z.object({
-  ownerType: z.enum(documentOwnerTypes),
-  ownerId: z.string().trim().min(1).max(200),
+  links: z.array(documentLinkSchema).min(1),
   documentType: z.enum(managedDocumentTypes),
-  title: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(200).nullable(),
   mediaType: z.enum(documentMediaTypes),
   sourceDescription: z.string().trim().min(1).max(500).nullable(),
   content: contentSchema,
@@ -129,44 +138,68 @@ export const createManagedDocumentSchema = z.object({
 }).strict();
 
 export const updateManagedDocumentSchema = z.object({
-  reference: z.string().trim().min(1),
+  documentId: z.string().trim().min(1),
   expectedVersion: z.number().int().positive(),
   content: contentSchema,
   changeSummary: z.string().trim().min(1).max(500),
 }).strict();
 
-export const documentReference = (documentId: string) => `document:${documentId}`;
+const typeLabels: Record<ManagedDocumentType, string> = {
+  job_description: "Job Description",
+  notes: "Notes",
+  interview_prep: "Interview Preparation",
+  profile: "Profile",
+};
 
-export function documentIdFromReference(reference: string): string | null {
-  const match = /^document:(doc_[0-9a-f-]+)$/i.exec(reference);
-  return match?.[1] ?? null;
+export function documentDisplayName(
+  document: Pick<ManagedDocumentData, "documentType" | "title" | "uploadProvenance">,
+): string {
+  return document.title
+    ?? document.uploadProvenance?.originalFilename
+    ?? typeLabels[document.documentType];
+}
+
+export const documentSummary = (document: ManagedDocumentRecord): DocumentSummary => ({
+  id: document.id,
+  type: document.documentType,
+  title: document.title,
+  displayName: document.displayName,
+});
+
+export function documentIdFromIdentifier(identifier: string): string | null {
+  const raw = /^(doc_[0-9a-f-]+)$/i.exec(identifier)?.[1];
+  if (raw) return raw;
+  return /^document:(doc_[0-9a-f-]+)$/i.exec(identifier)?.[1] ?? null;
 }
 
 const hashContent = (content: string) =>
   createHash("sha256").update(content, "utf8").digest("hex");
 
-const summary = (document: ManagedDocumentRecord): ManagedDocumentSummary => {
+const managedSummary = (document: ManagedDocumentRecord): ManagedDocumentSummary => {
   const { content: _, ...result } = document;
   return result;
 };
 
+const linkKey = (link: DocumentLink) => `${link.entityType}:${link.entityId}`;
+
 export class ManagedDocumentService {
   constructor(private readonly persistence: Persistence) {}
 
-  get(reference: string): ManagedDocumentRecord | null {
-    const id = documentIdFromReference(reference);
+  get(identifier: string): ManagedDocumentRecord | null {
+    const id = documentIdFromIdentifier(identifier);
     return id ? this.persistence.documents.get(id) : null;
   }
 
-  list(
-    ownerType: DocumentOwnerType,
-    ownerId: string,
-  ): ManagedDocumentSummary[] {
-    return this.persistence.documents.list(ownerType, ownerId).map(summary);
+  list(entityType: DocumentLinkEntityType, entityId: string): ManagedDocumentSummary[] {
+    return this.persistence.documents.list(entityType, entityId).map(managedSummary);
   }
 
-  versions(reference: string): ManagedDocumentVersionData[] {
-    const id = documentIdFromReference(reference);
+  summaries(entityType: DocumentLinkEntityType, entityId: string): DocumentSummary[] {
+    return this.persistence.documents.list(entityType, entityId).map(documentSummary);
+  }
+
+  versions(identifier: string): ManagedDocumentVersionData[] {
+    const id = documentIdFromIdentifier(identifier);
     return id ? this.persistence.documents.listVersions(id) : [];
   }
 
@@ -175,20 +208,25 @@ export class ManagedDocumentService {
     input: CreateManagedDocumentInput,
   ): ManagedDocumentMutationResult {
     const parsed = this.parseCreate(input);
+    this.validateLinkContract(parsed.documentType, parsed.links);
     const contentHash = hashContent(parsed.content);
     try {
       const result = this.persistence.change(context, transaction => {
-        if (
-          parsed.ownerType === "job"
-          && !transaction.jobs.get(parsed.ownerId)
-        ) {
-          throw new MutationError("not_found", `Job not found: ${parsed.ownerId}`);
+        for (const link of parsed.links) {
+          const target = link.entityType === "job"
+            ? transaction.jobs.get(link.entityId)
+            : transaction.people.get(link.entityId);
+          if (!target) {
+            throw new MutationError(
+              "not_found",
+              `${link.entityType === "job" ? "Job" : "Person"} not found: ${link.entityId}`,
+            );
+          }
         }
         return transaction.documents.create({
           document: {
             id: `doc_${randomUUID()}`,
-            ownerType: parsed.ownerType,
-            ownerId: parsed.ownerId,
+            links: parsed.links,
             documentType: parsed.documentType,
             title: parsed.title,
             mediaType: parsed.mediaType,
@@ -210,10 +248,10 @@ export class ManagedDocumentService {
     input: UpdateManagedDocumentInput,
   ): ManagedDocumentMutationResult {
     const parsed = this.parseUpdate(input);
-    const id = documentIdFromReference(parsed.reference);
+    const id = documentIdFromIdentifier(parsed.documentId);
     if (!id) {
       throw new DomainValidationError(
-        "Document reference must be an exact reference returned by a document tool.",
+        "Document ID must be an exact ID returned by a document tool.",
       );
     }
     const current = this.persistence.documents.get(id);
@@ -234,15 +272,12 @@ export class ManagedDocumentService {
       const result = this.persistence.change(context, transaction => {
         const transactionalCurrent = transaction.documents.get(id);
         if (!transactionalCurrent) {
-          throw new MutationError(
-            "not_found",
-            `Document not found: ${parsed.reference}`,
-          );
+          throw new MutationError("not_found", `Document not found: ${parsed.documentId}`);
         }
         if (transactionalCurrent.currentVersion !== parsed.expectedVersion) {
           throw new MutationError(
             "revision_conflict",
-            `Document ${parsed.reference} expected version ${parsed.expectedVersion} but is at version ${transactionalCurrent.currentVersion}.`,
+            `Document ${parsed.documentId} expected version ${parsed.expectedVersion} but is at version ${transactionalCurrent.currentVersion}.`,
           );
         }
         return transaction.documents.addVersion({
@@ -256,6 +291,26 @@ export class ManagedDocumentService {
       return { document: result.value, changeId: result.changeId, changed: true };
     } catch (error) {
       throw this.translateConcurrency(error);
+    }
+  }
+
+  private validateLinkContract(type: ManagedDocumentType, links: DocumentLink[]) {
+    const keys = links.map(linkKey);
+    if (new Set(keys).size !== keys.length) {
+      throw new DomainValidationError("Document links must be unique.");
+    }
+    const personLinks = links.filter(link => link.entityType === "person");
+    const jobLinks = links.filter(link => link.entityType === "job");
+    if (type === "profile" && personLinks.length !== 1) {
+      throw new DomainValidationError("A profile must link to exactly one person.");
+    }
+    if (
+      (type === "job_description" || type === "interview_prep")
+      && jobLinks.length === 0
+    ) {
+      throw new DomainValidationError(
+        `${type === "job_description" ? "A job description" : "Interview preparation"} must link to at least one job.`,
+      );
     }
   }
 

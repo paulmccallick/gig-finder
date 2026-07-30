@@ -1,4 +1,7 @@
-import type { StagedDocumentService } from "../core/src";
+import {
+  StagedDocumentCapacityError,
+  type StagedDocumentService,
+} from "../core/src";
 import {
   DocumentConversionError,
   type DocumentConverter,
@@ -59,6 +62,9 @@ export function createDocumentUploadHandler(
     } catch (error) {
       if (error instanceof DocumentConversionError) {
         throw new WebRequestError(error.message, errorStatus(error), { cause: error });
+      }
+      if (error instanceof StagedDocumentCapacityError) {
+        throw new WebRequestError(error.message, 429, { cause: error });
       }
       throw error;
     }

@@ -10,10 +10,11 @@ const converter = new LocalDocumentConverter({
   maxBytes: 1_000_000,
   maxCharacters: 50_000,
   maxPdfPages: 10,
+  maxDocxUncompressedBytes: 1_000_000,
 });
 const uploadedAt = "2026-07-29T12:00:00.000Z";
 
-async function docxFixture() {
+async function docxFixture(extraUncompressedBytes = 0) {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?>
     <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -30,7 +31,14 @@ async function docxFixture() {
       <w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Director Role</w:t></w:r></w:p>
       <w:p><w:r><w:t>Lead the platform organization.</w:t></w:r></w:p></w:body>
     </w:document>`);
-  return zip.generateAsync({ type: "uint8array" });
+  if (extraUncompressedBytes > 0) {
+    zip.file("word/large-entry.bin", "x".repeat(extraUncompressedBytes));
+  }
+  return zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    compressionOptions: { level: 9 },
+  });
 }
 
 async function pdfFixture(withText = true) {
@@ -76,6 +84,23 @@ describe("local document conversion", () => {
     expect(result.provenance.converter).toBe("mammoth+turndown");
   });
 
+  test("rejects highly compressed DOCX content before extraction", async () => {
+    const limitedConverter = new LocalDocumentConverter({
+      maxBytes: 1_000_000,
+      maxCharacters: 50_000,
+      maxPdfPages: 10,
+      maxDocxUncompressedBytes: 10_000,
+    });
+    await expect(limitedConverter.convert({
+      filename: "large.docx",
+      declaredMediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      bytes: await docxFixture(100_000),
+      uploadedAt,
+    })).rejects.toMatchObject<DocumentConversionError>({
+      code: "extraction_too_large",
+    });
+  });
+
   test("extracts PDF text and rejects image-only PDFs", async () => {
     const result = await converter.convert({
       filename: "role.pdf",
@@ -110,6 +135,7 @@ describe("local document conversion", () => {
       maxBytes: 2,
       maxCharacters: 50_000,
       maxPdfPages: 10,
+      maxDocxUncompressedBytes: 1_000_000,
     });
     await expect(tinyConverter.convert({
       filename: "role.md",
@@ -117,5 +143,16 @@ describe("local document conversion", () => {
       bytes: new TextEncoder().encode("too long"),
       uploadedAt,
     })).rejects.toMatchObject<DocumentConversionError>({ code: "upload_too_large" });
+  });
+
+  test("rejects provenance metadata that cannot be persisted", async () => {
+    await expect(converter.convert({
+      filename: "role.md",
+      declaredMediaType: "text/markdown",
+      bytes: new TextEncoder().encode("# Role"),
+      uploadedAt: "not-a-timestamp",
+    })).rejects.toMatchObject<DocumentConversionError>({
+      code: "malformed_document",
+    });
   });
 });

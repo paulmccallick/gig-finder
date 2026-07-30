@@ -35,4 +35,23 @@ describe("document upload handler", () => {
     expect(body).not.toHaveProperty("markdown");
     expect(service.get(String(body.reference))?.markdown).toBe("# Director Role");
   });
+
+  test("returns a capacity response when staging memory is full", async () => {
+    const service = new StagedDocumentService({
+      maxDocuments: 1,
+      maxTotalCharacters: 100,
+    });
+    service.stage(converted);
+    const converter: DocumentConverter = { convert: async () => converted };
+    const handler = createDocumentUploadHandler(converter, service, 1_000);
+    const form = new FormData();
+    form.set("file", new File(["# Another Role"], "another.md", {
+      type: "text/markdown",
+    }));
+
+    await expect(handler(new Request("http://localhost/api/agent/documents", {
+      method: "POST",
+      body: form,
+    }))).rejects.toMatchObject({ status: 429 });
+  });
 });

@@ -10,6 +10,7 @@ import type {
   UploadedDocumentProvenance,
   UploadedSourceMediaType,
 } from "../core/src";
+import { uploadedDocumentProvenanceSchema } from "../core/src";
 
 export interface ConvertedUpload {
   markdown: string;
@@ -20,6 +21,7 @@ export interface DocumentConversionLimits {
   maxBytes: number;
   maxCharacters: number;
   maxPdfPages: number;
+  maxDocxUncompressedBytes: number;
 }
 
 export class DocumentConversionError extends Error {
@@ -109,8 +111,102 @@ function validateDetectedType(
   return mediaType;
 }
 
-async function markdownFromDocx(bytes: Uint8Array) {
+const endOfCentralDirectorySignature = 0x06054b50;
+const centralDirectoryEntrySignature = 0x02014b50;
+const minimumEndOfCentralDirectorySize = 22;
+const maximumZipCommentSize = 65_535;
+
+function assertSafeDocxArchive(bytes: Uint8Array, maxUncompressedBytes: number) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const earliestEndRecord = Math.max(
+    0,
+    bytes.byteLength - minimumEndOfCentralDirectorySize - maximumZipCommentSize,
+  );
+  let endRecord = -1;
+  for (
+    let offset = bytes.byteLength - minimumEndOfCentralDirectorySize;
+    offset >= earliestEndRecord;
+    offset -= 1
+  ) {
+    if (view.getUint32(offset, true) === endOfCentralDirectorySignature) {
+      endRecord = offset;
+      break;
+    }
+  }
+  if (endRecord < 0) {
+    throw new DocumentConversionError(
+      "malformed_document",
+      "The DOCX central directory is missing.",
+    );
+  }
+
+  const diskNumber = view.getUint16(endRecord + 4, true);
+  const centralDirectoryDisk = view.getUint16(endRecord + 6, true);
+  const entriesOnDisk = view.getUint16(endRecord + 8, true);
+  const entryCount = view.getUint16(endRecord + 10, true);
+  const directorySize = view.getUint32(endRecord + 12, true);
+  const directoryOffset = view.getUint32(endRecord + 16, true);
+  if (
+    diskNumber !== 0
+    || centralDirectoryDisk !== 0
+    || entriesOnDisk !== entryCount
+    || entryCount === 0xffff
+    || directorySize === 0xffffffff
+    || directoryOffset === 0xffffffff
+    || directoryOffset + directorySize > endRecord
+  ) {
+    throw new DocumentConversionError(
+      "malformed_document",
+      "The DOCX archive layout is not supported.",
+    );
+  }
+
+  let offset = directoryOffset;
+  let totalUncompressedBytes = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (
+      offset + 46 > endRecord
+      || view.getUint32(offset, true) !== centralDirectoryEntrySignature
+    ) {
+      throw new DocumentConversionError(
+        "malformed_document",
+        "The DOCX central directory is invalid.",
+      );
+    }
+    const flags = view.getUint16(offset + 8, true);
+    const uncompressedBytes = view.getUint32(offset + 24, true);
+    if ((flags & 0x1) !== 0 || uncompressedBytes === 0xffffffff) {
+      throw new DocumentConversionError(
+        "malformed_document",
+        "Encrypted or ZIP64 DOCX entries are not supported.",
+      );
+    }
+    totalUncompressedBytes += uncompressedBytes;
+    if (totalUncompressedBytes > maxUncompressedBytes) {
+      throw new DocumentConversionError(
+        "extraction_too_large",
+        `DOCX files are limited to ${maxUncompressedBytes} uncompressed bytes.`,
+      );
+    }
+    const filenameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    offset += 46 + filenameLength + extraLength + commentLength;
+  }
+  if (offset !== directoryOffset + directorySize) {
+    throw new DocumentConversionError(
+      "malformed_document",
+      "The DOCX central directory size is invalid.",
+    );
+  }
+}
+
+async function markdownFromDocx(
+  bytes: Uint8Array,
+  maxUncompressedBytes: number,
+) {
   try {
+    assertSafeDocxArchive(bytes, maxUncompressedBytes);
     const result = await mammoth.convertToHtml(
       { buffer: Buffer.from(bytes) },
       { includeDefaultStyleMap: true },
@@ -132,6 +228,7 @@ async function markdownFromDocx(bytes: Uint8Array) {
       warnings,
     };
   } catch (error) {
+    if (error instanceof DocumentConversionError) throw error;
     throw new DocumentConversionError(
       "malformed_document",
       "The DOCX file could not be read.",
@@ -237,7 +334,10 @@ export class LocalDocumentConverter implements DocumentConverter {
         );
       }
     } else if (detectedMediaType === docxMediaType) {
-      converted = await markdownFromDocx(input.bytes);
+      converted = await markdownFromDocx(
+        input.bytes,
+        this.limits.maxDocxUncompressedBytes,
+      );
     } else {
       converted = await markdownFromPdf(input.bytes, this.limits.maxPdfPages);
     }
@@ -254,17 +354,22 @@ export class LocalDocumentConverter implements DocumentConverter {
         `Extracted content is limited to ${this.limits.maxCharacters} characters.`,
       );
     }
-    return {
-      markdown: converted.markdown,
-      provenance: {
-        originalFilename: path.basename(input.filename),
-        detectedMediaType,
-        sourceContentHash: hash(input.bytes),
-        converter: converted.converter,
-        converterVersion: converted.converterVersion,
-        extractionWarnings: converted.warnings.slice(0, 20),
-        uploadedAt: input.uploadedAt,
-      },
-    };
+    const provenance = uploadedDocumentProvenanceSchema.safeParse({
+      originalFilename: path.basename(input.filename),
+      detectedMediaType,
+      sourceContentHash: hash(input.bytes),
+      converter: converted.converter,
+      converterVersion: converted.converterVersion,
+      extractionWarnings: converted.warnings.slice(0, 20),
+      uploadedAt: input.uploadedAt,
+    });
+    if (!provenance.success) {
+      throw new DocumentConversionError(
+        "malformed_document",
+        "The uploaded document produced invalid provenance metadata.",
+        { cause: provenance.error },
+      );
+    }
+    return { markdown: converted.markdown, provenance: provenance.data };
   }
 }

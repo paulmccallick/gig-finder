@@ -45,20 +45,22 @@ export function buildJobSearchInstructions(
 documents explicitly referenced by those records. Use them when the user's
 request depends on live dashboard records.${capabilities.updateDashboardRecords
       ? ` You may update existing jobs and networking contacts, create managed
-text documents for existing jobs, and create new immutable versions of managed
+text documents linked to existing jobs or people, and create new immutable versions of managed
 documents when the user asks. You may revert an eligible record change using
 its returned change ID. After a write, state the resulting record or document,
 whether it changed, and its change ID from the tool result.
 
 Document creation:
-- Resolve the exact owner, document type, title, media type, source description,
+- Resolve the exact job/person links, document type, optional title, media type, source description,
   and source from the request, earlier conversation, and record tools.
-- Use list_jobs to resolve a named job to its durable ID, then use get_job when
-  the summary is insufficient. When one result is unambiguously the intended
-  owner, create the document without asking the user to repeat or confirm known
-  information.
+- Use job and networking tools to resolve names to durable job and person IDs.
+  When the intended links are unambiguous, create the document without asking the user to repeat or confirm known
+  information. A profile must link to
+  exactly one person and may also link to related jobs.
 - Infer ordinary metadata when it is clear. Use null for an unknown source
   description rather than inventing one or asking for optional information.
+- Refer to documents by displayName in user-facing responses, not by their
+  internal IDs.
 - If required context is missing, no record matches, or multiple records remain
   plausible, do not call create_document. Ask the smallest targeted question
   needed to resolve the ambiguity.
@@ -73,8 +75,9 @@ Staged source documents:
 - Use search_jobs_and_contacts with company or person names from the source
   when related records need to be resolved.
 - If the appropriate action is to create a managed document, call
-  create_document with sourceKind staged_document and the exact reference as
-  source. The application supplies the exact Markdown and provenance.
+  create_document with a staged_document source containing the exact reference,
+  null content, and text/markdown media type. The application supplies the exact
+  Markdown and provenance.
 - Never copy, rewrite, correct, summarize, or append to a staged source when
   saving it. If required context is missing or ambiguous, ask the smallest
   targeted question and leave the staged document unpersisted.`

@@ -25,22 +25,28 @@ export function hasSuccessfulMutation(parts: Parameters<typeof messageText>[0]) 
   });
 }
 
-export function hasSavedUpload(parts: Parameters<typeof messageText>[0]) {
-  return parts.some(part => {
-    if (!isToolUIPart(part)) return false;
+export function savedUploadReferences(parts: Parameters<typeof messageText>[0]) {
+  return [...new Set(parts.flatMap(part => {
+    if (!isToolUIPart(part)) return [];
     const toolName = part.type === "dynamic-tool"
       ? part.toolName
       : part.type.slice("tool-".length);
-    if (toolName !== "create_document") return false;
-    if (part.state !== "output-available") return false;
+    if (toolName !== "create_document") return [];
+    if (part.state !== "output-available") return [];
     const output = part.output;
     return typeof output === "object"
       && output !== null
       && "status" in output
       && output.status === "ok"
       && "stagedReference" in output
-      && typeof output.stagedReference === "string";
-  });
+      && typeof output.stagedReference === "string"
+      ? [output.stagedReference]
+      : [];
+  }))];
+}
+
+export function hasSavedUpload(parts: Parameters<typeof messageText>[0]) {
+  return savedUploadReferences(parts).length > 0;
 }
 
 interface StagedUpload {
@@ -49,6 +55,52 @@ interface StagedUpload {
   extractionWarnings: string[];
   markdownCharacters: number;
   expiresAt: string;
+}
+
+const stagedReferencePattern = /^staged-document:[0-9a-f-]+$/i;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export function parseStagedUpload(value: unknown): StagedUpload {
+  if (!isRecord(value)) {
+    throw new Error("The upload service returned an invalid response.");
+  }
+  const {
+    reference,
+    filename,
+    extractionWarnings,
+    markdownCharacters,
+    expiresAt,
+  } = value;
+  if (
+    typeof reference !== "string"
+    || !stagedReferencePattern.test(reference)
+    || typeof filename !== "string"
+    || filename.length === 0
+    || !Array.isArray(extractionWarnings)
+    || !extractionWarnings.every((warning): warning is string =>
+      typeof warning === "string")
+    || typeof markdownCharacters !== "number"
+    || !Number.isInteger(markdownCharacters)
+    || markdownCharacters < 0
+    || typeof expiresAt !== "string"
+    || !Number.isFinite(Date.parse(expiresAt))
+  ) {
+    throw new Error("The upload service returned an invalid response.");
+  }
+  return {
+    reference,
+    filename,
+    extractionWarnings,
+    markdownCharacters,
+    expiresAt,
+  };
+}
+
+async function discardStagedDocument(reference: string) {
+  await fetch(`/api/agent/documents/${encodeURIComponent(reference)}`, {
+    method: "DELETE",
+  });
 }
 
 export function AgentPanel({
@@ -91,7 +143,21 @@ export function AgentPanel({
     onFinish: ({ message, isAbort, isDisconnect, isError }) => {
       const deliveredTextCharacters = messageText(message.parts).length;
       if (hasSuccessfulMutation(message.parts)) onDataChanged?.();
-      if (hasSavedUpload(message.parts)) setUpload(null);
+      const savedReferences = savedUploadReferences(message.parts);
+      const completed = !isAbort
+        && !isDisconnect
+        && !isError
+        && deliveredTextCharacters > 0;
+      if (completed) {
+        for (const reference of savedReferences) {
+          void discardStagedDocument(reference).catch(() => undefined);
+        }
+      }
+      if (completed && savedReferences.length > 0) {
+        setUpload(current => current && savedReferences.includes(current.reference)
+          ? null
+          : current);
+      }
       if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
         setInteractionFailure(
           "JobSearchAgent's response was interrupted before it completed. Please retry.",
@@ -241,9 +307,7 @@ export function AgentPanel({
     setUpload(null);
     if (!reference) return;
     try {
-      await fetch(`/api/agent/documents/${encodeURIComponent(reference)}`, {
-        method: "DELETE",
-      });
+      await discardStagedDocument(reference);
     } catch {
       // Staged uploads expire automatically; cancellation remains effective locally.
     }
@@ -265,14 +329,14 @@ export function AgentPanel({
         body,
         signal: controller.signal,
       });
-      const result = await response.json() as StagedUpload | { error?: unknown };
-      if (!response.ok || !("reference" in result)) {
-        const message = "error" in result && typeof result.error === "string"
+      const result: unknown = await response.json();
+      if (!response.ok) {
+        const message = isRecord(result) && typeof result.error === "string"
           ? result.error
           : "The document could not be uploaded.";
         throw new Error(message);
       }
-      setUpload(result);
+      setUpload(parseStagedUpload(result));
     } catch (error) {
       if (!controller.signal.aborted) {
         setUploadFailure(
@@ -302,7 +366,7 @@ export function AgentPanel({
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents; update existing jobs and contacts; and create or revise job documents when asked.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents; update existing jobs and contacts; and create or revise linked documents when asked.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>

@@ -3,7 +3,7 @@ import {
   outcomes,
   pipelineStages,
   type FitRating,
-  type Job,
+  type JobRecord,
   type Outcome,
   type PipelineStage,
 } from "./jobs";
@@ -15,7 +15,7 @@ import {
   relationshipStrengths,
   type ContactPriority,
   type ContactStatus,
-  type NetworkContact,
+  type NetworkContactRecord,
   type RelationshipStrength,
 } from "./network";
 import {
@@ -29,7 +29,7 @@ import {
   type TaskStatus,
   type TaskType,
 } from "./tasks";
-import type { ManagedDocumentService } from "./documents";
+import type { ManagedDocumentService, ManagedDocumentType } from "./documents";
 
 export const defaultAgentJobStages = [
   "applied",
@@ -64,18 +64,15 @@ export interface Page<T> {
   page: PageMetadata;
 }
 
-export type AgentDocumentType =
-  | "job_description"
-  | "interview_prep"
-  | "contact_profile"
-  | "notes";
+export type AgentDocumentType = ManagedDocumentType | "contact_profile";
 
 interface AgentDocumentReferenceBase {
   reference: string;
   entityType: "job" | "contact";
   entityId: string;
   documentType: AgentDocumentType;
-  title: string;
+  title: string | null;
+  displayName: string;
 }
 
 export type AgentDocumentReference = AgentDocumentReferenceBase & (
@@ -118,35 +115,33 @@ export interface ListTasksInput extends PageInput {
 }
 
 export type JobSummary = Pick<
-  Job,
+  JobRecord,
   "id" | "company" | "title" | "stage" | "outcome" | "statusSummary"
   | "lastActivity" | "nextAction" | "fit" | "location" | "workArrangement"
+  | "documents"
 >;
 export type ContactSummary = Pick<
-  NetworkContact,
+  NetworkContactRecord,
   "id" | "name" | "company" | "title" | "relationship" | "priority" | "status"
-  | "outreach" | "whyInteresting" | "updatedAt"
+  | "outreach" | "whyInteresting" | "updatedAt" | "personId" | "hasProfile"
+  | "documents"
 >;
 export type TaskSummary = TaskRecord;
 export type JobDetail = Pick<
-  Job,
+  JobRecord,
   "id" | "company" | "title" | "jobId" | "stage" | "outcome"
   | "statusSummary" | "lastActivity" | "nextAction" | "fit" | "payRange"
   | "sourceUrl" | "tags" | "hasJobDescription" | "hasInterviewPrep"
   | "location" | "workArrangement" | "postedDate" | "businessUnitTeam"
-  | "recruiterSource" | "bonus" | "equity" | "otherCompensation"
-> & {
-  documents: AgentDocumentReference[];
-};
+  | "recruiterSource" | "bonus" | "equity" | "otherCompensation" | "documents"
+> & { legacyDocuments: AgentDocumentReference[] };
 export type ContactDetail = Pick<
-  NetworkContact,
+  NetworkContactRecord,
   "id" | "name" | "company" | "title" | "linkedInProfileUrl"
-  | "profileStatus" | "hasLocalProfile" | "connectedOn" | "relationship"
+  | "profileStatus" | "hasProfile" | "personId" | "connectedOn" | "relationship"
   | "priority" | "status" | "outreach" | "whyInteresting" | "notes" | "tags"
-  | "createdAt" | "updatedAt"
-> & {
-  documents: AgentDocumentReference[];
-};
+  | "createdAt" | "updatedAt" | "documents"
+> & { legacyDocuments: AgentDocumentReference[] };
 export type TaskDetail = Pick<
   TaskRecord,
   "id" | "title" | "type" | "status" | "priority" | "dueDate"
@@ -170,8 +165,8 @@ export interface AgentContextReader {
 }
 
 export interface AgentContextSources {
-  jobs: { list(): Job[]; get(id: string): Job | null };
-  networking: { list(): NetworkContact[]; get(id: string): NetworkContact | null };
+  jobs: { list(): JobRecord[]; get(id: string): JobRecord | null };
+  networking: { list(): NetworkContactRecord[]; get(id: string): NetworkContactRecord | null };
   tasks: { list(): TaskRecord[]; get(id: string): TaskRecord | null };
   documents?: AgentDocumentSource;
 }
@@ -216,7 +211,7 @@ function page<T>(items: T[], input: PageInput): Page<T> {
   };
 }
 
-const jobSummary = (job: Job): JobSummary => ({
+const jobSummary = (job: JobRecord): JobSummary => ({
   id: job.id,
   company: job.company,
   title: job.title,
@@ -228,9 +223,10 @@ const jobSummary = (job: Job): JobSummary => ({
   fit: job.fit,
   location: job.location,
   workArrangement: job.workArrangement,
+  documents: job.documents,
 });
 
-const contactSummary = (contact: NetworkContact): ContactSummary => ({
+const contactSummary = (contact: NetworkContactRecord): ContactSummary => ({
   id: contact.id,
   name: contact.name,
   company: contact.company,
@@ -241,6 +237,9 @@ const contactSummary = (contact: NetworkContact): ContactSummary => ({
   outreach: contact.outreach,
   whyInteresting: contact.whyInteresting,
   updatedAt: contact.updatedAt,
+  personId: contact.personId,
+  hasProfile: contact.hasProfile,
+  documents: contact.documents,
 });
 
 const taskSummary = (task: TaskRecord): TaskSummary => task;
@@ -258,8 +257,8 @@ const hasMeaningfulFilters = (
 );
 
 const jobDetail = (
-  job: Job,
-  documents: AgentDocumentReference[],
+  job: JobRecord,
+  legacyDocuments: AgentDocumentReference[],
 ): JobDetail => ({
   id: job.id,
   company: job.company,
@@ -284,12 +283,13 @@ const jobDetail = (
   bonus: job.bonus,
   equity: job.equity,
   otherCompensation: job.otherCompensation,
-  documents,
+  documents: job.documents,
+  legacyDocuments,
 });
 
 const contactDetail = (
-  contact: NetworkContact,
-  documents: AgentDocumentReference[],
+  contact: NetworkContactRecord,
+  legacyDocuments: AgentDocumentReference[],
 ): ContactDetail => ({
   id: contact.id,
   name: contact.name,
@@ -297,7 +297,8 @@ const contactDetail = (
   title: contact.title,
   linkedInProfileUrl: contact.linkedInProfileUrl,
   profileStatus: contact.profileStatus,
-  hasLocalProfile: contact.hasLocalProfile,
+  hasProfile: contact.hasProfile,
+  personId: contact.personId,
   connectedOn: contact.connectedOn,
   relationship: contact.relationship,
   priority: contact.priority,
@@ -308,7 +309,8 @@ const contactDetail = (
   tags: contact.tags,
   createdAt: contact.createdAt,
   updatedAt: contact.updatedAt,
-  documents,
+  documents: contact.documents,
+  legacyDocuments,
 });
 
 const taskDetail = (task: TaskRecord): TaskDetail => ({
@@ -368,7 +370,8 @@ export class JobSearchAgentContext implements AgentContextReader {
       status: "ok",
       record: jobDetail(
         record,
-        await (this.sources.documents ?? noDocuments).list("job", id),
+        (await (this.sources.documents ?? noDocuments).list("job", id))
+          .filter(document => document.storage === "artifact"),
       ),
     };
   }
@@ -401,7 +404,8 @@ export class JobSearchAgentContext implements AgentContextReader {
       status: "ok",
       record: contactDetail(
         record,
-        await (this.sources.documents ?? noDocuments).list("contact", id),
+        (await (this.sources.documents ?? noDocuments).list("contact", id))
+          .filter(document => document.storage === "artifact"),
       ),
     };
   }
@@ -447,13 +451,9 @@ const decoded = (value: string) => {
 
 export interface AgentDocumentServices {
   jobs: {
-    get(id: string): Job | null;
+    get(id: string): JobRecord | null;
     description(id: string): Promise<string | null>;
     prep(id: string): Promise<Array<{ name: string; content: string }>>;
-  };
-  people: {
-    get(id: string): { hasLocalProfile: boolean } | null;
-    profile(id: string): Promise<string | null>;
   };
   contacts: {
     personId(id: string): string | null;
@@ -474,18 +474,22 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
   ): Promise<AgentDocumentReference[]> {
     if (entityType === "contact") {
       const personId = this.personId(entityId);
-      const person = personId ? this.services.people.get(personId) : null;
-      return person?.hasLocalProfile
-        ? [{
-            reference: `contact:${encoded(entityId)}:contact_profile`,
-            entityType,
-            entityId,
-            documentType: "contact_profile",
-            title: "Contact profile",
-            storage: "artifact",
-            currentVersion: null,
-          }]
-        : [];
+      const references: AgentDocumentReference[] = [];
+      for (const document of personId
+        ? this.services.managed?.list("person", personId) ?? []
+        : []) {
+        references.push({
+          reference: document.id,
+          entityType,
+          entityId,
+          documentType: document.documentType,
+          title: document.title,
+          displayName: document.displayName,
+          storage: "managed",
+          currentVersion: document.currentVersion,
+        });
+      }
+      return references;
     }
     const job = this.services.jobs.get(entityId);
     if (!job) return [];
@@ -497,6 +501,7 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
         entityId,
         documentType: "job_description",
         title: "Job description",
+        displayName: "Job Description",
         storage: "artifact",
         currentVersion: null,
       });
@@ -509,6 +514,7 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
           entityId,
           documentType: "interview_prep",
           title: document.name,
+          displayName: document.name,
           storage: "artifact",
           currentVersion: null,
         });
@@ -516,11 +522,12 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
     }
     for (const document of this.services.managed?.list("job", entityId) ?? []) {
       references.push({
-        reference: document.reference,
+        reference: document.id,
         entityType: "job",
         entityId,
         documentType: document.documentType,
         title: document.title,
+        displayName: document.displayName,
         storage: "managed",
         currentVersion: document.currentVersion,
       });
@@ -529,20 +536,19 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
   }
 
   async get(reference: string): Promise<GetResult<AgentDocument>> {
-    if (reference.startsWith("document:")) {
+    if (reference.startsWith("doc_") || reference.startsWith("document:")) {
       const managed = this.services.managed?.get(reference) ?? null;
-      const owner = managed?.ownerType === "job"
-        ? this.services.jobs.get(managed.ownerId)
-        : null;
-      return managed && owner
+      const primaryLink = managed?.links[0];
+      return managed && primaryLink
         ? {
             status: "ok",
             record: documentRecord({
-              reference: managed.reference,
-              entityType: managed.ownerType,
-              entityId: managed.ownerId,
+              reference: managed.id,
+              entityType: primaryLink.entityType === "job" ? "job" : "contact",
+              entityId: primaryLink.entityId,
               documentType: managed.documentType,
               title: managed.title,
+              displayName: managed.displayName,
               storage: "managed",
               currentVersion: managed.currentVersion,
             }, managed.content),
@@ -559,13 +565,6 @@ export class ApplicationAgentDocumentSource implements AgentDocumentSource {
     const available = await this.list(entityType, entityId);
     const match = available.find((item) => item.reference === reference);
     if (!match) return { status: "not_found", id: reference };
-    if (documentType === "contact_profile") {
-      const personId = this.personId(entityId);
-      const content = personId ? await this.services.people.profile(personId) : null;
-      return content !== null
-        ? { status: "ok", record: documentRecord(match, content) }
-        : { status: "not_found", id: reference };
-    }
     if (documentType === "job_description") {
       const content = await this.services.jobs.description(entityId);
       return content !== null

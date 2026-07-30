@@ -5,7 +5,7 @@ import {
   type ManagedDocumentData,
 } from "../../core/src/documents";
 import { MutationError } from "../../core/src/errors";
-import type { ChangeContext, JobData } from "../../core/src/models";
+import type { ChangeContext, JobData, PersonData } from "../../core/src/models";
 import {
   DataStore,
   migrateDatabase,
@@ -58,8 +58,7 @@ const job: JobData = {
 
 const document: ManagedDocumentData = {
   id: "doc_00000000-0000-4000-8000-000000000001",
-  ownerType: "job",
-  ownerId: job.id,
+  links: [{ entityType: "job", entityId: job.id }],
   documentType: "job_description",
   title: "Job description",
   mediaType: "text/plain",
@@ -67,16 +66,110 @@ const document: ManagedDocumentData = {
   uploadProvenance: null,
 };
 
+const person: PersonData = {
+  id: "person-1",
+  name: "Jordan Example",
+  company: "Example Company",
+  title: "Director",
+  linkedInProfileUrl: null,
+  connectedOn: null,
+};
+
 beforeEach(() => {
   database = openDatabase(":memory:");
   migrateDatabase(database);
   store = new DataStore(database);
-  store.change(context("Create job"), transaction => transaction.jobs.create(job));
+  store.change(context("Create records"), transaction => {
+    transaction.jobs.create(job);
+    transaction.people.create(person);
+  });
 });
 
 afterEach(() => database.close());
 
 describe("managed document persistence", () => {
+  test("migration preserves legacy job-owned documents and versions as links", async () => {
+    const legacy = openDatabase(":memory:");
+    try {
+      legacy.exec(`
+        CREATE TABLE jobs (id text PRIMARY KEY);
+        CREATE TABLE people (id text PRIMARY KEY);
+        CREATE TABLE changes (id text PRIMARY KEY);
+        CREATE TABLE managed_documents (
+          id text PRIMARY KEY, owner_type text NOT NULL, owner_id text NOT NULL,
+          document_type text NOT NULL, title text NOT NULL, media_type text NOT NULL,
+          source_description text, upload_provenance_json text,
+          current_version integer NOT NULL, created_at text NOT NULL, updated_at text NOT NULL
+        );
+        CREATE TABLE managed_document_versions (
+          document_id text NOT NULL, version integer NOT NULL, parent_version integer,
+          content text NOT NULL, content_hash text NOT NULL, change_id text NOT NULL,
+          change_summary text NOT NULL, created_at text NOT NULL, created_by text NOT NULL,
+          PRIMARY KEY(document_id, version),
+          FOREIGN KEY(document_id) REFERENCES managed_documents(id),
+          FOREIGN KEY(change_id) REFERENCES changes(id)
+        );
+        INSERT INTO jobs VALUES ('legacy-job');
+        INSERT INTO changes VALUES ('legacy-change');
+        INSERT INTO managed_documents VALUES (
+          'doc_00000000-0000-4000-8000-000000000099', 'job', 'legacy-job',
+          'notes', 'Legacy notes', 'text/markdown', NULL, NULL, 1,
+          '${timestamp}', '${timestamp}'
+        );
+        INSERT INTO managed_document_versions VALUES (
+          'doc_00000000-0000-4000-8000-000000000099', 1, NULL,
+          'Legacy content', 'legacy-hash', 'legacy-change', 'Legacy import',
+          '${timestamp}', 'test'
+        );
+      `);
+      const migration = await Bun.file(
+        new URL("../drizzle/0008_shocking_triton.sql", import.meta.url),
+      ).text();
+      legacy.exec("PRAGMA foreign_keys = OFF");
+      for (const statement of migration.split("--> statement-breakpoint")) {
+        if (statement.trim()) legacy.exec(statement);
+      }
+      legacy.exec("PRAGMA foreign_keys = ON");
+
+      expect(legacy.query(
+        "SELECT document_id, job_id, person_id FROM managed_document_links",
+      ).get()).toEqual({
+        document_id: "doc_00000000-0000-4000-8000-000000000099",
+        job_id: "legacy-job",
+        person_id: null,
+      });
+      expect(legacy.query(
+        "SELECT content, content_hash FROM managed_document_versions",
+      ).get()).toEqual({ content: "Legacy content", content_hash: "legacy-hash" });
+      expect(legacy.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      legacy.close();
+    }
+  });
+
+  test("indexes one document through job and person links", () => {
+    const linked = store.change(
+      context("Create linked profile"),
+      transaction => transaction.documents.create({
+        document: {
+          ...document,
+          documentType: "profile",
+          title: null,
+          links: [
+            { entityType: "person", entityId: person.id },
+            { entityType: "job", entityId: job.id },
+          ],
+        },
+        content: "Profile",
+        contentHash: "profile-hash",
+      }),
+    ).value;
+
+    expect(store.documents.list("person", person.id)).toEqual([linked]);
+    expect(store.documents.list("job", job.id)).toEqual([linked]);
+    expect(linked).toMatchObject({ title: null, displayName: "Profile" });
+  });
+
   test("creates a document and reads it by id and owner", () => {
     const created = store.change(
       context("Capture job description"),
@@ -89,7 +182,7 @@ describe("managed document persistence", () => {
 
     expect(created.value).toMatchObject({
       ...document,
-      reference: `document:${document.id}`,
+      displayName: "Job description",
       currentVersion: 1,
       content: "Original job description",
       contentHash: "hash-v1",
@@ -114,13 +207,14 @@ describe("managed document persistence", () => {
     const created = store.change(
       context("Capture uploaded source"),
       transaction => transaction.documents.create({
-        document: { ...document, mediaType: "text/markdown", uploadProvenance },
+        document: { ...document, title: null, mediaType: "text/markdown", uploadProvenance },
         content: "Converted Markdown",
         contentHash: "hash-uploaded",
       }),
     );
 
     expect(created.value.uploadProvenance).toEqual(uploadProvenance);
+    expect(created.value.displayName).toBe("role.pdf");
     expect(store.documents.get(document.id)?.uploadProvenance).toEqual(uploadProvenance);
   });
 
@@ -249,8 +343,7 @@ describe("managed document persistence", () => {
     const created = documents.create(
       { ...context("Create managed document"), changeId: "document-create" },
       {
-        ownerType: "job",
-        ownerId: job.id,
+        links: [{ entityType: "job", entityId: job.id }],
         documentType: "notes",
         title: "Role notes",
         mediaType: "text/markdown",
@@ -262,8 +355,7 @@ describe("managed document persistence", () => {
     expect(() => documents.create(
       { ...context("Create managed document"), changeId: "document-create" },
       {
-        ownerType: "job",
-        ownerId: job.id,
+        links: [{ entityType: "job", entityId: job.id }],
         documentType: "notes",
         title: "Role notes",
         mediaType: "text/markdown",
@@ -278,7 +370,7 @@ describe("managed document persistence", () => {
     documents.update(
       { ...context("Update managed document"), changeId: "document-update" },
       {
-        reference: created.document.reference,
+        documentId: created.document.id,
         expectedVersion: 1,
         content: "Version two",
         changeSummary: "Revise notes",
@@ -287,7 +379,7 @@ describe("managed document persistence", () => {
     expect(() => documents.update(
       { ...context("Update managed document"), changeId: "document-update" },
       {
-        reference: created.document.reference,
+        documentId: created.document.id,
         expectedVersion: 1,
         content: "Version two",
         changeSummary: "Revise notes",
@@ -298,6 +390,6 @@ describe("managed document persistence", () => {
     ));
 
     expect(documents.list("job", job.id)).toHaveLength(1);
-    expect(documents.versions(created.document.reference)).toHaveLength(2);
+    expect(documents.versions(created.document.id)).toHaveLength(2);
   });
 });

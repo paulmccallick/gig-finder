@@ -20,7 +20,7 @@ flowchart LR
   Reader --> Core
   CLI[CLI] --> Core
   Core --> SQLite[(SQLite)]
-  Core --> Artifacts[Local artifacts]
+  Core --> Artifacts[Legacy job artifacts]
 ```
 
 - `src/core/` owns domain models, ports, validation, and application services.
@@ -38,8 +38,11 @@ flowchart LR
   prior row there with its operation and `change_id`.
 - The `changes` table groups all records written by one transaction into one
   audited change.
-- Managed document metadata lives in `managed_documents`; immutable content
-  revisions and their parent version live in `managed_document_versions`
+- Managed document metadata lives in `managed_documents`, job/person links in
+  `managed_document_links`, and immutable content revisions in
+  `managed_document_versions`.
+- Person profiles exist only as managed documents; no profile-presence flag is
+  stored on people.
 
 ## Context Files
 
@@ -47,3 +50,6 @@ Private paths default below `context/`. `JOB_SEARCH_CONTEXT_ROOT` changes that
 root; `JOB_SEARCH_PROFILE`, `JOB_SEARCH_DATABASE`, `JOB_SEARCH_ARTIFACTS`,
 `LOG_DIRECTORY`, and `JOB_SEARCH_BACKUP_ROOT` override individual paths.
 `JOB_SEARCH_ACTOR` overrides the configured audit actor.
+
+For local development, `bun run dev:restart` replaces any running API,
+dashboard, and AI SDK DevTools processes and supervises their replacements.

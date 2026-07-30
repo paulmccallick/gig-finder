@@ -32,11 +32,10 @@ const documentMutations = {
 
 const managedDocument: ManagedDocumentRecord = {
   id: "doc_11111111-1111-4111-8111-111111111111",
-  reference: "document:doc_11111111-1111-4111-8111-111111111111",
-  ownerType: "job",
-  ownerId: "job-1",
+  links: [{ entityType: "job", entityId: "job-1" }],
   documentType: "job_description",
   title: "Job description",
+  displayName: "Job description",
   mediaType: "text/plain",
   sourceDescription: "Provided by the recruiter",
   uploadProvenance: null,
@@ -188,6 +187,7 @@ describe("JobSearchAgent tools", () => {
       },
     });
     let createdInput: unknown;
+    let createCalls = 0;
     const tools = createJobSearchTools(
       reader,
       logger,
@@ -195,6 +195,7 @@ describe("JobSearchAgent tools", () => {
         ...mutations,
         documents: {
           create: (_context, input) => {
+            createCalls += 1;
             createdInput = input;
             return {
               document: {
@@ -245,16 +246,19 @@ describe("JobSearchAgent tools", () => {
     const createDocument = tools.create_document;
     if (!createDocument) throw new Error("Document tool missing.");
 
-    const result = await createDocument.execute?.({
-      ownerType: "job",
-      ownerId: "job-1",
+    const stagedToolInput: z.infer<typeof jobSearchToolSchemas.create_document> = {
+      links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
       title: "Director role",
-      sourceKind: "staged_document",
-      source: staged.reference,
-      mediaType: "text/markdown",
+      source: {
+        kind: "staged_document",
+        content: null,
+        reference: staged.reference,
+        mediaType: "text/markdown",
+      },
       sourceDescription: null,
-    }, {
+    };
+    const result = await createDocument.execute?.(stagedToolInput, {
       toolCallId: "call-upload",
       messages: [],
       abortSignal: undefined,
@@ -267,7 +271,18 @@ describe("JobSearchAgent tools", () => {
       uploadProvenance: { originalFilename: "role.pdf" },
     });
     expect(result).toMatchObject({ status: "ok", changed: true });
-    expect(stagedDocuments.get(staged.reference)).toBeNull();
+    expect(stagedDocuments.get(staged.reference)?.consumption).toMatchObject({
+      changeId: "agent-tool:call-upload",
+      document: { id: managedDocument.id },
+    });
+    const retried = await createDocument.execute?.(stagedToolInput, {
+      toolCallId: "call-upload-retry",
+      messages: [],
+      abortSignal: undefined,
+      context: {},
+    });
+    expect(createCalls).toBe(1);
+    expect(retried).toEqual(result);
   });
 
   test("accepts explicit mutation operations and rejects invalid fields", () => {
@@ -294,31 +309,47 @@ describe("JobSearchAgent tools", () => {
 
   test("uses strict document schemas with domain enum values", () => {
     expect(jobSearchToolSchemas.create_document.parse({
-      ownerType: "job",
-      ownerId: "job-1",
+      links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
       title: "Job description",
-      sourceKind: "inline_content",
-      source: "Supplied source text",
-      mediaType: "text/plain",
+      source: {
+        kind: "inline_content",
+        content: "Supplied source text",
+        reference: null,
+        mediaType: "text/plain",
+      },
       sourceDescription: null,
     })).toMatchObject({
-      ownerType: "job",
+      links: [{ entityType: "job", entityId: "job-1" }],
       documentType: "job_description",
-      mediaType: "text/plain",
+      source: { kind: "inline_content", mediaType: "text/plain" },
     });
     expect(jobSearchToolSchemas.create_document.safeParse({
-      ownerType: "contact",
-      ownerId: "contact-1",
+      links: [{ entityType: "contact", entityId: "contact-1" }],
       documentType: "job_description",
       title: "Job description",
-      sourceKind: "inline_content",
-      source: "Supplied source text",
-      mediaType: "text/plain",
+      source: {
+        kind: "inline_content",
+        content: "Supplied source text",
+        reference: null,
+        mediaType: "text/plain",
+      },
+      sourceDescription: null,
+    }).success).toBe(false);
+    expect(jobSearchToolSchemas.create_document.safeParse({
+      links: [{ entityType: "job", entityId: "job-1" }],
+      documentType: "job_description",
+      title: "Job description",
+      source: {
+        kind: "staged_document",
+        content: "Opaque references cannot be stored as content.",
+        reference: "staged-document:11111111-1111-4111-8111-111111111111",
+        mediaType: "text/markdown",
+      },
       sourceDescription: null,
     }).success).toBe(false);
     expect(jobSearchToolSchemas.update_document.safeParse({
-      reference: managedDocument.reference,
+      documentId: managedDocument.id,
       expectedVersion: 0,
       content: "Replacement text",
       changeSummary: "Corrected source",
@@ -356,13 +387,15 @@ describe("JobSearchAgent tools", () => {
 
     const result = await tools.create_document.execute?.(
       {
-        ownerType: "job",
-        ownerId: "job-1",
+        links: [{ entityType: "job", entityId: "job-1" }],
         documentType: "job_description",
         title: "Job description",
-        sourceKind: "inline_content",
-        source: "Original source text",
-        mediaType: "text/plain",
+        source: {
+          kind: "inline_content",
+          content: "Original source text",
+          reference: null,
+          mediaType: "text/plain",
+        },
         sourceDescription: "Provided by the recruiter",
       },
       {
@@ -377,12 +410,11 @@ describe("JobSearchAgent tools", () => {
       context: {
         actor: "Candidate",
         source: "agent",
-        summary: "Agent created job_description for job job-1 (request request-1, tool call-document)",
+        summary: "Agent created job_description (request request-1, tool call-document)",
         changeId: "agent-tool:call-document",
       },
       input: {
-        ownerType: "job",
-        ownerId: "job-1",
+        links: [{ entityType: "job", entityId: "job-1" }],
         documentType: "job_description",
         title: "Job description",
         mediaType: "text/plain",
@@ -395,15 +427,14 @@ describe("JobSearchAgent tools", () => {
       changed: true,
       changeId: "agent-tool:call-document",
       document: {
-        reference: managedDocument.reference,
-        ownerId: "job-1",
+        id: managedDocument.id,
         currentVersion: 1,
       },
     });
     expect((result as { document?: object }).document).not.toHaveProperty("content");
   });
 
-  test("updates documents by stable reference and expected version", async () => {
+  test("updates documents by exact ID and expected version", async () => {
     let received:
       | { context: ChangeContext; input: unknown }
       | undefined;
@@ -438,7 +469,7 @@ describe("JobSearchAgent tools", () => {
 
     const result = await tools.update_document.execute?.(
       {
-        reference: managedDocument.reference,
+        documentId: managedDocument.id,
         expectedVersion: 1,
         content: "Corrected source text",
         changeSummary: "Corrected transcription",
@@ -455,11 +486,11 @@ describe("JobSearchAgent tools", () => {
       context: {
         actor: "Candidate",
         source: "agent",
-        summary: `Agent updated document ${managedDocument.reference} (request request-2, tool call-document-update)`,
+        summary: `Agent updated document ${managedDocument.id} (request request-2, tool call-document-update)`,
         changeId: "agent-tool:call-document-update",
       },
       input: {
-        reference: managedDocument.reference,
+        documentId: managedDocument.id,
         expectedVersion: 1,
         content: "Corrected source text",
         changeSummary: "Corrected transcription",
@@ -469,7 +500,7 @@ describe("JobSearchAgent tools", () => {
       status: "ok",
       changed: true,
       document: {
-        reference: managedDocument.reference,
+        id: managedDocument.id,
         currentVersion: 2,
       },
     });
