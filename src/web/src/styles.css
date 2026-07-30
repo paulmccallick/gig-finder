@@ -285,6 +285,7 @@ h1, h2, h3, p { margin-top: 0; }
 .agent-upload-status.is-ready i { display: none; }
 .agent-upload-status small { grid-column: 1 / -1; color: var(--dim); }
 .agent-upload-status button, .agent-upload-error button { padding: 0; border: 0; background: transparent; color: var(--amber); font-size: 9px; text-decoration: underline; }
+.agent-upload-status button:disabled { opacity: .35; cursor: default; }
 .agent-upload-error { border-color: rgba(255,113,109,.42); color: #d5aaa7; }
 .agent-upload-error button { color: var(--red); }
 .agent-composer label { display: block; margin-bottom: 8px; color: var(--amber); text-transform: uppercase; font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; }

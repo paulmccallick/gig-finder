@@ -34,7 +34,7 @@ type ContextSearchReader = Pick<
 const normalized = (value: string) => value
   .normalize("NFKD")
   .toLocaleLowerCase()
-  .replace(/[^a-z0-9]+/g, "");
+  .replace(/[^\p{L}\p{N}]+/gu, "");
 
 const matches = (candidate: string | null, query: string) => {
   if (!candidate) return false;
@@ -55,7 +55,7 @@ const searchTerms = (query: string) => [
   query.trim(),
   ...query
     .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .split(/\s+/)
     .filter(term => term.length >= 3),
 ].filter((term, index, values) => term && values.indexOf(term) === index);

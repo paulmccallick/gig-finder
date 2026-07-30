@@ -231,6 +231,7 @@ export function AgentPanel({
   };
 
   const discardUpload = async () => {
+    if (activeRef.current) return;
     uploadAbortRef.current?.abort();
     uploadAbortRef.current = null;
     uploadingRef.current = false;
@@ -372,7 +373,11 @@ export function AgentPanel({
         {upload && (
           <div className="agent-upload-status is-ready" role="status">
             <span>Staged: {upload.filename} · {upload.markdownCharacters.toLocaleString()} characters</span>
-            <button type="button" onClick={() => void discardUpload()}>Discard</button>
+            <button
+              type="button"
+              onClick={() => void discardUpload()}
+              disabled={active}
+            >Discard</button>
             {upload.extractionWarnings.length > 0 && (
               <small>{upload.extractionWarnings.join(" ")}</small>
             )}

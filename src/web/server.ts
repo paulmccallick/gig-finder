@@ -33,6 +33,7 @@ const uploadLimits = {
   ),
   maxPdfPages: positiveInteger(process.env.DOCUMENT_PDF_MAX_PAGES, 100),
 };
+const maxRequestBodySize = uploadLimits.maxBytes + 1_000_000;
 const stagedDocuments = new StagedDocumentService(
   positiveInteger(process.env.DOCUMENT_STAGE_TTL_MS, 15 * 60 * 1000),
 );
@@ -55,6 +56,7 @@ const agentHandler = createAgentHandler(
 Bun.serve({
   port,
   hostname: "127.0.0.1",
+  maxRequestBodySize,
   async fetch(request, server) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();

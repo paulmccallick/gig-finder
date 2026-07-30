@@ -72,6 +72,8 @@ The web API accepts DOCX, Markdown, and PDF files within configured byte, page,
 and extracted-character limits. It validates the extension, declared media
 type, and file signature; converts content deterministically to Markdown; and
 stages it in memory for 15 minutes by default. The binary is not persisted.
+The Bun server enforces a hard request-body cap even when `Content-Length` is
+missing or incorrect.
 
 Staging does not invoke the agent. The panel retains the upload as an attachment
 and adds only its staged reference to the user's next message. The agent can

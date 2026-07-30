@@ -180,6 +180,10 @@ test("JobSearchAgent surfaces and retries an interrupted empty response", async 
 test("document upload stages without the agent and attaches to the next message", async ({ page }) => {
   const stagedReference = "staged-document:11111111-1111-4111-8111-111111111111";
   let agentRequests = 0;
+  let releaseAgentResponse = () => {};
+  const agentResponseGate = new Promise<void>(resolve => {
+    releaseAgentResponse = resolve;
+  });
   await page.route("**/api/agent/documents", async route => {
     expect(route.request().method()).toBe("POST");
     expect(route.request().postDataBuffer()?.toString()).toContain("Exact source text");
@@ -212,6 +216,7 @@ test("document upload stages without the agent and attaches to the next message"
     expect(prompt).toContain(stagedReference);
     expect(prompt).toContain("The recruiter sent this job description.");
     expect(prompt).not.toContain("Exact source text");
+    await agentResponseGate;
     await route.fulfill({
       status: 200,
       headers: {
@@ -245,6 +250,9 @@ test("document upload stages without the agent and attaches to the next message"
     "The recruiter sent this job description.",
   );
   await panel.getByRole("button", { name: /Send/ }).click();
+  await expect.poll(() => agentRequests).toBe(1);
+  await expect(panel.getByRole("button", { name: "Discard" })).toBeDisabled();
+  releaseAgentResponse();
   await expect(panel).toContainText("saved the uploaded source");
   expect(agentRequests).toBe(1);
 });

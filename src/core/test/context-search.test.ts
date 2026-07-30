@@ -115,4 +115,20 @@ describe("context search", () => {
     expect(service.search({ companyNames: ["Example Company"], personNames: [] }).jobs)
       .toHaveLength(2);
   });
+
+  test("preserves non-Latin company and person names", () => {
+    const searches = existingSearches(
+      [job("株式会社サンプル")],
+      [contact("李雷", "株式会社サンプル")],
+    );
+    const service = new SearchContextService(searches.reader);
+
+    expect(service.search({
+      companyNames: ["株式会社サンプル"],
+      personNames: ["李雷"],
+    })).toMatchObject({
+      jobs: [expect.objectContaining({ id: "job-1" })],
+      networkingContacts: [expect.objectContaining({ id: "contact-1" })],
+    });
+  });
 });
