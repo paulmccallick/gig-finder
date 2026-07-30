@@ -10,6 +10,9 @@ import {
 import { loadJobSearchProfile } from "../agent/profile-loader";
 import { openLocalApplication, resolveJobSearchContext } from "../sqlite/src";
 import { registerDevelopmentTelemetry } from "../observability/devtools";
+import { managedDocumentContentLimit, StagedDocumentService } from "../core/src";
+import { LocalDocumentConverter } from "./document-conversion";
+import { createDocumentUploadHandler } from "./document-upload-handler";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const devToolsEnabled = await registerDevelopmentTelemetry();
@@ -17,6 +20,40 @@ const context = resolveJobSearchContext(repoRoot);
 const {application:jobSearch}=openLocalApplication({database:context.database,artifacts:context.artifacts});
 const port = Number(process.env.API_PORT ?? 3001);
 const agentIdleTimeoutSeconds = 120;
+const documentUploadTimeoutSeconds = 60;
+const positiveInteger = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+const uploadLimits = {
+  maxBytes: positiveInteger(process.env.DOCUMENT_UPLOAD_MAX_BYTES, 10_000_000),
+  maxCharacters: positiveInteger(
+    process.env.DOCUMENT_EXTRACTION_MAX_CHARACTERS,
+    managedDocumentContentLimit,
+  ),
+  maxPdfPages: positiveInteger(process.env.DOCUMENT_PDF_MAX_PAGES, 100),
+  maxDocxUncompressedBytes: positiveInteger(
+    process.env.DOCUMENT_DOCX_MAX_UNCOMPRESSED_BYTES,
+    25_000_000,
+  ),
+};
+const maxRequestBodySize = uploadLimits.maxBytes + 1_000_000;
+const stagedDocuments = new StagedDocumentService({
+  lifetimeMs: positiveInteger(
+    process.env.DOCUMENT_STAGE_TTL_MS,
+    15 * 60 * 1000,
+  ),
+  maxDocuments: positiveInteger(process.env.DOCUMENT_STAGE_MAX_DOCUMENTS, 20),
+  maxTotalCharacters: positiveInteger(
+    process.env.DOCUMENT_STAGE_MAX_CHARACTERS,
+    managedDocumentContentLimit * 10,
+  ),
+});
+const uploadHandler = createDocumentUploadHandler(
+  new LocalDocumentConverter(uploadLimits),
+  stagedDocuments,
+  uploadLimits.maxBytes,
+);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const agentHandler = createAgentHandler(
   loadJobSearchProfile(context.profile),
@@ -25,11 +62,13 @@ const agentHandler = createAgentHandler(
   jobSearch.agentContext,
   jobSearch,
   context.actor,
+  { contextSearch: jobSearch.contextSearch, stagedDocuments },
 );
 
 Bun.serve({
   port,
   hostname: "127.0.0.1",
+  maxRequestBodySize,
   async fetch(request, server) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -37,6 +76,8 @@ Bun.serve({
     const url = new URL(request.url);
     if (url.pathname === "/api/agent/messages") {
       server.timeout(request, agentIdleTimeoutSeconds);
+    } else if (url.pathname === "/api/agent/documents") {
+      server.timeout(request, documentUploadTimeoutSeconds);
     }
     log.debug({
       event: "http.request",
@@ -48,6 +89,8 @@ Bun.serve({
       },
       ...(url.pathname === "/api/agent/messages"
         ? { idleTimeoutSeconds: agentIdleTimeoutSeconds }
+        : url.pathname === "/api/agent/documents"
+          ? { idleTimeoutSeconds: documentUploadTimeoutSeconds }
         : {}),
     }, "Received HTTP request");
 
@@ -56,6 +99,19 @@ Bun.serve({
       if (url.pathname === "/api/agent/messages") {
         response = request.method === "POST"
           ? await agentHandler(new Request(request, { headers: new Headers([...request.headers, ["x-request-id", requestId]]) }))
+          : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname === "/api/agent/documents") {
+        response = request.method === "POST"
+          ? await uploadHandler(request)
+          : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname.startsWith("/api/agent/documents/")) {
+        const reference = decodeURIComponent(
+          url.pathname.slice("/api/agent/documents/".length),
+        );
+        response = request.method === "DELETE"
+          ? stagedDocuments.discard(reference)
+            ? new Response(null, { status: 204 })
+            : json({ error: "Staged document not found" }, 404)
           : json({ error: "Method not allowed" }, 405);
       } else if (request.method !== "GET") {
         response = json({ error: "Read-only API" }, 405);

@@ -2,6 +2,10 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
 import { MutationError } from "../../core/src/errors";
 import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
+import {
+  SqliteDocumentReadRepository,
+  SqliteDocumentWriteRepository,
+} from "./document-store";
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
@@ -10,7 +14,7 @@ interface RepositoryConfig<T extends DataRecord> { entity: string; table: string
 
 const baseColumns = { revision: "revision", isDeleted: "is_deleted", createdAt: "created_at", updatedAt: "updated_at" } as const;
 const jobColumns: ColumnMap<JobData> = { id:"id",company:"company",title:"title",externalJobId:"external_job_id",stage:"stage",outcome:"outcome",statusSummary:"status_summary",lastActivity:"last_activity",nextActionDescription:"next_action_description",nextActionDue:"next_action_due",fitRating:"fit_rating",fitSummary:"fit_summary",payCurrency:"pay_currency",payMinimum:"pay_minimum",payMaximum:"pay_maximum",payPeriod:"pay_period",payNotes:"pay_notes",sourceUrl:"source_url",location:"location",workArrangement:"work_arrangement",postedDate:"posted_date",businessUnitTeam:"business_unit_team",recruiterSource:"recruiter_source",bonus:"bonus",equity:"equity",otherCompensation:"other_compensation",tagsJson:"tags_json",hasJobDescription:"has_job_description",hasInterviewPrep:"has_interview_prep" };
-const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on",hasLocalProfile:"has_local_profile"};
+const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on"};
 const networkingColumns:ColumnMap<NetworkingContactData>={id:"id",personId:"person_id",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",lastContacted:"last_contacted",lastContactMethod:"last_contact_method",lastContactSummary:"last_contact_summary",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
 const jobPersonColumns:ColumnMap<JobPersonData>={id:"id",jobId:"job_id",personId:"person_id",relationship:"relationship",notes:"notes"};
 const taskColumns: ColumnMap<TaskData> = { id:"id",title:"title",type:"type",status:"status",priority:"priority",dueDate:"due_date",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",relatedEntityLabel:"related_entity_label",notes:"notes",completedAt:"completed_at" };
@@ -18,7 +22,7 @@ const meetingColumns: ColumnMap<MeetingData> = { id:"id",title:"title",startsAt:
 
 const configs = {
   jobs: { entity:"job", table:"jobs", historyTable:"job_history", columns: jobColumns,booleans:["hasJobDescription","hasInterviewPrep"] } satisfies RepositoryConfig<JobData>,
-  people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns,booleans:["hasLocalProfile"]} satisfies RepositoryConfig<PersonData>,
+  people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns} satisfies RepositoryConfig<PersonData>,
   networking:{entity:"networking",table:"networking_contacts",historyTable:"networking_contact_history",columns:networkingColumns} satisfies RepositoryConfig<NetworkingContactData>,
   jobPeople:{entity:"job-person",table:"job_people",historyTable:"job_people_history",columns:jobPersonColumns} satisfies RepositoryConfig<JobPersonData>,
   tasks: { entity:"task", table:"tasks", historyTable:"task_history", columns: taskColumns } satisfies RepositoryConfig<TaskData>,
@@ -153,12 +157,17 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly jobs: MutationRepository<JobData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly jobPeople:MutationRepository<JobPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>;
+  readonly jobs: MutationRepository<JobData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly jobPeople:MutationRepository<JobPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
     this.jobs = new MutationRepository(database, configs.jobs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.networking=new MutationRepository(database,configs.networking,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.jobPeople=new MutationRepository(database,configs.jobPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
     this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.meetings = new MutationRepository(database, configs.meetings, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.documents = new SqliteDocumentWriteRepository(
+      database,
+      context,
+      changeId,
+    );
   }
   recordEvent(input: BusinessEventInput): string {
     const eventId = input.id ?? id("evt");
@@ -174,8 +183,8 @@ export class ChangeTransaction {
 }
 
 export class DataStore {
-  readonly jobs: ReadRepository<JobData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly jobPeople:ReadRepository<JobPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>;
-  constructor(private readonly database: Database) { this.jobs = new ReadRepository(database, configs.jobs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.jobPeople=new ReadRepository(database,configs.jobPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); }
+  readonly jobs: ReadRepository<JobData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly jobPeople:ReadRepository<JobPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly documents: SqliteDocumentReadRepository;
+  constructor(private readonly database: Database) { this.jobs = new ReadRepository(database, configs.jobs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.jobPeople=new ReadRepository(database,configs.jobPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.documents = new SqliteDocumentReadRepository(database); }
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");

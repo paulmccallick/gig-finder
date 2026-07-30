@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const recordMetadata = {
   revision: integer("revision").notNull().default(1),
@@ -61,7 +61,7 @@ const jobFields = {
 export const jobs = sqliteTable("jobs", { ...jobFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("jobs_stage_idx").on(table.stage), index("jobs_due_idx").on(table.nextActionDue), index("jobs_deleted_idx").on(table.isDeleted), check("jobs_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
 export const jobHistory = sqliteTable("job_history", { ...historyMetadata, ...jobFields, ...recordMetadata }, (table) => [index("job_history_entity_idx").on(table.id, table.revision), index("job_history_change_idx").on(table.changeId), check("job_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("job_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
-const personFields={id:text("id").notNull(),name:text("name").notNull(),company:text("company"),title:text("title"),linkedInProfileUrl:text("linkedin_profile_url"),connectedOn:text("connected_on"),hasLocalProfile:integer("has_local_profile",{mode:"boolean"}).notNull().default(false)};
+const personFields={id:text("id").notNull(),name:text("name").notNull(),company:text("company"),title:text("title"),linkedInProfileUrl:text("linkedin_profile_url"),connectedOn:text("connected_on")};
 export const people=sqliteTable("people",{...personFields,id:text("id").primaryKey(),...recordMetadata},table=>[index("people_name_idx").on(table.name),check("people_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
 export const personHistory=sqliteTable("person_history",{...historyMetadata,...personFields,...recordMetadata},table=>[index("person_history_entity_idx").on(table.id,table.revision),check("person_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("person_history_operation_check",sql`${table.operation} in ('update','delete')`)]);
 
@@ -92,3 +92,68 @@ export const businessEvents = sqliteTable("business_events", {
 export const eventSources = sqliteTable("event_sources", {
   id: text("id").primaryKey(), eventId: text("event_id").notNull().references(() => businessEvents.id), sourceSystem: text("source_system").notNull(), externalId: text("external_id"), sourceTimestamp: text("source_timestamp"), sourceUri: text("source_uri"), importedAt: text("imported_at").notNull(), contentHash: text("content_hash"), excerpt: text("excerpt"),
 }, (table) => [index("event_sources_event_idx").on(table.eventId), uniqueIndex("event_sources_external_idx").on(table.sourceSystem, table.externalId)]);
+
+export const managedDocuments = sqliteTable("managed_documents", {
+  id: text("id").primaryKey(),
+  documentType: text("document_type", {
+    enum: ["job_description", "notes", "interview_prep", "profile"],
+  }).notNull(),
+  title: text("title"),
+  mediaType: text("media_type", {
+    enum: ["text/plain", "text/markdown"],
+  }).notNull(),
+  sourceDescription: text("source_description"),
+  uploadProvenanceJson: text("upload_provenance_json"),
+  currentVersion: integer("current_version").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  check(
+    "managed_documents_type_check",
+    sql`${table.documentType} in ('job_description', 'notes', 'interview_prep', 'profile')`,
+  ),
+  check(
+    "managed_documents_media_type_check",
+    sql`${table.mediaType} in ('text/plain', 'text/markdown')`,
+  ),
+  check("managed_documents_current_version_check", sql`${table.currentVersion} > 0`),
+]);
+
+export const managedDocumentLinks = sqliteTable("managed_document_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: text("document_id").notNull()
+    .references(() => managedDocuments.id),
+  jobId: text("job_id").references(() => jobs.id),
+  personId: text("person_id").references(() => people.id),
+}, (table) => [
+  index("managed_document_links_document_idx").on(table.documentId),
+  index("managed_document_links_job_idx").on(table.jobId),
+  index("managed_document_links_person_idx").on(table.personId),
+  uniqueIndex("managed_document_links_job_unique").on(table.documentId, table.jobId),
+  uniqueIndex("managed_document_links_person_unique").on(table.documentId, table.personId),
+  check(
+    "managed_document_links_target_check",
+    sql`(${table.jobId} is not null and ${table.personId} is null) or (${table.jobId} is null and ${table.personId} is not null)`,
+  ),
+]);
+
+export const managedDocumentVersions = sqliteTable("managed_document_versions", {
+  documentId: text("document_id").notNull()
+    .references(() => managedDocuments.id),
+  version: integer("version").notNull(),
+  parentVersion: integer("parent_version"),
+  content: text("content").notNull(),
+  contentHash: text("content_hash").notNull(),
+  changeId: text("change_id").notNull().references(() => changes.id),
+  changeSummary: text("change_summary").notNull(),
+  createdAt: text("created_at").notNull(),
+  createdBy: text("created_by").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.documentId, table.version] }),
+  index("managed_document_versions_change_idx").on(table.changeId),
+  check("managed_document_versions_version_check", sql`${table.version} > 0`),
+  check(
+    "managed_document_versions_parent_check",
+    sql`${table.parentVersion} is null or ${table.parentVersion} < ${table.version}`,
+  ),
+]);

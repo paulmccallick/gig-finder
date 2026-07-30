@@ -1,0 +1,1 @@
+ALTER TABLE `managed_documents` ADD `upload_provenance_json` text;

@@ -25,6 +25,84 @@ export function hasSuccessfulMutation(parts: Parameters<typeof messageText>[0]) 
   });
 }
 
+export function savedUploadReferences(parts: Parameters<typeof messageText>[0]) {
+  return [...new Set(parts.flatMap(part => {
+    if (!isToolUIPart(part)) return [];
+    const toolName = part.type === "dynamic-tool"
+      ? part.toolName
+      : part.type.slice("tool-".length);
+    if (toolName !== "create_document") return [];
+    if (part.state !== "output-available") return [];
+    const output = part.output;
+    return typeof output === "object"
+      && output !== null
+      && "status" in output
+      && output.status === "ok"
+      && "stagedReference" in output
+      && typeof output.stagedReference === "string"
+      ? [output.stagedReference]
+      : [];
+  }))];
+}
+
+export function hasSavedUpload(parts: Parameters<typeof messageText>[0]) {
+  return savedUploadReferences(parts).length > 0;
+}
+
+interface StagedUpload {
+  reference: string;
+  filename: string;
+  extractionWarnings: string[];
+  markdownCharacters: number;
+  expiresAt: string;
+}
+
+const stagedReferencePattern = /^staged-document:[0-9a-f-]+$/i;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export function parseStagedUpload(value: unknown): StagedUpload {
+  if (!isRecord(value)) {
+    throw new Error("The upload service returned an invalid response.");
+  }
+  const {
+    reference,
+    filename,
+    extractionWarnings,
+    markdownCharacters,
+    expiresAt,
+  } = value;
+  if (
+    typeof reference !== "string"
+    || !stagedReferencePattern.test(reference)
+    || typeof filename !== "string"
+    || filename.length === 0
+    || !Array.isArray(extractionWarnings)
+    || !extractionWarnings.every((warning): warning is string =>
+      typeof warning === "string")
+    || typeof markdownCharacters !== "number"
+    || !Number.isInteger(markdownCharacters)
+    || markdownCharacters < 0
+    || typeof expiresAt !== "string"
+    || !Number.isFinite(Date.parse(expiresAt))
+  ) {
+    throw new Error("The upload service returned an invalid response.");
+  }
+  return {
+    reference,
+    filename,
+    extractionWarnings,
+    markdownCharacters,
+    expiresAt,
+  };
+}
+
+async function discardStagedDocument(reference: string) {
+  await fetch(`/api/agent/documents/${encodeURIComponent(reference)}`, {
+    method: "DELETE",
+  });
+}
+
 export function AgentPanel({
   open,
   onClose,
@@ -36,7 +114,13 @@ export function AgentPanel({
 }) {
   const [input, setInput] = useState("");
   const [interactionFailure, setInteractionFailure] = useState<string | null>(null);
+  const [upload, setUpload] = useState<StagedUpload | null>(null);
+  const [uploadingFilename, setUploadingFilename] = useState<string | null>(null);
+  const [uploadFailure, setUploadFailure] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const uploadingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const diagnosticRef = useRef<{
     sequence: number;
@@ -59,6 +143,21 @@ export function AgentPanel({
     onFinish: ({ message, isAbort, isDisconnect, isError }) => {
       const deliveredTextCharacters = messageText(message.parts).length;
       if (hasSuccessfulMutation(message.parts)) onDataChanged?.();
+      const savedReferences = savedUploadReferences(message.parts);
+      const completed = !isAbort
+        && !isDisconnect
+        && !isError
+        && deliveredTextCharacters > 0;
+      if (completed) {
+        for (const reference of savedReferences) {
+          void discardStagedDocument(reference).catch(() => undefined);
+        }
+      }
+      if (completed && savedReferences.length > 0) {
+        setUpload(current => current && savedReferences.includes(current.reference)
+          ? null
+          : current);
+      }
       if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
         setInteractionFailure(
           "JobSearchAgent's response was interrupted before it completed. Please retry.",
@@ -73,6 +172,8 @@ export function AgentPanel({
   });
   const previousStatusRef = useRef(status);
   const active = status === "submitted" || status === "streaming";
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -147,7 +248,17 @@ export function AgentPanel({
 
   const submit = async (text = input) => {
     const value = text.trim();
-    if (!value || active) return;
+    const attachedUpload = upload;
+    if (
+      (!value && !attachedUpload)
+      || activeRef.current
+      || uploadingRef.current
+    ) return;
+    const outgoingText = attachedUpload
+      ? [value, `Attached staged document: ${attachedUpload.reference}`]
+          .filter(Boolean)
+          .join("\n\n")
+      : value;
     const sequence = sequenceRef.current + 1;
     sequenceRef.current = sequence;
     diagnosticRef.current = {
@@ -160,13 +271,14 @@ export function AgentPanel({
     console.debug("[JobSearchAgent]", {
       event: "agent.ui.request.submitted",
       interactionSequence: sequence,
-      promptCharacters: value.length,
+      promptCharacters: outgoingText.length,
+      stagedDocumentAttached: attachedUpload !== null,
       messageCount: messages.length + 1,
     });
     clearError();
     setInteractionFailure(null);
     setInput("");
-    await sendMessage({ text: value });
+    await sendMessage({ text: outgoingText });
   };
 
   const retry = () => {
@@ -184,6 +296,61 @@ export function AgentPanel({
     void regenerate();
   };
 
+  const discardUpload = async () => {
+    if (activeRef.current) return;
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
+    uploadingRef.current = false;
+    setUploadingFilename(null);
+    setUploadFailure(null);
+    const reference = upload?.reference;
+    setUpload(null);
+    if (!reference) return;
+    try {
+      await discardStagedDocument(reference);
+    } catch {
+      // Staged uploads expire automatically; cancellation remains effective locally.
+    }
+  };
+
+  const uploadDocument = async (file: File) => {
+    if (active || uploadingFilename) return;
+    if (upload) await discardUpload();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+    uploadingRef.current = true;
+    setUploadingFilename(file.name);
+    setUploadFailure(null);
+    const body = new FormData();
+    body.set("file", file);
+    try {
+      const response = await fetch("/api/agent/documents", {
+        method: "POST",
+        body,
+        signal: controller.signal,
+      });
+      const result: unknown = await response.json();
+      if (!response.ok) {
+        const message = isRecord(result) && typeof result.error === "string"
+          ? result.error
+          : "The document could not be uploaded.";
+        throw new Error(message);
+      }
+      setUpload(parseStagedUpload(result));
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setUploadFailure(
+          error instanceof Error ? error.message : "The document could not be uploaded.",
+        );
+      }
+    } finally {
+      if (uploadAbortRef.current === controller) uploadAbortRef.current = null;
+      uploadingRef.current = false;
+      setUploadingFilename(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <aside className={`agent-panel ${open ? "is-open" : ""}`} aria-label="Job Search Agent" aria-hidden={!open}>
       <header className="agent-panel-header">
@@ -199,7 +366,7 @@ export function AgentPanel({
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents, and update existing jobs and contacts when asked.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents; update existing jobs and contacts; and create or revise linked documents when asked.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
@@ -242,6 +409,50 @@ export function AgentPanel({
       )}
 
       <form className="agent-composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <div className="agent-upload-control">
+          <input
+            ref={fileInputRef}
+            id="agent-document-upload"
+            type="file"
+            accept=".docx,.md,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,application/pdf"
+            onChange={event => {
+              const file = event.target.files?.[0];
+              if (file) void uploadDocument(file);
+            }}
+            disabled={!open || active || uploadingFilename !== null}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!open || active || uploadingFilename !== null}
+          >Attach source <span aria-hidden="true">＋</span></button>
+          <span>DOCX / MD / PDF</span>
+        </div>
+        {uploadingFilename && (
+          <div className="agent-upload-status" role="status">
+            <span><i />Converting {uploadingFilename}</span>
+            <button type="button" onClick={() => void discardUpload()}>Cancel</button>
+          </div>
+        )}
+        {upload && (
+          <div className="agent-upload-status is-ready" role="status">
+            <span>Staged: {upload.filename} · {upload.markdownCharacters.toLocaleString()} characters</span>
+            <button
+              type="button"
+              onClick={() => void discardUpload()}
+              disabled={active}
+            >Discard</button>
+            {upload.extractionWarnings.length > 0 && (
+              <small>{upload.extractionWarnings.join(" ")}</small>
+            )}
+          </div>
+        )}
+        {uploadFailure && (
+          <div className="agent-upload-error" role="alert">
+            <span>{uploadFailure}</span>
+            <button type="button" onClick={() => setUploadFailure(null)}>Dismiss</button>
+          </div>
+        )}
         <label htmlFor="agent-message">Message JobSearchAgent</label>
         <textarea
           id="agent-message"
@@ -257,7 +468,7 @@ export function AgentPanel({
           placeholder="Ask about fit, positioning, or priorities…"
           rows={3}
           maxLength={8000}
-          disabled={!open}
+          disabled={!open || uploadingFilename !== null}
         />
         <div className="agent-composer-footer">
           <span>{active ? "STREAM ACTIVE" : "LIVE DATA ACCESS"}</span>
@@ -274,7 +485,7 @@ export function AgentPanel({
                 });
                 stop();
               }}>Stop <i /></button>
-            : <button className="agent-send" type="submit" disabled={!input.trim()}>Send <span>↗</span></button>}
+            : <button className="agent-send" type="submit" disabled={!input.trim() && !upload}>Send <span>↗</span></button>}
         </div>
       </form>
     </aside>

@@ -9,6 +9,8 @@ import {
   type AgentContextReader,
   type ChangeContext,
   type Job,
+  type ManagedDocumentRecord,
+  StagedDocumentService,
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
 import {
@@ -22,6 +24,27 @@ const logger = {
   warn: () => undefined,
   error: () => undefined,
 } as unknown as Logger;
+
+const documentMutations = {
+  create: () => { throw new Error("not executed"); },
+  update: () => { throw new Error("not executed"); },
+};
+
+const managedDocument: ManagedDocumentRecord = {
+  id: "doc_11111111-1111-4111-8111-111111111111",
+  links: [{ entityType: "job", entityId: "job-1" }],
+  documentType: "job_description",
+  title: "Job description",
+  displayName: "Job description",
+  mediaType: "text/plain",
+  sourceDescription: "Provided by the recruiter",
+  uploadProvenance: null,
+  currentVersion: 1,
+  content: "Original source text",
+  contentHash: "abc123",
+  createdAt: "2026-07-27T12:00:00.000Z",
+  updatedAt: "2026-07-27T12:00:00.000Z",
+};
 
 const reader = {
   listJobs: (input) => ({
@@ -67,6 +90,7 @@ const mutations: JobSearchMutationCapabilities = {
   jobs: { update: () => { throw new Error("not executed"); } },
   networking: { update: () => { throw new Error("not executed"); } },
   changes: { revert: () => { throw new Error("not executed"); } },
+  documents: documentMutations,
 };
 
 const nullJobsInput = {
@@ -136,12 +160,129 @@ describe("JobSearchAgent tools", () => {
       "get_document",
       "update_job",
       "update_networking_contact",
+      "create_document",
+      "update_document",
       "revert_change",
     ]);
     if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
     expect(tools.update_job.strict).toBe(true);
     expect(tools.update_networking_contact.strict).toBe(true);
+    expect(tools.create_document.strict).toBe(true);
+    expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
+  });
+
+  test("reads staged references and persists them through generic document tools", async () => {
+    const stagedDocuments = new StagedDocumentService();
+    const staged = stagedDocuments.stage({
+      markdown: "# Exact uploaded source",
+      provenance: {
+        originalFilename: "role.pdf",
+        detectedMediaType: "application/pdf",
+        sourceContentHash: "a".repeat(64),
+        converter: "pdfjs-dist",
+        converterVersion: "6.2.108",
+        extractionWarnings: [],
+        uploadedAt: "2026-07-29T12:00:00.000Z",
+      },
+    });
+    let createdInput: unknown;
+    let createCalls = 0;
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      {
+        ...mutations,
+        documents: {
+          create: (_context, input) => {
+            createCalls += 1;
+            createdInput = input;
+            return {
+              document: {
+                ...managedDocument,
+                mediaType: "text/markdown",
+                content: input.content,
+                uploadProvenance: input.uploadProvenance ?? null,
+              },
+              changeId: "agent-tool:call-upload",
+              changed: true,
+            };
+          },
+          update: () => { throw new Error("not executed"); },
+        },
+      },
+      { actor: "Candidate", requestId: "request-upload" },
+      {
+        contextSearch: {
+          search: () => ({
+            jobs: [],
+            networkingContacts: [],
+            truncated: false,
+          }),
+        },
+        stagedDocuments,
+      },
+    );
+    expect(Object.keys(tools)).toContain("search_jobs_and_contacts");
+    expect(Object.keys(tools)).not.toContain("get_staged_document");
+    expect(Object.keys(tools)).not.toContain("create_uploaded_document");
+    const stagedRead = await tools.get_document.execute?.({
+      reference: staged.reference,
+    }, {
+      toolCallId: "read-upload",
+      messages: [],
+      abortSignal: undefined,
+      context: {},
+    });
+    expect(stagedRead).toMatchObject({
+      status: "ok",
+      record: {
+        reference: staged.reference,
+        storage: "staged",
+        content: "# Exact uploaded source",
+      },
+    });
+    if (!("create_document" in tools)) throw new Error("Document tool missing.");
+    const createDocument = tools.create_document;
+    if (!createDocument) throw new Error("Document tool missing.");
+
+    const stagedToolInput: z.infer<typeof jobSearchToolSchemas.create_document> = {
+      links: [{ entityType: "job", entityId: "job-1" }],
+      documentType: "job_description",
+      title: "Director role",
+      source: {
+        kind: "staged_document",
+        content: null,
+        reference: staged.reference,
+        mediaType: "text/markdown",
+      },
+      sourceDescription: null,
+    };
+    const result = await createDocument.execute?.(stagedToolInput, {
+      toolCallId: "call-upload",
+      messages: [],
+      abortSignal: undefined,
+      context: {},
+    });
+
+    expect(createdInput).toMatchObject({
+      content: "# Exact uploaded source",
+      mediaType: "text/markdown",
+      uploadProvenance: { originalFilename: "role.pdf" },
+    });
+    expect(result).toMatchObject({ status: "ok", changed: true });
+    expect(stagedDocuments.get(staged.reference)?.consumption).toMatchObject({
+      changeId: "agent-tool:call-upload",
+      document: { id: managedDocument.id },
+    });
+    const retried = await createDocument.execute?.(stagedToolInput, {
+      toolCallId: "call-upload-retry",
+      messages: [],
+      abortSignal: undefined,
+      context: {},
+    });
+    expect(createCalls).toBe(1);
+    expect(retried).toEqual(result);
   });
 
   test("accepts explicit mutation operations and rejects invalid fields", () => {
@@ -164,6 +305,205 @@ describe("JobSearchAgent tools", () => {
       id: "person-1",
       changes: [{ operation: "set", field: "updatedAt", value: "2026-07-27" }],
     }).success).toBe(false);
+  });
+
+  test("uses strict document schemas with domain enum values", () => {
+    expect(jobSearchToolSchemas.create_document.parse({
+      links: [{ entityType: "job", entityId: "job-1" }],
+      documentType: "job_description",
+      title: "Job description",
+      source: {
+        kind: "inline_content",
+        content: "Supplied source text",
+        reference: null,
+        mediaType: "text/plain",
+      },
+      sourceDescription: null,
+    })).toMatchObject({
+      links: [{ entityType: "job", entityId: "job-1" }],
+      documentType: "job_description",
+      source: { kind: "inline_content", mediaType: "text/plain" },
+    });
+    expect(jobSearchToolSchemas.create_document.safeParse({
+      links: [{ entityType: "contact", entityId: "contact-1" }],
+      documentType: "job_description",
+      title: "Job description",
+      source: {
+        kind: "inline_content",
+        content: "Supplied source text",
+        reference: null,
+        mediaType: "text/plain",
+      },
+      sourceDescription: null,
+    }).success).toBe(false);
+    expect(jobSearchToolSchemas.create_document.safeParse({
+      links: [{ entityType: "job", entityId: "job-1" }],
+      documentType: "job_description",
+      title: "Job description",
+      source: {
+        kind: "staged_document",
+        content: "Opaque references cannot be stored as content.",
+        reference: "staged-document:11111111-1111-4111-8111-111111111111",
+        mediaType: "text/markdown",
+      },
+      sourceDescription: null,
+    }).success).toBe(false);
+    expect(jobSearchToolSchemas.update_document.safeParse({
+      documentId: managedDocument.id,
+      expectedVersion: 0,
+      content: "Replacement text",
+      changeSummary: "Corrected source",
+    }).success).toBe(false);
+  });
+
+  test("passes document writes through the shared service and omits content from results", async () => {
+    let received:
+      | { context: ChangeContext; input: unknown }
+      | undefined;
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      {
+        jobs: { update: () => { throw new Error("not executed"); } },
+        networking: { update: () => { throw new Error("not executed"); } },
+        changes: { revert: () => { throw new Error("not executed"); } },
+        documents: {
+          create: (context, input) => {
+            received = { context, input };
+            return {
+              document: managedDocument,
+              changeId: context.changeId ?? null,
+              changed: true,
+            };
+          },
+          update: () => { throw new Error("not executed"); },
+        },
+      },
+      { actor: "Candidate", requestId: "request-1" },
+    );
+    if (!("create_document" in tools)) {
+      throw new Error("Mutation tools were not registered.");
+    }
+
+    const result = await tools.create_document.execute?.(
+      {
+        links: [{ entityType: "job", entityId: "job-1" }],
+        documentType: "job_description",
+        title: "Job description",
+        source: {
+          kind: "inline_content",
+          content: "Original source text",
+          reference: null,
+          mediaType: "text/plain",
+        },
+        sourceDescription: "Provided by the recruiter",
+      },
+      {
+        toolCallId: "call-document",
+        messages: [],
+        abortSignal: undefined,
+        context: {},
+      },
+    );
+
+    expect(received).toEqual({
+      context: {
+        actor: "Candidate",
+        source: "agent",
+        summary: "Agent created job_description (request request-1, tool call-document)",
+        changeId: "agent-tool:call-document",
+      },
+      input: {
+        links: [{ entityType: "job", entityId: "job-1" }],
+        documentType: "job_description",
+        title: "Job description",
+        mediaType: "text/plain",
+        sourceDescription: "Provided by the recruiter",
+        content: "Original source text",
+      },
+    });
+    expect(result).toMatchObject({
+      status: "ok",
+      changed: true,
+      changeId: "agent-tool:call-document",
+      document: {
+        id: managedDocument.id,
+        currentVersion: 1,
+      },
+    });
+    expect((result as { document?: object }).document).not.toHaveProperty("content");
+  });
+
+  test("updates documents by exact ID and expected version", async () => {
+    let received:
+      | { context: ChangeContext; input: unknown }
+      | undefined;
+    const tools = createJobSearchTools(
+      reader,
+      logger,
+      {
+        jobs: { update: () => { throw new Error("not executed"); } },
+        networking: { update: () => { throw new Error("not executed"); } },
+        changes: { revert: () => { throw new Error("not executed"); } },
+        documents: {
+          create: () => { throw new Error("not executed"); },
+          update: (context, input) => {
+            received = { context, input };
+            return {
+              document: {
+                ...managedDocument,
+                currentVersion: 2,
+                content: "Corrected source text",
+              },
+              changeId: context.changeId ?? null,
+              changed: true,
+            };
+          },
+        },
+      },
+      { actor: "Candidate", requestId: "request-2" },
+    );
+    if (!("update_document" in tools)) {
+      throw new Error("Mutation tools were not registered.");
+    }
+
+    const result = await tools.update_document.execute?.(
+      {
+        documentId: managedDocument.id,
+        expectedVersion: 1,
+        content: "Corrected source text",
+        changeSummary: "Corrected transcription",
+      },
+      {
+        toolCallId: "call-document-update",
+        messages: [],
+        abortSignal: undefined,
+        context: {},
+      },
+    );
+
+    expect(received).toEqual({
+      context: {
+        actor: "Candidate",
+        source: "agent",
+        summary: `Agent updated document ${managedDocument.id} (request request-2, tool call-document-update)`,
+        changeId: "agent-tool:call-document-update",
+      },
+      input: {
+        documentId: managedDocument.id,
+        expectedVersion: 1,
+        content: "Corrected source text",
+        changeSummary: "Corrected transcription",
+      },
+    });
+    expect(result).toMatchObject({
+      status: "ok",
+      changed: true,
+      document: {
+        id: managedDocument.id,
+        currentVersion: 2,
+      },
+    });
   });
 
   test("describes accepted update values using domain enums", () => {
@@ -193,6 +533,7 @@ describe("JobSearchAgent tools", () => {
         } },
         networking: { update: () => { throw new Error("not executed"); } },
         changes: { revert: () => { throw new Error("not executed"); } },
+        documents: documentMutations,
       },
       { actor: "Candidate", requestId: "request-1" },
     );
@@ -275,6 +616,7 @@ describe("JobSearchAgent tools", () => {
       } },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
+      documents: documentMutations,
     };
     const tools = createJobSearchTools(
       reader,
@@ -323,6 +665,7 @@ describe("JobSearchAgent tools", () => {
       } },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
+      documents: documentMutations,
     };
     const tools = createJobSearchTools(
       reader,
@@ -355,6 +698,7 @@ describe("JobSearchAgent tools", () => {
       } },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
+      documents: documentMutations,
     };
     const tools = createJobSearchTools(
       reader,
@@ -390,6 +734,7 @@ describe("JobSearchAgent tools", () => {
           affected: [{ entity: "job", id: "job-1" }],
         };
       } },
+      documents: documentMutations,
     };
     const tools = createJobSearchTools(
       reader,
@@ -458,6 +803,7 @@ describe("JobSearchAgent tools", () => {
       }) },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
+      documents: documentMutations,
     };
     const tools = createJobSearchTools(
       reader,
@@ -573,9 +919,10 @@ describe("JobSearchAgent tools", () => {
     for (const schema of [
       jobSearchToolSchemas.update_job,
       jobSearchToolSchemas.update_networking_contact,
+      jobSearchToolSchemas.create_document,
+      jobSearchToolSchemas.update_document,
     ]) {
       const jsonSchema = z.toJSONSchema(schema);
-      expect(jsonSchema.required?.sort()).toEqual(["changes", "id"]);
       assertStrictObjects(jsonSchema);
     }
   });
