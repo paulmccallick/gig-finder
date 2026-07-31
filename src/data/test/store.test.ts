@@ -263,6 +263,78 @@ describe("full-row history and revisions", () => {
       change_id: result.changeId,
     });
   });
+  test("meeting service replaces participants atomically with one audited change", () => {
+    const secondPerson = { ...person, id: "person-2", name: "Person Two" };
+    const artifacts = {
+      jobDescription: async () => "",
+      interviewPrep: async () => [],
+      jobDescriptionExists: async () => false,
+      interviewPrepExists: async () => false,
+      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+    } satisfies ArtifactPort;
+    const app = new GigFinderApplication(store, new AuditReader(database), artifacts);
+    app.people.create(context("Create first person"), person);
+    app.people.create(context("Create second person"), secondPerson);
+    const created = app.meetings.create({
+      ...context("Create meeting"),
+      changeId: "meeting-create-change",
+    }, {
+      ...meeting,
+      personIds: [person.id],
+      status: "confirmed",
+    });
+    expect(created).toMatchObject({
+      changeId: "meeting-create-change",
+      record: { personIds: [person.id] },
+    });
+
+    const updated = app.meetings.update({
+      ...context("Complete meeting"),
+      changeId: "meeting-update-change",
+    }, meeting.id, {
+      status: "completed",
+      personIds: [secondPerson.id],
+      location: null,
+    });
+
+    expect(updated).toMatchObject({
+      changeId: "meeting-update-change",
+      record: {
+        status: "completed",
+        personIds: [secondPerson.id],
+        location: null,
+      },
+    });
+    expect(app.meetings.get(meeting.id)).toMatchObject({
+      status: "completed",
+      personIds: [secondPerson.id],
+      location: null,
+    });
+    expect(database.query("SELECT change_id, status, location FROM meeting_history WHERE id = ?").get(meeting.id)).toEqual({
+      change_id: "meeting-update-change",
+      status: "confirmed",
+      location: "Seattle",
+    });
+    expect(database.query("SELECT change_id, operation, person_id FROM meeting_participant_history WHERE meeting_id = ?").get(meeting.id)).toEqual({
+      change_id: "meeting-update-change",
+      operation: "delete",
+      person_id: person.id,
+    });
+    app.meetings.update({
+      ...context("Restore first participant"),
+      changeId: "meeting-restore-participant",
+    }, meeting.id, {
+      personIds: [person.id],
+    });
+    expect(app.meetings.get(meeting.id)?.personIds).toEqual([person.id]);
+    expect(store.meetingParticipants.get(
+      `meeting-participant:${meeting.id.length}:${meeting.id}${person.id}`,
+    )).toMatchObject({ personId: person.id, revision: 3, isDeleted: false });
+    expect(() => app.meetings.update(context("Invalid participants"), meeting.id, {
+      personIds: ["missing-person"],
+    })).toThrow("references missing person missing-person");
+    expect(app.meetings.get(meeting.id)?.personIds).toEqual([person.id]);
+  });
 });
 
 describe("binary deletion", () => {

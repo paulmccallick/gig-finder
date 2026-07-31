@@ -129,6 +129,10 @@ function documentMutations(
   return {
     gigs: { update: () => { throw new Error("not executed"); } },
     networking: { update: () => { throw new Error("not executed"); } },
+    meetings: {
+      create: () => { throw new Error("not executed"); },
+      update: () => { throw new Error("not executed"); },
+    },
     changes: { revert: () => { throw new Error("not executed"); } },
     documents: {
       create,
@@ -370,6 +374,96 @@ describe("agent streaming", () => {
     expect(model.doStreamCalls).toHaveLength(2);
     expect(model.doStreamCalls[0]?.tools?.map(({ name }) => name)).toContain("list_meetings");
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("Recruiter screen");
+  });
+
+  test("creates a meeting and returns its result to the model", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              {
+                type: "tool-call",
+                toolCallId: "create-meeting",
+                toolName: "create_meeting",
+                input: JSON.stringify({
+                  title: "Coffee with Jordan",
+                  startsAt: "2026-07-31T08:00:00-07:00",
+                  endsAt: "2026-07-31T09:00:00-07:00",
+                  timezone: "America/Los_Angeles",
+                  status: "completed",
+                  personIds: ["person-jordan"],
+                  gigId: null,
+                  location: "Seattle",
+                  description: "Discussed leadership roles",
+                }),
+              },
+              {
+                type: "finish",
+                finishReason: { unified: "tool-calls", raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        },
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "text-1" },
+              { type: "text-delta", id: "text-1", delta: "Recorded your meeting with Jordan." },
+              { type: "text-end", id: "text-1" },
+              {
+                type: "finish",
+                finishReason: { unified: "stop", raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        },
+      ],
+    });
+    let received: { context: ChangeContext; meeting: MeetingRecord } | undefined;
+    const mutations = documentMutations(() => { throw new Error("not executed"); });
+    mutations.meetings = {
+      create: (context, meeting) => {
+        const record: MeetingRecord = {
+          ...meeting,
+          revision: 1,
+          isDeleted: false,
+          createdAt: "2026-07-31T16:00:00.000Z",
+          updatedAt: "2026-07-31T16:00:00.000Z",
+        };
+        received = { context, meeting: record };
+        return { changeId: context.changeId ?? null, record };
+      },
+      update: () => { throw new Error("not executed"); },
+    };
+    const tools = createGigFinderTools(
+      readerWithGigs([]),
+      logger,
+      mutations,
+      { actor: "Candidate", requestId: "request-meeting" },
+    );
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
+      model,
+      logger,
+      tools,
+      canUpdateRecords: true,
+    });
+
+    expect(await agent.respond([
+      userMessage("Record my completed coffee meeting with Jordan."),
+    ]).text).toBe("Recorded your meeting with Jordan.");
+    expect(received).toMatchObject({
+      context: { changeId: "agent-tool:create-meeting" },
+      meeting: { personIds: ["person-jordan"], status: "completed" },
+    });
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      "agent-tool:create-meeting",
+    );
   });
 
   test("creates a document when the user explicitly requests it", async () => {

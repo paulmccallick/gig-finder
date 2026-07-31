@@ -10,8 +10,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   non-persisting dry-run previews where available.
 - The agent window uses the candidate profile; reads complete current gigs,
   people, networking contacts, gig-person relationships, tasks, and registered
-  meetings and documents; updates existing gigs and contacts; and manages
-  documents.
+  meetings and documents; updates existing gigs and contacts; creates and
+  updates meetings; and manages documents.
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
   locally to Markdown, and attaches a staged reference to the user's next
   message so the agent can determine what to do without altering the source.
