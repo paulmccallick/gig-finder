@@ -4,7 +4,7 @@ import type { ChangeContext } from "./models";
 import type { Persistence } from "./ports";
 import { DomainValidationError, MutationError, OptimisticConcurrencyError } from "./errors";
 
-export const documentLinkEntityTypes = ["job", "person"] as const;
+export const documentLinkEntityTypes = ["gig", "person"] as const;
 export type DocumentLinkEntityType = typeof documentLinkEntityTypes[number];
 
 export const managedDocumentTypes = [
@@ -213,13 +213,13 @@ export class ManagedDocumentService {
     try {
       const result = this.persistence.change(context, transaction => {
         for (const link of parsed.links) {
-          const target = link.entityType === "job"
-            ? transaction.jobs.get(link.entityId)
+          const target = link.entityType === "gig"
+            ? transaction.gigs.get(link.entityId)
             : transaction.people.get(link.entityId);
           if (!target) {
             throw new MutationError(
               "not_found",
-              `${link.entityType === "job" ? "Job" : "Person"} not found: ${link.entityId}`,
+              `${link.entityType === "gig" ? "Gig" : "Person"} not found: ${link.entityId}`,
             );
           }
         }
@@ -300,16 +300,16 @@ export class ManagedDocumentService {
       throw new DomainValidationError("Document links must be unique.");
     }
     const personLinks = links.filter(link => link.entityType === "person");
-    const jobLinks = links.filter(link => link.entityType === "job");
+    const gigLinks = links.filter(link => link.entityType === "gig");
     if (type === "profile" && personLinks.length !== 1) {
       throw new DomainValidationError("A profile must link to exactly one person.");
     }
     if (
       (type === "job_description" || type === "interview_prep")
-      && jobLinks.length === 0
+      && gigLinks.length === 0
     ) {
       throw new DomainValidationError(
-        `${type === "job_description" ? "A job description" : "Interview preparation"} must link to at least one job.`,
+        `${type === "job_description" ? "A job description" : "Interview preparation"} must link to at least one gig.`,
       );
     }
   }

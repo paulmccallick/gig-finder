@@ -7,7 +7,8 @@ export const configuredLogLevel = process.env.LOG_LEVEL?.trim() || "debug";
 export const logDirectory = path.resolve(
   process.env.LOG_DIRECTORY?.trim()
     || path.join(
-      process.env.JOB_SEARCH_CONTEXT_ROOT?.trim()
+      process.env.GIG_FINDER_CONTEXT_ROOT?.trim()
+        || process.env.JOB_SEARCH_CONTEXT_ROOT?.trim()
         || path.join(import.meta.dir, "../..", "context"),
       "logs",
     ),
@@ -27,7 +28,7 @@ const logStream = createStream("server.log", {
 export const logger = pino({
   level: configuredLogLevel,
   base: {
-    service: "job-search-server",
+    service: "gig-finder-server",
   },
   serializers: {
     err: pino.stdSerializers.err,

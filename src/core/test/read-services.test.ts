@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { JobSearchApplication } from "../src/application";
+import { GigFinderApplication } from "../src/application";
 import type {
   ArtifactPort,
   ArtifactVerification,
@@ -12,8 +12,8 @@ import type {
 import type {
   ChangeContext,
   EntityRecord,
-  JobData,
-  JobPersonData,
+  GigData,
+  GigPersonData,
   MeetingData,
   MeetingParticipantData,
   NetworkingContactData,
@@ -76,20 +76,20 @@ const audit: AuditPort = { query: () => null };
 const context: ChangeContext = { actor: "test", source: "test", summary: "seed" };
 
 function application() {
-  const jobs = new Repo<JobData>();
+  const gigs = new Repo<GigData>();
   const people = new Repo<PersonData>();
   const networking = new Repo<NetworkingContactData>();
-  const jobPeople = new Repo<JobPersonData>();
+  const gigPeople = new Repo<GigPersonData>();
   const tasks = new Repo<TaskData>();
   const meetings = new Repo<MeetingData>();
   const meetingParticipants = new Repo<MeetingParticipantData>();
   const documents = new EmptyDocuments();
   let readChanges = 0;
   const persistence: Persistence = {
-    jobs,
+    gigs,
     people,
     networking,
-    jobPeople,
+    gigPeople,
     tasks,
     meetings,
     meetingParticipants,
@@ -99,10 +99,10 @@ function application() {
       return {
         changeId: changeContext.changeId ?? "change",
         value: action({
-          jobs,
+          gigs,
           people,
           networking,
-          jobPeople,
+          gigPeople,
           tasks,
           meetings,
           meetingParticipants,
@@ -114,13 +114,13 @@ function application() {
     revertChange: () => ({ changeId: "revert", value: [] }),
   };
   return {
-    app: new JobSearchApplication(persistence, audit, artifacts),
-    repos: { jobs, people, networking, jobPeople, tasks, meetings, meetingParticipants },
+    app: new GigFinderApplication(persistence, audit, artifacts),
+    repos: { gigs, people, networking, gigPeople, tasks, meetings, meetingParticipants },
     changes: () => readChanges,
   };
 }
 
-const job = (id: string, company: string, stage: JobData["stage"] = "applied"): JobData => ({
+const gig = (id: string, company: string, stage: GigData["stage"] = "applied"): GigData => ({
   id,
   company,
   title: `${company} Director`,
@@ -165,17 +165,17 @@ const meeting = (
   location: "Video",
   description: "Platform conversation",
   status: "confirmed",
-  jobId: null,
+  gigId: null,
   externalCalendarId: null,
   externalEventId: null,
   ...overrides,
 });
 
 describe("caller-neutral read services", () => {
-  test("jobs and tasks apply defaults, pagination, and list/get field parity", () => {
+  test("gigs and tasks apply defaults, pagination, and list/get field parity", () => {
     const { app, repos, changes } = application();
-    repos.jobs.create(job("job-b", "Beta"));
-    repos.jobs.create(job("job-a", "Alpha", "identified"));
+    repos.gigs.create(gig("gig-b", "Beta"));
+    repos.gigs.create(gig("gig-a", "Alpha", "identified"));
     repos.tasks.create({
       id: "task-1",
       title: "Follow up",
@@ -190,12 +190,12 @@ describe("caller-neutral read services", () => {
       completedAt: null,
     });
     const before = changes();
-    expect(app.jobs.query({}).items.map(record => record.id)).toEqual(["job-b"]);
-    const all = app.jobs.query({ query: "Alpha", offset: 0, limit: 1 });
-    const readJob = app.jobs.read("job-a");
+    expect(app.gigs.query({}).items.map(record => record.id)).toEqual(["gig-b"]);
+    const all = app.gigs.query({ query: "Alpha", offset: 0, limit: 1 });
+    const readGig = app.gigs.read("gig-a");
     expect(all).toMatchObject({ page: { returned: 1, total: 1, hasMore: false } });
     expect(Object.keys(all.items[0]!).sort()).toEqual(
-      Object.keys(readJob.status === "ok" ? readJob.record : {}).sort(),
+      Object.keys(readGig.status === "ok" ? readGig.record : {}).sort(),
     );
     const tasks = app.tasks.query({});
     const readTask = app.tasks.read("task-1");
@@ -203,7 +203,7 @@ describe("caller-neutral read services", () => {
     expect(readTask.status).toBe("ok");
     if (readTask.status !== "ok") throw new Error("Expected task read to succeed");
     expect(tasks.items[0]).toEqual(readTask.record);
-    expect(() => app.jobs.query({ limit: 51 })).toThrow("Page limit must be an integer from 1 to 50.");
+    expect(() => app.gigs.query({ limit: 51 })).toThrow("Page limit must be an integer from 1 to 50.");
     expect(changes()).toBe(before);
   });
 
@@ -232,23 +232,23 @@ describe("caller-neutral read services", () => {
 
   test("relationships support multi-value filters and both traversal directions", () => {
     const { app, repos } = application();
-    repos.jobs.create(job("job-1", "Alpha"));
-    repos.jobs.create(job("job-2", "Beta"));
+    repos.gigs.create(gig("gig-1", "Alpha"));
+    repos.gigs.create(gig("gig-2", "Beta"));
     repos.people.create({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null });
     repos.people.create({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null });
-    repos.jobPeople.create({ id: "rel-1", jobId: "job-1", personId: "person-1", relationship: "hiring_manager", notes: null });
-    repos.jobPeople.create({ id: "rel-2", jobId: "job-1", personId: "person-2", relationship: "recruiter", notes: null });
-    repos.jobPeople.create({ id: "rel-3", jobId: "job-2", personId: "person-1", relationship: "former_peer", notes: null });
-    repos.jobPeople.create({ id: "rel-4", jobId: "job-2", personId: "person-2", relationship: "professional_contact", notes: null });
-    const relationships = app.jobPeople.query({
-      jobIds: ["job-1", "job-2"],
+    repos.gigPeople.create({ id: "rel-1", gigId: "gig-1", personId: "person-1", relationship: "hiring_manager", notes: null });
+    repos.gigPeople.create({ id: "rel-2", gigId: "gig-1", personId: "person-2", relationship: "recruiter", notes: null });
+    repos.gigPeople.create({ id: "rel-3", gigId: "gig-2", personId: "person-1", relationship: "former_peer", notes: null });
+    repos.gigPeople.create({ id: "rel-4", gigId: "gig-2", personId: "person-2", relationship: "professional_contact", notes: null });
+    const relationships = app.gigPeople.query({
+      gigIds: ["gig-1", "gig-2"],
       personIds: ["person-1"],
       relationships: ["hiring_manager", "former_peer"],
     });
     expect(relationships).toMatchObject({ status: "ok", items: [{ id: "rel-1" }, { id: "rel-3" }] });
-    const readRelationship = app.jobPeople.read("rel-1");
+    const readRelationship = app.gigPeople.read("rel-1");
     expect(readRelationship.status).toBe("ok");
-    expect(app.jobPeople.read("rel-4")).toMatchObject({
+    expect(app.gigPeople.read("rel-4")).toMatchObject({
       status: "ok",
       record: { relationship: "professional_contact" },
     });
@@ -257,27 +257,27 @@ describe("caller-neutral read services", () => {
     }
     expect(Object.keys(relationships.items[0]!).sort())
       .toEqual(Object.keys(readRelationship.record).sort());
-    expect(app.jobPeople.peopleForJob("job-1")).toMatchObject({
+    expect(app.gigPeople.peopleForGig("gig-1")).toMatchObject({
       status: "ok",
       record: { items: [{ id: "person-1" }, { id: "person-2" }] },
     });
-    expect(app.jobPeople.jobsForPerson("person-1")).toMatchObject({
+    expect(app.gigPeople.gigsForPerson("person-1")).toMatchObject({
       status: "ok",
-      record: { items: [{ id: "job-1" }, { id: "job-2" }] },
+      record: { items: [{ id: "gig-1" }, { id: "gig-2" }] },
     });
   });
 
   test("relationship reads distinguish missing records from broken stored links", () => {
     const { app, repos } = application();
-    expect(app.jobPeople.read("missing")).toEqual({ status: "not_found", id: "missing" });
-    repos.jobPeople.create({ id: "broken", jobId: "missing-job", personId: "missing-person", relationship: "recruiter", notes: null });
-    expect(app.jobPeople.read("broken")).toMatchObject({
+    expect(app.gigPeople.read("missing")).toEqual({ status: "not_found", id: "missing" });
+    repos.gigPeople.create({ id: "broken", gigId: "missing-gig", personId: "missing-person", relationship: "recruiter", notes: null });
+    expect(app.gigPeople.read("broken")).toMatchObject({
       status: "consistency_error",
       id: "broken",
-      message: expect.stringContaining("missing job"),
+      message: expect.stringContaining("missing gig"),
     });
-    repos.jobPeople.create({ id: "invalid", jobId: "missing-job", personId: "missing-person", relationship: "friend", notes: null });
-    expect(app.jobPeople.query({})).toMatchObject({
+    repos.gigPeople.create({ id: "invalid", gigId: "missing-gig", personId: "missing-person", relationship: "friend", notes: null });
+    expect(app.gigPeople.query({})).toMatchObject({
       status: "consistency_error",
       id: "invalid",
       message: expect.stringContaining("unsupported relationship"),
@@ -286,12 +286,12 @@ describe("caller-neutral read services", () => {
 
   test("meetings compose every participant and support multi-value filters", () => {
     const { app, repos, changes } = application();
-    repos.jobs.create(job("job-1", "Alpha"));
-    repos.jobs.create(job("job-2", "Beta"));
+    repos.gigs.create(gig("gig-1", "Alpha"));
+    repos.gigs.create(gig("gig-2", "Beta"));
     repos.people.create({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null });
     repos.people.create({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null });
-    repos.meetings.create(meeting("meeting-old", "2026-07-10T10:00:00-07:00", { jobId: "job-1" }));
-    repos.meetings.create(meeting("meeting-new", "2026-07-20T10:00:00-07:00", { title: "Coffee", status: "completed", jobId: "job-2", description: "Leadership discussion" }));
+    repos.meetings.create(meeting("meeting-old", "2026-07-10T10:00:00-07:00", { gigId: "gig-1" }));
+    repos.meetings.create(meeting("meeting-new", "2026-07-20T10:00:00-07:00", { title: "Coffee", status: "completed", gigId: "gig-2", description: "Leadership discussion" }));
     repos.meetingParticipants.create({ id: "meeting-old::person-1", meetingId: "meeting-old", personId: "person-1" });
     repos.meetingParticipants.create({ id: "meeting-new::person-1", meetingId: "meeting-new", personId: "person-1" });
     repos.meetingParticipants.create({ id: "meeting-new::person-2", meetingId: "meeting-new", personId: "person-2" });
@@ -301,7 +301,7 @@ describe("caller-neutral read services", () => {
     expect(all).toMatchObject({ status: "ok", items: [{ id: "meeting-new" }, { id: "meeting-old" }] });
     const filtered = app.meetings.query({
       personIds: ["person-2", "person-missing"],
-      jobIds: ["job-1", "job-2"],
+      gigIds: ["gig-1", "gig-2"],
       statuses: ["completed"],
       startsFrom: "2026-07-20T10:00:00-07:00",
       startsThrough: "2026-07-20T10:00:00-07:00",
@@ -311,7 +311,7 @@ describe("caller-neutral read services", () => {
     });
     expect(filtered).toMatchObject({
       status: "ok",
-      items: [{ id: "meeting-new", jobId: "job-2", personIds: ["person-1", "person-2"] }],
+      items: [{ id: "meeting-new", gigId: "gig-2", personIds: ["person-1", "person-2"] }],
       page: { returned: 1, total: 1, hasMore: false },
     });
     const read = app.meetings.read("meeting-new");

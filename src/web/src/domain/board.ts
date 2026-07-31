@@ -1,4 +1,4 @@
-import type { FitRating, JobRole, Outcome, PipelineStage } from "../../../core/src/jobs";
+import type { FitRating, GigSummary, Outcome, PipelineStage } from "../../../core/src/gigs";
 
 export type BoardMode = "active" | "archive";
 
@@ -78,30 +78,30 @@ export function todayInPacific(now = new Date()): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-export function isOverdue(role: JobRole, today = todayInPacific()): boolean {
-  return role.stage !== "closed" && Boolean(role.nextAction?.due && role.nextAction.due < today);
+export function isOverdue(gig: GigSummary, today = todayInPacific()): boolean {
+  return gig.stage !== "closed" && Boolean(gig.nextAction?.due && gig.nextAction.due < today);
 }
 
-export function filterRoles(
-  roles: JobRole[],
+export function filterGigs(
+  gigs: GigSummary[],
   mode: BoardMode,
   filters: BoardFilters,
   today = todayInPacific(),
-): JobRole[] {
+): GigSummary[] {
   const query = filters.search.trim().toLocaleLowerCase();
-  return roles.filter((role) => {
-    if (mode === "active" ? role.stage === "closed" : role.stage !== "closed") return false;
-    if (filters.stage !== "all" && role.stage !== filters.stage) return false;
-    if (filters.fit !== "all" && role.fit.rating !== filters.fit) return false;
-    if (filters.overdueOnly && !isOverdue(role, today)) return false;
+  return gigs.filter((gig) => {
+    if (mode === "active" ? gig.stage === "closed" : gig.stage !== "closed") return false;
+    if (filters.stage !== "all" && gig.stage !== filters.stage) return false;
+    if (filters.fit !== "all" && gig.fit.rating !== filters.fit) return false;
+    if (filters.overdueOnly && !isOverdue(gig, today)) return false;
     if (!query) return true;
-    return [role.company, role.title, role.statusSummary, role.nextAction?.description]
+    return [gig.company, gig.title, gig.statusSummary, gig.nextAction?.description]
       .filter(Boolean)
       .some((value) => value?.toLocaleLowerCase().includes(query));
   });
 }
 
-export function compareRoles(a: JobRole, b: JobRole, today = todayInPacific()): number {
+export function compareGigs(a: GigSummary, b: GigSummary, today = todayInPacific()): number {
   const overdueDifference = Number(isOverdue(b, today)) - Number(isOverdue(a, today));
   if (overdueDifference) return overdueDifference;
   const aDue = a.nextAction?.due ?? "9999-12-31";
@@ -111,12 +111,12 @@ export function compareRoles(a: JobRole, b: JobRole, today = todayInPacific()): 
   return a.company.localeCompare(b.company);
 }
 
-export function archiveGroup(role: JobRole): Outcome | "other" {
-  return role.outcome && archiveOutcomeOrder.includes(role.outcome) ? role.outcome : "other";
+export function archiveGroup(gig: GigSummary): Outcome | "other" {
+  return gig.outcome && archiveOutcomeOrder.includes(gig.outcome) ? gig.outcome : "other";
 }
 
-export function formatPay(role: JobRole): string | null {
-  const pay = role.payRange;
+export function formatPay(gig: GigSummary): string | null {
+  const pay = gig.payRange;
   if (!pay) return null;
   const format = (value: number | null) =>
     value === null

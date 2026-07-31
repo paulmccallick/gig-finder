@@ -4,22 +4,22 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { Logger } from "pino";
 import type {
   ChangeContext,
-  JobRecord,
+  GigRecord,
   ManagedDocumentRecord,
   MeetingRecord,
 } from "../../core/src";
 import { StagedDocumentService } from "../../core/src";
-import { JobSearchAgent } from "../job-search-agent";
+import { GigFinderAgent } from "../gig-finder-agent";
 import {
-  createJobSearchTools,
-  type JobSearchReadCapabilities,
-  type JobSearchMutationCapabilities,
-} from "../job-search-tools";
-import { testJobSearchProfile } from "./fixtures";
+  createGigFinderTools,
+  type GigFinderReadCapabilities,
+  type GigFinderMutationCapabilities,
+} from "../gig-finder-tools";
+import { testCandidateProfile } from "./fixtures";
 import {
-  buildJobSearchInstructions,
-  genericJobSearchAgentSystemPrompt,
-  jobSearchDocumentInstructions,
+  buildGigFinderInstructions,
+  genericGigFinderAgentSystemPrompt,
+  gigFinderDocumentInstructions,
 } from "../system-prompt";
 
 const userMessage = (text: string): ModelMessage => ({
@@ -39,9 +39,9 @@ const logger = {
   error: () => undefined,
 } as unknown as Logger;
 
-function readerWithJobs(items: JobRecord[]): JobSearchReadCapabilities {
+function readerWithGigs(items: GigRecord[]): GigFinderReadCapabilities {
   return {
-    jobs: { query: input => ({
+    gigs: { query: input => ({
       items,
       page: {
         offset: input.offset ?? 0,
@@ -67,7 +67,7 @@ function readerWithJobs(items: JobRecord[]): JobSearchReadCapabilities {
       query: input => ({ items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
       read: id => ({ status: "not_found" as const, id }),
     },
-    jobPeople: {
+    gigPeople: {
       query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
       read: id => ({ status: "not_found" as const, id }),
     },
@@ -93,12 +93,12 @@ function readerWithJobs(items: JobRecord[]): JobSearchReadCapabilities {
   };
 }
 
-function jobRecord(
-  input: Pick<JobRecord, "id" | "company" | "title"> & Partial<JobRecord>,
-): JobRecord {
+function gigRecord(
+  input: Pick<GigRecord, "id" | "company" | "title"> & Partial<GigRecord>,
+): GigRecord {
   return {
-    jobId: null,
-    roleDirectory: null,
+    externalJobId: null,
+    artifactDirectory: null,
     stage: "identified",
     outcome: "pending",
     statusSummary: "Considering",
@@ -124,10 +124,10 @@ function jobRecord(
 }
 
 function documentMutations(
-  create: JobSearchMutationCapabilities["documents"]["create"],
-): JobSearchMutationCapabilities {
+  create: GigFinderMutationCapabilities["documents"]["create"],
+): GigFinderMutationCapabilities {
   return {
-    jobs: { update: () => { throw new Error("not executed"); } },
+    gigs: { update: () => { throw new Error("not executed"); } },
     networking: { update: () => { throw new Error("not executed"); } },
     changes: { revert: () => { throw new Error("not executed"); } },
     documents: {
@@ -160,22 +160,22 @@ function mockModel(answer = "Prioritize roles with matching leadership scope.") 
   });
 }
 
-describe("JobSearchAgent instructions", () => {
+describe("GigFinderAgent instructions", () => {
   test("keeps the generic policy independent of a particular search", () => {
-    expect(genericJobSearchAgentSystemPrompt).toContain("You are JobSearchAgent");
-    expect(genericJobSearchAgentSystemPrompt).not.toContain("Jordan");
-    expect(genericJobSearchAgentSystemPrompt).not.toContain("Consumer services");
-    expect(genericJobSearchAgentSystemPrompt).not.toContain("Senior Director");
+    expect(genericGigFinderAgentSystemPrompt).toContain("You are GigFinderAgent");
+    expect(genericGigFinderAgentSystemPrompt).not.toContain("Jordan");
+    expect(genericGigFinderAgentSystemPrompt).not.toContain("Consumer services");
+    expect(genericGigFinderAgentSystemPrompt).not.toContain("Senior Director");
   });
 
   test("states the configured live-data boundary", () => {
-    expect(buildJobSearchInstructions(testJobSearchProfile)).toContain(
+    expect(buildGigFinderInstructions(testCandidateProfile)).toContain(
       "no access to live pipeline records",
     );
-    expect(buildJobSearchInstructions(testJobSearchProfile, {
+    expect(buildGigFinderInstructions(testCandidateProfile, {
       liveRecords: true,
     })).toContain("These tools are read-only");
-    const writableInstructions = buildJobSearchInstructions(testJobSearchProfile, {
+    const writableInstructions = buildGigFinderInstructions(testCandidateProfile, {
       liveRecords: true,
       canUpdateRecords: true,
     });
@@ -183,7 +183,7 @@ describe("JobSearchAgent instructions", () => {
       "Networking Contact: relationship and outreach state for one Person",
     );
     expect(writableInstructions).toContain(
-      "Job-Person Relationship: a connection between a Person and a Job",
+      "Gig-Person Relationship: a connection between a Person and a Gig",
     );
     expect(writableInstructions).toContain(
       "Meeting: a scheduled or completed interaction with one or more People",
@@ -195,12 +195,12 @@ describe("JobSearchAgent instructions", () => {
       "Always verify with the user before creating updates.",
     );
     expect(writableInstructions).not.toContain("dashboard");
-    expect(jobSearchDocumentInstructions.trim().split(/\s+/).length).toBeLessThanOrEqual(100);
+    expect(gigFinderDocumentInstructions.trim().split(/\s+/).length).toBeLessThanOrEqual(100);
   });
 
   test("composes the current user's profile separately", () => {
-    const instructions = buildJobSearchInstructions(testJobSearchProfile);
-    expect(instructions).toContain("You are JobSearchAgent");
+    const instructions = buildGigFinderInstructions(testCandidateProfile);
+    expect(instructions).toContain("You are GigFinderAgent");
     expect(instructions).toContain("Preferred name: Jordan");
     expect(instructions).toContain("Profession: Product and operations leadership");
     expect(instructions).toContain("Experience level: Experienced people leader");
@@ -222,7 +222,7 @@ describe("agent streaming", () => {
       warn: (data: Record<string, unknown>) => logEntries.push({ level: "warn", data }),
       error: (data: Record<string, unknown>) => logEntries.push({ level: "error", data }),
     } as unknown as Logger;
-    const agent = new JobSearchAgent({ profile: testJobSearchProfile, model, logger });
+    const agent = new GigFinderAgent({ profile: testCandidateProfile, model, logger });
     const result = agent.respond([userMessage("What should I prioritize?")]);
     expect(await result.text).toContain("Prioritize roles with matching leadership scope.");
     expect(model.doStreamCalls).toHaveLength(1);
@@ -291,7 +291,7 @@ describe("agent streaming", () => {
                 toolName: "list_meetings",
                 input: JSON.stringify({
                   personIds: ["person-1"],
-                  jobIds: null,
+                  gigIds: null,
                   statuses: null,
                   startsFrom: null,
                   startsThrough: null,
@@ -334,7 +334,7 @@ describe("agent streaming", () => {
       location: "Video",
       description: null,
       status: "completed",
-      jobId: "job-1",
+      gigId: "gig-1",
       personIds: ["person-1"],
       externalCalendarId: null,
       externalEventId: null,
@@ -344,24 +344,24 @@ describe("agent streaming", () => {
       updatedAt: "2026-07-23T12:00:00.000Z",
     };
     const reader = {
-      ...readerWithJobs([]),
+      ...readerWithGigs([]),
       meetings: { query: () => ({
         status: "ok" as const,
         items: [meeting],
         page: { offset: 0, limit: 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
       }), read: id => ({ status: "not_found" as const, id }) },
-    } satisfies JobSearchReadCapabilities;
+    } satisfies GigFinderReadCapabilities;
     const logger = {
       debug: () => undefined,
       info: () => undefined,
       warn: () => undefined,
       error: () => undefined,
     } as unknown as Logger;
-    const agent = new JobSearchAgent({
-      profile: testJobSearchProfile,
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
       model,
       logger,
-      tools: createJobSearchTools(reader, logger),
+      tools: createGigFinderTools(reader, logger),
     });
 
     expect(await agent.respond([userMessage("When did I meet this person?")]).text).toBe(
@@ -373,9 +373,9 @@ describe("agent streaming", () => {
   });
 
   test("creates a document when the user explicitly requests it", async () => {
-    const job = jobRecord({
-      id: "job-vetsource",
-      company: "Vetsource",
+    const gig = gigRecord({
+      id: "gig-acme",
+      company: "Acme",
       title: "Director of Engineering",
       stage: "identified",
       outcome: "pending",
@@ -389,12 +389,12 @@ describe("agent streaming", () => {
     });
     const createdDocument: ManagedDocumentRecord = {
       id: "doc_11111111-1111-4111-8111-111111111111",
-      links: [{ entityType: "job", entityId: job.id }],
+      links: [{ entityType: "gig", entityId: gig.id }],
       documentType: "job_description",
       title: "Director of Engineering job description",
       displayName: "Director of Engineering job description",
       mediaType: "text/plain",
-      sourceDescription: "Shared by Sunil via text message",
+      sourceDescription: "Shared by Taylor via text message",
       uploadProvenance: null,
       currentVersion: 1,
       content: "Lead the engineering organization.",
@@ -405,7 +405,7 @@ describe("agent streaming", () => {
     let received:
       | {
           context: ChangeContext;
-          input: Parameters<JobSearchMutationCapabilities["documents"]["create"]>[1];
+          input: Parameters<GigFinderMutationCapabilities["documents"]["create"]>[1];
         }
       | undefined;
     const model = new MockLanguageModelV4({
@@ -416,14 +416,14 @@ describe("agent streaming", () => {
               { type: "stream-start", warnings: [] },
               {
                 type: "tool-call",
-                toolCallId: "find-job",
-                toolName: "list_jobs",
+                toolCallId: "find-gig",
+                toolName: "list_gigs",
                 input: JSON.stringify({
                   stages: null,
                   outcomes: null,
                   fitRatings: null,
                   overdueOnly: null,
-                  query: "Vetsource",
+                  query: "Acme",
                   offset: null,
                   limit: null,
                 }),
@@ -445,14 +445,14 @@ describe("agent streaming", () => {
                 toolCallId: "create-document",
                 toolName: "create_document",
                 input: JSON.stringify({
-                  links: [{ entityType: "job", entityId: job.id }],
+                  links: [{ entityType: "gig", entityId: gig.id }],
                   documentType: "job_description",
                   title: "Director of Engineering job description",
                   sourceKind: "inline_content",
                   content: "Lead the engineering organization.",
                   reference: null,
                   mediaType: "text/plain",
-                  sourceDescription: "Shared by Sunil via text message",
+                  sourceDescription: "Shared by Taylor via text message",
                 }),
               },
               {
@@ -471,7 +471,7 @@ describe("agent streaming", () => {
               {
                 type: "text-delta",
                 id: "text-1",
-                delta: `Saved the job description to ${job.company}.`,
+                delta: `Saved the job description to ${gig.company}.`,
               },
               { type: "text-end", id: "text-1" },
               {
@@ -484,8 +484,8 @@ describe("agent streaming", () => {
         },
       ],
     });
-    const tools = createJobSearchTools(
-      readerWithJobs([job]),
+    const tools = createGigFinderTools(
+      readerWithGigs([gig]),
       logger,
       documentMutations((context, input) => {
         received = { context, input };
@@ -497,8 +497,8 @@ describe("agent streaming", () => {
       }),
       { actor: "Candidate", requestId: "request-document" },
     );
-    const agent = new JobSearchAgent({
-      profile: testJobSearchProfile,
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
       model,
       logger,
       tools,
@@ -507,15 +507,15 @@ describe("agent streaming", () => {
 
     expect(await agent.respond([
       userMessage(
-        "Sunil texted me this Vetsource job description. Save it: Lead the engineering organization.",
+        "Taylor texted me this Acme job description. Save it: Lead the engineering organization.",
       ),
-    ]).text).toBe("Saved the job description to Vetsource.");
+    ]).text).toBe("Saved the job description to Acme.");
     expect(model.doStreamCalls).toHaveLength(3);
-    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(job.id);
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(gig.id);
     expect(received?.input).toMatchObject({
-      links: [{ entityType: "job", entityId: job.id }],
+      links: [{ entityType: "gig", entityId: gig.id }],
       documentType: "job_description",
-      sourceDescription: "Shared by Sunil via text message",
+      sourceDescription: "Shared by Taylor via text message",
     });
   });
 
@@ -533,8 +533,8 @@ describe("agent streaming", () => {
         uploadedAt: "2026-07-29T12:00:00.000Z",
       },
     });
-    const job = {
-      id: "job-example",
+    const gig = {
+      id: "gig-example",
       company: "Example Company",
       title: "Director of Engineering",
       stage: "identified",
@@ -553,14 +553,14 @@ describe("agent streaming", () => {
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "resolve-upload", toolName: "search_jobs_and_contacts", input: JSON.stringify({ companyNames: ["Example Company"], personNames: [] }) },
+            { type: "tool-call", toolCallId: "resolve-upload", toolName: "search_gigs_and_contacts", input: JSON.stringify({ companyNames: ["Example Company"], personNames: [] }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ links: [{ entityType: "job", entityId: job.id }], documentType: "job_description", title: "Director of Engineering job description", sourceKind: "staged_document", content: null, reference: staged.reference, mediaType: "text/markdown", sourceDescription: null }) },
+            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ links: [{ entityType: "gig", entityId: gig.id }], documentType: "job_description", title: "Director of Engineering job description", sourceKind: "staged_document", content: null, reference: staged.reference, mediaType: "text/markdown", sourceDescription: null }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
@@ -575,8 +575,8 @@ describe("agent streaming", () => {
         },
       ],
     });
-    const tools = createJobSearchTools(
-      readerWithJobs([]),
+    const tools = createGigFinderTools(
+      readerWithGigs([]),
       logger,
       documentMutations((context, input) => {
         savedContent = input.content;
@@ -605,15 +605,15 @@ describe("agent streaming", () => {
         stagedDocuments,
         contextSearch: {
           search: () => ({
-            jobs: [{ ...job, matchedCompanyNames: ["Example Company"] }],
+            gigs: [{ ...gig, matchedCompanyNames: ["Example Company"] }],
             networkingContacts: [],
             truncated: false,
           }),
         },
       },
     );
-    const agent = new JobSearchAgent({
-      profile: testJobSearchProfile,
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
       model,
       logger,
       tools,
@@ -629,20 +629,20 @@ describe("agent streaming", () => {
     expect(model.doStreamCalls).toHaveLength(4);
   });
 
-  test("asks one targeted question instead of creating when job matches are ambiguous", async () => {
-    const jobs = [
+  test("asks one targeted question instead of creating when gig matches are ambiguous", async () => {
+    const gigs = [
       {
-        id: "job-vetsource-director",
-        company: "Vetsource",
+        id: "gig-acme-director",
+        company: "Acme",
         title: "Director of Engineering",
       },
       {
-        id: "job-vetsource-vp",
-        company: "Vetsource",
+        id: "gig-acme-vp",
+        company: "Acme",
         title: "VP of Engineering",
       },
-    ].map((job) => jobRecord({
-      ...job,
+    ].map((gig) => gigRecord({
+      ...gig,
       stage: "identified" as const,
       outcome: "pending" as const,
       statusSummary: "Considering",
@@ -662,14 +662,14 @@ describe("agent streaming", () => {
               { type: "stream-start", warnings: [] },
               {
                 type: "tool-call",
-                toolCallId: "find-jobs",
-                toolName: "list_jobs",
+                toolCallId: "find-gigs",
+                toolName: "list_gigs",
                 input: JSON.stringify({
                   stages: null,
                   outcomes: null,
                   fitRatings: null,
                   overdueOnly: null,
-                  query: "Vetsource",
+                  query: "Acme",
                   offset: null,
                   limit: null,
                 }),
@@ -690,7 +690,7 @@ describe("agent streaming", () => {
               {
                 type: "text-delta",
                 id: "text-1",
-                delta: "Should I attach this to the Director or VP role at Vetsource?",
+                delta: "Should I attach this to the Director or VP role at Acme?",
               },
               { type: "text-end", id: "text-1" },
               {
@@ -703,8 +703,8 @@ describe("agent streaming", () => {
         },
       ],
     });
-    const tools = createJobSearchTools(
-      readerWithJobs(jobs),
+    const tools = createGigFinderTools(
+      readerWithGigs(gigs),
       logger,
       documentMutations(() => {
         createCalls += 1;
@@ -712,8 +712,8 @@ describe("agent streaming", () => {
       }),
       { actor: "Candidate", requestId: "request-ambiguous" },
     );
-    const agent = new JobSearchAgent({
-      profile: testJobSearchProfile,
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
       model,
       logger,
       tools,
@@ -721,9 +721,9 @@ describe("agent streaming", () => {
     });
 
     expect(await agent.respond([
-      userMessage("Save this job description for Vetsource: Lead engineering."),
+      userMessage("Save this job description for Acme: Lead engineering."),
     ]).text).toBe(
-      "Should I attach this to the Director or VP role at Vetsource?",
+      "Should I attach this to the Director or VP role at Acme?",
     );
     expect(createCalls).toBe(0);
     expect(model.doStreamCalls).toHaveLength(2);
@@ -732,10 +732,10 @@ describe("agent streaming", () => {
   test("asks for missing links before calling create_document", async () => {
     let createCalls = 0;
     const model = mockModel(
-      "Which job should I attach this job description to?",
+      "Which gig should I attach this job description to?",
     );
-    const tools = createJobSearchTools(
-      readerWithJobs([]),
+    const tools = createGigFinderTools(
+      readerWithGigs([]),
       logger,
       documentMutations(() => {
         createCalls += 1;
@@ -743,8 +743,8 @@ describe("agent streaming", () => {
       }),
       { actor: "Candidate", requestId: "request-missing-owner" },
     );
-    const agent = new JobSearchAgent({
-      profile: testJobSearchProfile,
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
       model,
       logger,
       tools,
@@ -753,7 +753,7 @@ describe("agent streaming", () => {
 
     expect(await agent.respond([
       userMessage("Save this job description: Lead engineering."),
-    ]).text).toBe("Which job should I attach this job description to?");
+    ]).text).toBe("Which gig should I attach this job description to?");
     expect(createCalls).toBe(0);
     expect(model.doStreamCalls).toHaveLength(1);
     expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(

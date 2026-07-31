@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { JobRecord } from "../src/jobs";
+import type { GigRecord } from "../src/gigs";
 import type { NetworkContactRecord } from "../src/network";
-import type { JobQueryInput, NetworkingContactQueryInput } from "../src/queries";
+import type { GigQueryInput, NetworkingContactQueryInput } from "../src/queries";
 import { SearchContextService } from "../src/context-search";
 
-const job = (company: string, id = "job-1"): JobRecord => ({
+const gig = (company: string, id = "gig-1"): GigRecord => ({
   id,
   company,
   title: "Engineering Director",
@@ -17,8 +17,8 @@ const job = (company: string, id = "job-1"): JobRecord => ({
   location: null,
   workArrangement: null,
   documents: [],
-  jobId: null,
-  roleDirectory: null,
+  externalJobId: null,
+  artifactDirectory: null,
   payRange: null,
   sourceUrl: null,
   tags: [],
@@ -66,8 +66,8 @@ const contact = (name: string, company: string): NetworkContactRecord => ({
   createdAt: "2026-07-29",
 });
 
-function existingSearches(jobs: JobRecord[], contacts: NetworkContactRecord[]) {
-  const calls = { jobs: [] as string[], contacts: [] as string[] };
+function existingSearches(gigs: GigRecord[], contacts: NetworkContactRecord[]) {
+  const calls = { gigs: [] as string[], contacts: [] as string[] };
   const page = <T>(items: T[]) => ({
     items,
     page: {
@@ -84,9 +84,9 @@ function existingSearches(jobs: JobRecord[], contacts: NetworkContactRecord[]) {
   return {
     calls,
     sources: {
-      jobs: { query: (input: JobQueryInput) => {
-        calls.jobs.push(input.query ?? "");
-        return page(jobs.filter(item => matches(input.query, [item.company, item.title])));
+      gigs: { query: (input: GigQueryInput) => {
+        calls.gigs.push(input.query ?? "");
+        return page(gigs.filter(item => matches(input.query, [item.company, item.title])));
       } },
       networking: { query: (input: NetworkingContactQueryInput) => {
         calls.contacts.push(input.query ?? "");
@@ -99,19 +99,19 @@ function existingSearches(jobs: JobRecord[], contacts: NetworkContactRecord[]) {
 describe("context search", () => {
   test("composes existing searches and resolves punctuation variants", () => {
     const searches = existingSearches(
-      [job("J.D. Power")],
-      [contact("Kimberly Smith", "J.D. Power")],
+      [gig("J.D. Example")],
+      [contact("Taylor Smith", "J.D. Example")],
     );
     const service = new SearchContextService(searches.sources);
 
     const result = service.search({
-      companyNames: ["JD Power"],
-      personNames: ["Kimberly"],
+      companyNames: ["JD Example"],
+      personNames: ["Taylor"],
     });
 
-    expect(searches.calls.jobs).toEqual(["JD Power", "Power"]);
-    expect(searches.calls.contacts).toEqual(["JD Power", "Power", "Kimberly"]);
-    expect(result.jobs).toEqual([expect.objectContaining({ id: "job-1" })]);
+    expect(searches.calls.gigs).toEqual(["JD Example", "Example"]);
+    expect(searches.calls.contacts).toEqual(["JD Example", "Example", "Taylor"]);
+    expect(result.gigs).toEqual([expect.objectContaining({ id: "gig-1" })]);
     expect(result.networkingContacts).toEqual([
       expect.objectContaining({ id: "contact-1" }),
     ]);
@@ -119,27 +119,27 @@ describe("context search", () => {
 
   test("returns no records when existing searches find no relevant names", () => {
     const searches = existingSearches(
-      [job("Example Company")],
+      [gig("Example Company")],
       [contact("Alex Smith", "Example Company")],
     );
     const service = new SearchContextService(searches.sources);
     expect(service.search({ companyNames: ["Different"], personNames: [] }))
-      .toMatchObject({ jobs: [], networkingContacts: [], truncated: false });
+      .toMatchObject({ gigs: [], networkingContacts: [], truncated: false });
   });
 
   test("returns every plausible owner from existing search results", () => {
     const searches = existingSearches([
-      job("Example Company"),
-      { ...job("Example Company", "job-2"), title: "VP Engineering" },
+      gig("Example Company"),
+      { ...gig("Example Company", "gig-2"), title: "VP Engineering" },
     ], []);
     const service = new SearchContextService(searches.sources);
-    expect(service.search({ companyNames: ["Example Company"], personNames: [] }).jobs)
+    expect(service.search({ companyNames: ["Example Company"], personNames: [] }).gigs)
       .toHaveLength(2);
   });
 
   test("preserves non-Latin company and person names", () => {
     const searches = existingSearches(
-      [job("株式会社サンプル")],
+      [gig("株式会社サンプル")],
       [contact("李雷", "株式会社サンプル")],
     );
     const service = new SearchContextService(searches.sources);
@@ -148,7 +148,7 @@ describe("context search", () => {
       companyNames: ["株式会社サンプル"],
       personNames: ["李雷"],
     })).toMatchObject({
-      jobs: [expect.objectContaining({ id: "job-1" })],
+      gigs: [expect.objectContaining({ id: "gig-1" })],
       networkingContacts: [expect.objectContaining({ id: "contact-1" })],
     });
   });

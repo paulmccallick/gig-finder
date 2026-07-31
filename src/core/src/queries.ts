@@ -1,11 +1,11 @@
 import { DomainValidationError } from "./errors";
-import type { FitRating, Outcome, PipelineStage } from "./jobs";
+import type { FitRating, Outcome, PipelineStage } from "./gigs";
 import type {
   ContactPriority,
   ContactStatus,
   RelationshipStrength,
 } from "./network";
-import type { JobPersonRelationshipType } from "./people";
+import type { GigPersonRelationshipType } from "./people";
 import type { MeetingStatus } from "./meetings";
 import type {
   TaskPriority,
@@ -33,7 +33,7 @@ export interface Page<T> {
   page: PageMetadata;
 }
 
-export interface JobQueryInput extends PageInput {
+export interface GigQueryInput extends PageInput {
   stages?: PipelineStage[];
   outcomes?: Outcome[];
   fitRatings?: FitRating[];
@@ -63,15 +63,15 @@ export interface PeopleQueryInput extends PageInput {
   query?: string;
 }
 
-export interface JobPersonRelationshipQueryInput extends PageInput {
-  jobIds?: string[];
+export interface GigPersonRelationshipQueryInput extends PageInput {
+  gigIds?: string[];
   personIds?: string[];
-  relationships?: JobPersonRelationshipType[];
+  relationships?: GigPersonRelationshipType[];
 }
 
 export interface MeetingQueryInput extends PageInput {
   personIds?: string[];
-  jobIds?: string[];
+  gigIds?: string[];
   statuses?: MeetingStatus[];
   startsFrom?: string;
   startsThrough?: string;

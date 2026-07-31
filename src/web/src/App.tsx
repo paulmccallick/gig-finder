@@ -3,8 +3,8 @@ import {
   activeStageOrder,
   archiveGroup,
   archiveOutcomeOrder,
-  compareRoles,
-  filterRoles,
+  compareGigs,
+  filterGigs,
   fitLabels,
   formatPay,
   isOverdue,
@@ -14,20 +14,20 @@ import {
   type BoardFilters,
   type BoardMode,
 } from "./domain/board";
-import { fitRatings, type Job, type JobRole } from "../../core/src/jobs";
-import { loadJobs, type JobsResult } from "./data/jobs";
+import { fitRatings, type Gig, type GigSummary } from "../../core/src/gigs";
+import { loadGigs, type GigsResult } from "./data/gigs";
 import { loadContacts, type ContactsResult } from "./data/contacts";
 import { NetworkingBoard } from "./NetworkingBoard";
 import { loadTasks, type TasksResult } from "./data/tasks";
 import { TaskBoard } from "./TaskBoard";
 import { AgentLauncher, AgentPanel } from "./agent/AgentPanel";
 
-type WorkspaceView = "jobs" | "network" | "tasks";
+type WorkspaceView = "gigs" | "network" | "tasks";
 
-interface RoleArtifacts {
+interface GigArtifacts {
   jobDescription: string | null;
   sourceUrl: string | null;
-  roleDirectory: string | null;
+  artifactDirectory: string | null;
 }
 
 const emptyFilters: BoardFilters = {
@@ -47,25 +47,25 @@ function Icon({ name }: { name: "search" | "calendar" | "close" | "arrow" }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>;
 }
 
-function RoleCard({ role, onSelect }: { role: JobRole; onSelect: (role: JobRole) => void }) {
-  const overdue = isOverdue(role);
-  const pay = formatPay(role);
+function GigCard({ gig, onSelect }: { gig: GigSummary; onSelect: (gig: GigSummary) => void }) {
+  const overdue = isOverdue(gig);
+  const pay = formatPay(gig);
   return (
-    <button className="role-card" onClick={() => onSelect(role)} type="button">
-      <span className="card-signal" data-fit={role.fit.rating} />
-      <span className="card-company">{role.company}</span>
-      <span className="card-title">{role.title}</span>
+    <button className="record-card" onClick={() => onSelect(gig)} type="button">
+      <span className="card-signal" data-fit={gig.fit.rating} />
+      <span className="card-company">{gig.company}</span>
+      <span className="card-title">{gig.title}</span>
       <span className="card-meta-row">
-        <span className="fit-chip" data-fit={role.fit.rating}>{fitLabels[role.fit.rating]}</span>
+        <span className="fit-chip" data-fit={gig.fit.rating}>{fitLabels[gig.fit.rating]}</span>
         {pay && <span className="pay-chip">{pay}</span>}
       </span>
       <span className={`action-line ${overdue ? "is-overdue" : ""}`}>
         <Icon name="calendar" />
-        <span>{role.nextAction?.description ?? "No next action"}</span>
+        <span>{gig.nextAction?.description ?? "No next action"}</span>
       </span>
       <span className="card-footer">
-        <span>{overdue ? "OVERDUE" : role.nextAction?.due ?? "NO DEADLINE"}</span>
-        <span>ACT {role.lastActivity}</span>
+        <span>{overdue ? "OVERDUE" : gig.nextAction?.due ?? "NO DEADLINE"}</span>
+        <span>ACT {gig.lastActivity}</span>
         <Icon name="arrow" />
       </span>
     </button>
@@ -77,9 +77,9 @@ function DetailItem({ label, children }: { label: string; children: React.ReactN
   return <div className="detail-item"><dt>{label}</dt><dd>{children}</dd></div>;
 }
 
-function RoleDrawer({ role, onClose }: { role: JobRole; onClose: () => void }) {
+function GigDrawer({ gig, onClose }: { gig: GigSummary; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [artifacts, setArtifacts] = useState<RoleArtifacts | null>(null);
+  const [artifacts, setArtifacts] = useState<GigArtifacts | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   useEffect(() => {
@@ -99,35 +99,35 @@ function RoleDrawer({ role, onClose }: { role: JobRole; onClose: () => void }) {
     let active = true;
     setArtifacts(null);
     setArtifactError(null);
-    fetch(`/api/jobs/${encodeURIComponent(role.id)}/artifacts`, { cache: "no-store" })
+    fetch(`/api/gigs/${encodeURIComponent(gig.id)}/artifacts`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Artifacts API returned ${response.status}.`);
-        return response.json() as Promise<RoleArtifacts>;
+        return response.json() as Promise<GigArtifacts>;
       })
       .then((data) => { if (active) setArtifacts(data); })
-      .catch((error: unknown) => { if (active) setArtifactError(error instanceof Error ? error.message : "Could not load role artifacts."); });
+      .catch((error: unknown) => { if (active) setArtifactError(error instanceof Error ? error.message : "Could not load gig artifacts."); });
     return () => { active = false; };
-  }, [role.id]);
+  }, [gig.id]);
 
   return (
     <div className="drawer-layer">
-      <button className="drawer-scrim" aria-label="Close role details" onClick={onClose} />
-      <aside className="role-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <button className="drawer-scrim" aria-label="Close gig details" onClick={onClose} />
+      <aside className="record-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
         <header className="drawer-header">
           <div>
-            <span className="eyebrow">Role dossier</span>
-            <h2 id="drawer-title">{role.company}</h2>
-            <p>{role.title}</p>
+            <span className="eyebrow">Gig dossier</span>
+            <h2 id="drawer-title">{gig.company}</h2>
+            <p>{gig.title}</p>
           </div>
-          <button ref={closeRef} className="icon-button" aria-label="Close role details" onClick={onClose}>
+          <button ref={closeRef} className="icon-button" aria-label="Close gig details" onClick={onClose}>
             <Icon name="close" />
           </button>
         </header>
         <div className="drawer-body">
           <div className="drawer-badges">
-            <span className="stage-chip">{stageLabels[role.stage]}</span>
-            <span className="fit-chip" data-fit={role.fit.rating}>{fitLabels[role.fit.rating]}</span>
-            {isOverdue(role) && <span className="overdue-chip">Overdue</span>}
+            <span className="stage-chip">{stageLabels[gig.stage]}</span>
+            <span className="fit-chip" data-fit={gig.fit.rating}>{fitLabels[gig.fit.rating]}</span>
+            {isOverdue(gig) && <span className="overdue-chip">Overdue</span>}
           </div>
           <div className="drawer-actions">
             {artifacts?.sourceUrl ? (
@@ -138,31 +138,31 @@ function RoleDrawer({ role, onClose }: { role: JobRole; onClose: () => void }) {
           </div>
           <section>
             <h3>Current signal</h3>
-            <p className="status-narrative">{role.statusSummary}</p>
+            <p className="status-narrative">{gig.statusSummary}</p>
           </section>
           <dl className="detail-grid">
-            <DetailItem label="Last activity">{role.lastActivity}</DetailItem>
-            <DetailItem label="Next action">{role.nextAction?.description}</DetailItem>
-            <DetailItem label="Action due">{role.nextAction?.due}</DetailItem>
-            <DetailItem label="Fit assessment">{role.fit.summary ?? fitLabels[role.fit.rating]}</DetailItem>
-            <DetailItem label="Job ID">{role.jobId}</DetailItem>
-            <DetailItem label="Role directory"><code>{artifacts?.roleDirectory}</code></DetailItem>
+            <DetailItem label="Last activity">{gig.lastActivity}</DetailItem>
+            <DetailItem label="Next action">{gig.nextAction?.description}</DetailItem>
+            <DetailItem label="Action due">{gig.nextAction?.due}</DetailItem>
+            <DetailItem label="Fit assessment">{gig.fit.summary ?? fitLabels[gig.fit.rating]}</DetailItem>
+            <DetailItem label="External job ID">{gig.externalJobId}</DetailItem>
+            <DetailItem label="Artifact directory"><code>{artifacts?.artifactDirectory}</code></DetailItem>
           </dl>
           <section className="description-section">
             <div className="section-heading"><h3>Job description</h3>{artifacts?.jobDescription && <button onClick={() => setDescriptionExpanded((value) => !value)}>{descriptionExpanded ? "Collapse" : "Expand"}</button>}</div>
-            {!artifacts && !artifactError && <p className="secondary-copy">Locating the current role files…</p>}
+            {!artifacts && !artifactError && <p className="secondary-copy">Locating the current gig files…</p>}
             {artifactError && <p className="artifact-error">{artifactError}</p>}
-            {artifacts && !artifacts.jobDescription && <p className="secondary-copy">No captured job description is available for this role.</p>}
+            {artifacts && !artifacts.jobDescription && <p className="secondary-copy">No captured job description is available for this gig.</p>}
             {artifacts?.jobDescription && <pre className={`description-copy ${descriptionExpanded ? "is-expanded" : ""}`}>{artifacts.jobDescription}</pre>}
           </section>
-          {role.payRange && (
+          {gig.payRange && (
             <section>
               <h3>Compensation</h3>
-              <p className="pay-detail">{formatPay(role)}</p>
-              {role.payRange.notes && <p className="secondary-copy">{role.payRange.notes}</p>}
+              <p className="pay-detail">{formatPay(gig)}</p>
+              {gig.payRange.notes && <p className="secondary-copy">{gig.payRange.notes}</p>}
             </section>
           )}
-          {role.tags.length > 0 && <div className="tag-list">{role.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}
+          {gig.tags.length > 0 && <div className="tag-list">{gig.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}
         </div>
       </aside>
     </div>
@@ -170,51 +170,51 @@ function RoleDrawer({ role, onClose }: { role: JobRole; onClose: () => void }) {
 }
 
 function WorkspaceTabs({ active, onChange }: { active: WorkspaceView; onChange: (value: WorkspaceView) => void }) {
-  return <nav className="workspace-tabs" aria-label="Workspace"><button aria-current={active === "jobs" ? "page" : undefined} onClick={() => onChange("jobs")}><span>01</span> Opportunities</button><button aria-current={active === "network" ? "page" : undefined} onClick={() => onChange("network")}><span>02</span> Networking</button><button aria-current={active === "tasks" ? "page" : undefined} onClick={() => onChange("tasks")}><span>03</span> Tasks</button></nav>;
+  return <nav className="workspace-tabs" aria-label="Workspace"><button aria-current={active === "gigs" ? "page" : undefined} onClick={() => onChange("gigs")}><span>01</span> Opportunities</button><button aria-current={active === "network" ? "page" : undefined} onClick={() => onChange("network")}><span>02</span> Networking</button><button aria-current={active === "tasks" ? "page" : undefined} onClick={() => onChange("tasks")}><span>03</span> Tasks</button></nav>;
 }
 
 function Masthead({ today, active, onChange }: { today: string; active: WorkspaceView; onChange: (value: WorkspaceView) => void }) {
-  const titles: Record<WorkspaceView, string> = { jobs: "Opportunity Control Room", network: "Relationship Control Room", tasks: "Action Control Room" };
+  const titles: Record<WorkspaceView, string> = { gigs: "Opportunity Control Room", network: "Relationship Control Room", tasks: "Action Control Room" };
   return <><header className="masthead"><div className="brand-block"><span className="system-mark"><span /> PM</span><div><p className="eyebrow">Search operations / {today}</p><h1>{titles[active]}</h1></div></div><div className="system-status"><span /> DATABASE ONLINE</div></header><WorkspaceTabs active={active} onChange={onChange} /></>;
 }
 
-function JobBoard({ roles, onNavigate }: { roles: Job[]; onNavigate: (value: WorkspaceView) => void }) {
+function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: WorkspaceView) => void }) {
   const [mode, setMode] = useState<BoardMode>("active");
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
-  const [selectedRole, setSelectedRole] = useState<JobRole | null>(null);
+  const [selectedGig, setSelectedGig] = useState<GigSummary | null>(null);
   useEffect(() => {
-    if (!selectedRole) return;
-    setSelectedRole(roles.find(role => role.id === selectedRole.id) ?? null);
-  }, [roles, selectedRole?.id]);
+    if (!selectedGig) return;
+    setSelectedGig(gigs.find(gig => gig.id === selectedGig.id) ?? null);
+  }, [gigs, selectedGig?.id]);
   const today = todayInPacific();
-  const activeCount = roles.filter((role) => role.stage !== "closed").length;
-  const archiveCount = roles.length - activeCount;
-  const overdueCount = roles.filter((role) => isOverdue(role, today)).length;
-  const appliedCount = roles.filter((role) => role.stage === "applied").length;
+  const activeCount = gigs.filter((gig) => gig.stage !== "closed").length;
+  const archiveCount = gigs.length - activeCount;
+  const overdueCount = gigs.filter((gig) => isOverdue(gig, today)).length;
+  const appliedCount = gigs.filter((gig) => gig.stage === "applied").length;
 
-  const visibleRoles = useMemo(
-    () => filterRoles(roles, mode, filters, today),
-    [roles, mode, filters, today],
+  const visibleGigs = useMemo(
+    () => filterGigs(gigs, mode, filters, today),
+    [gigs, mode, filters, today],
   );
 
-  const modeRoles = useMemo(
-    () => filterRoles(roles, mode, emptyFilters, today),
-    [roles, mode, today],
+  const modeGigs = useMemo(
+    () => filterGigs(gigs, mode, emptyFilters, today),
+    [gigs, mode, today],
   );
 
   const groups = (mode === "active"
     ? activeStageOrder.map((key) => ({
         key,
         label: stageLabels[key],
-        roles: visibleRoles.filter((role) => role.stage === key).sort((a, b) => compareRoles(a, b, today)),
-        totalRoles: modeRoles.filter((role) => role.stage === key).length,
+        gigs: visibleGigs.filter((gig) => gig.stage === key).sort((a, b) => compareGigs(a, b, today)),
+        totalGigs: modeGigs.filter((gig) => gig.stage === key).length,
       }))
     : archiveOutcomeOrder.map((key) => ({
         key,
         label: outcomeLabels[key],
-        roles: visibleRoles.filter((role) => archiveGroup(role) === key).sort((a, b) => compareRoles(a, b, today)),
-        totalRoles: modeRoles.filter((role) => archiveGroup(role) === key).length,
-      }))).filter((group) => group.totalRoles > 0);
+        gigs: visibleGigs.filter((gig) => archiveGroup(gig) === key).sort((a, b) => compareGigs(a, b, today)),
+        totalGigs: modeGigs.filter((gig) => archiveGroup(gig) === key).length,
+      }))).filter((group) => group.totalGigs > 0);
 
   const switchMode = (nextMode: BoardMode) => {
     setMode(nextMode);
@@ -223,22 +223,22 @@ function JobBoard({ roles, onNavigate }: { roles: Job[]; onNavigate: (value: Wor
 
   return (
     <main className="app-shell">
-      <Masthead today={today} active="jobs" onChange={onNavigate} />
+      <Masthead today={today} active="gigs" onChange={onNavigate} />
 
       <section className="metrics pipeline-metrics" aria-label="Pipeline summary">
-        <article><span>Active roles</span><strong>{activeCount.toString().padStart(2, "0")}</strong><small>OPEN SIGNALS</small></article>
+        <article><span>Active gigs</span><strong>{activeCount.toString().padStart(2, "0")}</strong><small>OPEN SIGNALS</small></article>
         <article><span>Applications</span><strong>{appliedCount.toString().padStart(2, "0")}</strong><small>IN MARKET</small></article>
         <article className={overdueCount ? "alert-metric" : ""}><span>Actions overdue</span><strong>{overdueCount.toString().padStart(2, "0")}</strong><small>NEEDS ATTENTION</small></article>
         <article><span>Archived</span><strong>{archiveCount.toString().padStart(2, "0")}</strong><small>HISTORICAL</small></article>
       </section>
 
       <section className="controls" aria-label="Board controls">
-        <div className="view-tabs" role="tablist" aria-label="Role view">
+        <div className="view-tabs" role="tablist" aria-label="Gig view">
           <button role="tab" aria-selected={mode === "active"} onClick={() => switchMode("active")}>Active <span>{activeCount}</span></button>
           <button role="tab" aria-selected={mode === "archive"} onClick={() => switchMode("archive")}>Archive <span>{archiveCount}</span></button>
         </div>
         <label className="search-control">
-          <span className="sr-only">Search roles</span><Icon name="search" />
+          <span className="sr-only">Search gigs</span><Icon name="search" />
           <input value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Search company, title, status…" />
         </label>
         {mode === "active" && (
@@ -260,37 +260,37 @@ function JobBoard({ roles, onNavigate }: { roles: Job[]; onNavigate: (value: Wor
       </section>
 
       <div className="board-heading">
-        <div><span className="eyebrow">{mode === "active" ? "Live pipeline" : "Historical outcomes"}</span><h2>{visibleRoles.length} roles in view</h2></div>
+        <div><span className="eyebrow">{mode === "active" ? "Live pipeline" : "Historical outcomes"}</span><h2>{visibleGigs.length} gigs in view</h2></div>
         <p>Cards are ordered by urgency, then activity.</p>
       </div>
 
-      <section className="kanban-board" aria-label={`${mode} job board`}>
+      <section className="kanban-board" aria-label={`${mode} gig board`}>
         {groups.map((group, index) => (
           <section className="kanban-column" key={group.key} style={{ "--column-index": index } as React.CSSProperties}>
-            <header><span className="column-number">{String(index + 1).padStart(2, "0")}</span><h3>{group.label}</h3><span className="column-count">{group.roles.length}</span></header>
+            <header><span className="column-number">{String(index + 1).padStart(2, "0")}</span><h3>{group.label}</h3><span className="column-count">{group.gigs.length}</span></header>
             <div className="card-stack">
-              {group.roles.map((role) => <RoleCard role={role} onSelect={setSelectedRole} key={role.id} />)}
-              {group.roles.length === 0 && <div className="column-empty"><span>NO MATCHES</span><p>{group.totalRoles} {group.totalRoles === 1 ? "role" : "roles"} hidden by filters</p></div>}
+              {group.gigs.map((gig) => <GigCard gig={gig} onSelect={setSelectedGig} key={gig.id} />)}
+              {group.gigs.length === 0 && <div className="column-empty"><span>NO MATCHES</span><p>{group.totalGigs} {group.totalGigs === 1 ? "gig" : "gigs"} hidden by filters</p></div>}
             </div>
           </section>
         ))}
       </section>
-      {visibleRoles.length === 0 && <div className="filter-empty-notice">No roles match these controls. <button onClick={() => setFilters(emptyFilters)}>Reset filters</button></div>}
-      <footer className="app-footer"><span>READ-ONLY MODE</span><span>Source: SQLite</span><span>{roles.length} total records</span></footer>
-      {selectedRole && <RoleDrawer role={selectedRole} onClose={() => setSelectedRole(null)} />}
+      {visibleGigs.length === 0 && <div className="filter-empty-notice">No gigs match these controls. <button onClick={() => setFilters(emptyFilters)}>Reset filters</button></div>}
+      <footer className="app-footer"><span>READ-ONLY MODE</span><span>Source: SQLite</span><span>{gigs.length} total records</span></footer>
+      {selectedGig && <GigDrawer gig={selectedGig} onClose={() => setSelectedGig(null)} />}
     </main>
   );
 }
 
 export function App() {
-  const [view, setView] = useState<WorkspaceView>("jobs");
+  const [view, setView] = useState<WorkspaceView>("gigs");
   const [agentOpen, setAgentOpen] = useState(true);
-  const [result, setResult] = useState<JobsResult | null>(null);
+  const [result, setResult] = useState<GigsResult | null>(null);
   const [networkResult, setNetworkResult] = useState<ContactsResult | null>(null);
   const [taskResult, setTaskResult] = useState<TasksResult | null>(null);
   const refreshDashboard = () => {
     void Promise.all([
-      loadJobs().then(setResult),
+      loadGigs().then(setResult),
       loadContacts().then(setNetworkResult),
       loadTasks().then(setTaskResult),
     ]);
@@ -301,8 +301,8 @@ export function App() {
   if (!result.ok) return <AppError error={result.error} />;
   if (!networkResult.ok) return <AppError error={networkResult.error} />;
   if (!taskResult.ok) return <AppError error={taskResult.error} />;
-  const dashboard = view === "jobs"
-    ? <JobBoard roles={result.data} onNavigate={setView} />
+  const dashboard = view === "gigs"
+    ? <GigBoard gigs={result.data} onNavigate={setView} />
     : view === "network"
       ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard contacts={networkResult.data} /></main>
       : <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>;
@@ -310,7 +310,7 @@ export function App() {
     <>
       <div className={agentOpen ? "dashboard-with-agent" : ""}>{dashboard}</div>
       <AgentLauncher open={agentOpen} onClick={() => setAgentOpen(value => !value)} />
-      <div id="job-search-agent">
+      <div id="gig-finder-agent">
         <AgentPanel
           open={agentOpen}
           onClose={() => setAgentOpen(false)}

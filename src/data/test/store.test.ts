@@ -4,8 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DataError, DataStore, loadLegacyMeetingParticipants, migrateDatabase, openDatabase, RevisionConflictError, validateDatabase } from "../src";
-import type { ChangeContext,JobData,MeetingData,MeetingParticipantData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
-import { JobSearchApplication } from "../../core/src/application";
+import type { ChangeContext,GigData,MeetingData,MeetingParticipantData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
+import { GigFinderApplication } from "../../core/src/application";
 import type { ArtifactPort } from "../../core/src/ports";
 import { AuditReader } from "../src/audit";
 import { MutationError } from "../../core/src/errors";
@@ -15,11 +15,11 @@ let store: DataStore;
 const timestamp = "2026-07-21T12:00:00.000Z";
 const context = (summary = "Test change"): ChangeContext => ({ actor: "test-suite", source: "test", summary, occurredAt: timestamp });
 
-const job: JobData = { id:"job-1",company:"Company",title:"VP Engineering",externalJobId:"123",stage:"identified",outcome:"pending",statusSummary:"Identified",lastActivity:"2026-07-21",nextActionDescription:"Review",nextActionDue:"2026-07-22",fitRating:"good",fitSummary:"Good role shape",payCurrency:"USD",payMinimum:200000,payMaximum:250000,payPeriod:"year",payNotes:null,sourceUrl:"https://example.com/jobs/123",location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"Annual bonus",equity:null,otherCompensation:null,tagsJson:'["platform"]',hasJobDescription:false,hasInterviewPrep:false };
+const gig: GigData = { id:"gig-1",company:"Company",title:"VP Engineering",externalJobId:"123",stage:"identified",outcome:"pending",statusSummary:"Identified",lastActivity:"2026-07-21",nextActionDescription:"Review",nextActionDue:"2026-07-22",fitRating:"good",fitSummary:"Good role shape",payCurrency:"USD",payMinimum:200000,payMaximum:250000,payPeriod:"year",payNotes:null,sourceUrl:"https://example.com/gigs/123",location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"Annual bonus",equity:null,otherCompensation:null,tagsJson:'["platform"]',hasJobDescription:false,hasInterviewPrep:false };
 const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01"};
 const networking:NetworkingContactData={id:"person-1",personId:"person-1",relationshipType:"former_colleague",relationshipStrength:"strong",introducedBy:null,relationshipNotes:null,priority:"high",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:"Reach out",nextActionDue:"2026-07-22",whyInteresting:"Strong relationship",notesJson:"[]",tagsJson:"[]"};
-const task: TaskData = { id:"task-1",title:"Review role",type:"application",status:"open",priority:"high",dueDate:"2026-07-22",relatedEntityType:"job",relatedEntityId:"job-1",relatedEntityLabel:"Company VP Engineering",notes:"Review the JD",completedAt:null };
-const meeting: MeetingData = { id:"meeting-1",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:"Seattle",description:"Networking",status:"confirmed",jobId:null,externalCalendarId:"job-search",externalEventId:"google-1" };
+const task: TaskData = { id:"task-1",title:"Review role",type:"application",status:"open",priority:"high",dueDate:"2026-07-22",relatedEntityType:"gig",relatedEntityId:"gig-1",relatedEntityLabel:"Company VP Engineering",notes:"Review the JD",completedAt:null };
+const meeting: MeetingData = { id:"meeting-1",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:"Seattle",description:"Networking",status:"confirmed",gigId:null,externalCalendarId:"gig-finder",externalEventId:"google-1" };
 const meetingParticipant: MeetingParticipantData = { id:"meeting-1::person-1",meetingId:"meeting-1",personId:"person-1" };
 
 beforeEach(() => { database = openDatabase(":memory:"); migrateDatabase(database); store = new DataStore(database); });
@@ -49,10 +49,10 @@ describe("migrations", () => {
   });
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["gigs","gig_history","people","person_history","networking_contacts","networking_contact_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
   });
   test("can be applied repeatedly without duplicating migrations", () => { const before = (database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count; migrateDatabase(database); expect((database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count).toBe(before); });
-  test("migrates legacy meeting jobs and every staged participant", async () => {
+  test("migrates legacy meeting gigs and every staged participant", async () => {
     const legacy = openDatabase(":memory:");
     legacy.exec("PRAGMA foreign_keys = OFF");
     try {
@@ -68,12 +68,22 @@ describe("migrations", () => {
         new Bun.CryptoHasher("sha256").update(migrationNine).digest("hex"),
         1785433687058,
       );
-      legacy.query("INSERT INTO jobs (id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES ('job-legacy','Example','Director','applied','pending','Active','2026-07-01','good','[]',0,0,1,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO jobs (id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES ('gig-legacy','Example','Director','applied','pending','Active','2026-07-01','good','[]',0,0,2,0,?,?)").run(timestamp,timestamp);
       legacy.query("INSERT INTO people (id,name,revision,is_deleted,created_at,updated_at) VALUES ('person-a','Alex Example',1,0,?,?),('person-b','Blair Example',1,0,?,?)").run(timestamp,timestamp,timestamp,timestamp);
       legacy.query("INSERT INTO networking_contacts (id,person_id,relationship_type,relationship_strength,priority,status,notes_json,tags_json,revision,is_deleted,created_at,updated_at) VALUES ('contact-a','person-a','professional_contact','warm','medium','not_contacted','[]','[]',1,0,?,?)").run(timestamp,timestamp);
-      legacy.query("INSERT INTO meetings (id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','job','job-legacy',4,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO meetings (id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','job','gig-legacy',4,0,?,?)").run(timestamp,timestamp);
       legacy.query("INSERT INTO changes (id,occurred_at,actor,source,summary,status) VALUES ('change-legacy',?,'test-suite','test','Legacy meeting update','committed'),('change-legacy-2',?,'test-suite','test','Legacy contact attendee','committed'),('change-legacy-3',?,'test-suite','test','Legacy person attendee','committed')").run(timestamp,timestamp,timestamp);
-      legacy.query("INSERT INTO meeting_history (change_id,operation,recorded_at,recorded_by,id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('change-legacy','update',?,'test-suite','meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','job','job-legacy',1,0,?,?)").run(timestamp,timestamp,timestamp);
+      legacy.query("INSERT INTO changes (id,occurred_at,actor,source,summary,status) VALUES ('change-history',?,'test-suite','test','Legacy history','committed')").run(timestamp);
+      legacy.query("INSERT INTO job_history (change_id,operation,recorded_at,recorded_by,id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES ('change-history','update',?,'test-suite','gig-legacy','Example','Director','identified','pending','Found','2026-06-30','good','[]',0,0,1,0,?,?)").run(timestamp,timestamp,timestamp);
+      legacy.query("INSERT INTO job_people (id,job_id,person_id,relationship,revision,is_deleted,created_at,updated_at) VALUES ('relationship-legacy','gig-legacy','person-a','recruiter',2,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO job_people_history (change_id,operation,recorded_at,recorded_by,id,job_id,person_id,relationship,revision,is_deleted,created_at,updated_at) VALUES ('change-history','update',?,'test-suite','relationship-legacy','gig-legacy','person-a','employee',1,0,?,?)").run(timestamp,timestamp,timestamp);
+      legacy.query("INSERT INTO tasks (id,title,type,status,priority,related_entity_type,related_entity_id,related_entity_label,revision,is_deleted,created_at,updated_at) VALUES ('task-legacy','Follow up','application','open','high','job','gig-legacy','Example Director',2,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO task_history (change_id,operation,recorded_at,recorded_by,id,title,type,status,priority,related_entity_type,related_entity_id,related_entity_label,revision,is_deleted,created_at,updated_at) VALUES ('change-history','update',?,'test-suite','task-legacy','Review','application','open','high','job','gig-legacy','Example Director',1,0,?,?)").run(timestamp,timestamp,timestamp);
+      legacy.query("INSERT INTO business_events (id,type,entity_type,entity_id,occurred_at,summary) VALUES ('event-legacy','application_update','job','gig-legacy',?,'Applied')").run(timestamp);
+      legacy.query("INSERT INTO managed_documents (id,document_type,title,media_type,current_version,created_at,updated_at) VALUES ('doc_00000000-0000-4000-8000-000000000001','job_description','Job description','text/markdown',1,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO managed_document_versions (document_id,version,content,content_hash,change_id,change_summary,created_at,created_by) VALUES ('doc_00000000-0000-4000-8000-000000000001',1,'Original content','hash','change-history','Import',?,'test-suite')").run(timestamp);
+      legacy.query("INSERT INTO managed_document_links (document_id,job_id) VALUES ('doc_00000000-0000-4000-8000-000000000001','gig-legacy')").run();
+      legacy.query("INSERT INTO meeting_history (change_id,operation,recorded_at,recorded_by,id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('change-legacy','update',?,'test-suite','meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','job','gig-legacy',1,0,?,?)").run(timestamp,timestamp,timestamp);
       legacy.query("INSERT INTO meeting_history (change_id,operation,recorded_at,recorded_by,id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('change-legacy-2','update',?,'test-suite','meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','contact','contact-a',2,0,?,?)").run(timestamp,timestamp,timestamp);
       legacy.query("INSERT INTO meeting_history (change_id,operation,recorded_at,recorded_by,id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('change-legacy-3','update',?,'test-suite','meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','person','person-b',3,0,?,?)").run(timestamp,timestamp,timestamp);
       expect(validateDatabase(legacy)).toMatchObject({ ok: true, foreignKeyViolations: 0 });
@@ -89,15 +99,23 @@ describe("migrations", () => {
         { meetingId: "meeting-legacy", personId: "person-b" },
       ] });
 
-      expect(legacy.query("SELECT job_id FROM meetings WHERE id = 'meeting-legacy'").get()).toEqual({ job_id: "job-legacy" });
-      expect(legacy.query("SELECT revision, job_id, legacy_related_entity_type, legacy_related_entity_id FROM meeting_history WHERE id = 'meeting-legacy' ORDER BY revision").all()).toEqual([
-        { revision: 1, job_id: "job-legacy", legacy_related_entity_type: "job", legacy_related_entity_id: "job-legacy" },
-        { revision: 2, job_id: null, legacy_related_entity_type: "contact", legacy_related_entity_id: "contact-a" },
-        { revision: 3, job_id: null, legacy_related_entity_type: "person", legacy_related_entity_id: "person-b" },
+      expect(legacy.query("SELECT gig_id FROM meetings WHERE id = 'meeting-legacy'").get()).toEqual({ gig_id: "gig-legacy" });
+      expect(legacy.query("SELECT id, company, revision FROM gigs WHERE id = 'gig-legacy'").get()).toEqual({ id: "gig-legacy", company: "Example", revision: 2 });
+      expect(legacy.query("SELECT id, revision FROM gig_history WHERE id = 'gig-legacy'").get()).toEqual({ id: "gig-legacy", revision: 1 });
+      expect(legacy.query("SELECT gig_id, revision FROM gig_people WHERE id = 'relationship-legacy'").get()).toEqual({ gig_id: "gig-legacy", revision: 2 });
+      expect(legacy.query("SELECT gig_id, revision FROM gig_people_history WHERE id = 'relationship-legacy'").get()).toEqual({ gig_id: "gig-legacy", revision: 1 });
+      expect(legacy.query("SELECT gig_id FROM managed_document_links").get()).toEqual({ gig_id: "gig-legacy" });
+      expect(legacy.query("SELECT related_entity_type FROM tasks WHERE id = 'task-legacy'").get()).toEqual({ related_entity_type: "gig" });
+      expect(legacy.query("SELECT related_entity_type FROM task_history WHERE id = 'task-legacy'").get()).toEqual({ related_entity_type: "gig" });
+      expect(legacy.query("SELECT entity_type FROM business_events WHERE id = 'event-legacy'").get()).toEqual({ entity_type: "gig" });
+      expect(legacy.query("SELECT revision, gig_id, legacy_related_entity_type, legacy_related_entity_id FROM meeting_history WHERE id = 'meeting-legacy' ORDER BY revision").all()).toEqual([
+        { revision: 1, gig_id: "gig-legacy", legacy_related_entity_type: "job", legacy_related_entity_id: "gig-legacy" },
+        { revision: 2, gig_id: null, legacy_related_entity_type: "contact", legacy_related_entity_id: "contact-a" },
+        { revision: 3, gig_id: null, legacy_related_entity_type: "person", legacy_related_entity_id: "person-b" },
       ]);
       expect(legacy.query("SELECT person_id FROM meeting_participants ORDER BY person_id").all()).toEqual([{ person_id: "person-a" }, { person_id: "person-b" }]);
       const meetingColumns = legacy.query("PRAGMA table_info(meetings)").all().map(row => (row as { name: string }).name);
-      expect(meetingColumns).toContain("job_id");
+      expect(meetingColumns).toContain("gig_id");
       expect(meetingColumns).not.toContain("related_entity_type");
       expect(meetingColumns).not.toContain("related_entity_id");
       expect(validateDatabase(legacy)).toMatchObject({ ok: true, foreignKeyViolations: 0 });
@@ -113,7 +131,7 @@ describe("migrations", () => {
     expect(() => database.query("INSERT INTO task_history (change_id,operation,recorded_at,recorded_by,id,title,type,status,priority,related_entity_type,related_entity_label,revision,is_deleted,created_at,updated_at) VALUES (?,'invalid',?,?,'bad','Bad','other','open','low','general','General',1,0,?,?)").run(changeId,timestamp,"test-suite",timestamp,timestamp)).toThrow();
   });
   test("persists migrated data across a file-backed database reopen", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "job-search-data-test-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "gig-finder-data-test-"));
     const filename = path.join(directory, "test.sqlite");
     try {
       const first = openDatabase(filename); migrateDatabase(first); new DataStore(first).change(context("Persist task"), (tx) => tx.tasks.create(task)); first.close();
@@ -123,11 +141,11 @@ describe("migrations", () => {
 });
 
 describe("typed CRUD repositories", () => {
-  test("creates and reads jobs with initial metadata", () => {
-    const result = store.change(context("Create job"), (tx) => tx.jobs.create(job));
-    expect(result.value).toMatchObject({ id:"job-1", revision:1, isDeleted:false, createdAt:timestamp, updatedAt:timestamp });
-    expect(store.jobs.get("job-1")?.company).toBe("Company");
-    expect(store.jobs.list()).toHaveLength(1);
+  test("creates and reads gigs with initial metadata", () => {
+    const result = store.change(context("Create gig"), (tx) => tx.gigs.create(gig));
+    expect(result.value).toMatchObject({ id:"gig-1", revision:1, isDeleted:false, createdAt:timestamp, updatedAt:timestamp });
+    expect(store.gigs.get("gig-1")?.company).toBe("Company");
+    expect(store.gigs.list()).toHaveLength(1);
   });
   test("supports people, networking, tasks, and meetings through the same transaction library", () => {
     store.change(context("Create records"), (tx) => ({ person:tx.people.create(person),networking:tx.networking.create(networking), task:tx.tasks.create(task), meeting:tx.meetings.create(meeting), participant:tx.meetingParticipants.create(meetingParticipant) }));
@@ -137,20 +155,20 @@ describe("typed CRUD repositories", () => {
     expect(store.meetingParticipants.get(meetingParticipant.id)?.personId).toBe(person.id);
   });
   test("rejects duplicate IDs and rolls back the failed change record", () => {
-    store.change(context("Create job"), (tx) => tx.jobs.create(job));
-    expect(() => store.change(context("Duplicate job"), (tx) => tx.jobs.create(job))).toThrow("already exists");
+    store.change(context("Create gig"), (tx) => tx.gigs.create(gig));
+    expect(() => store.change(context("Duplicate gig"), (tx) => tx.gigs.create(gig))).toThrow("already exists");
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(1);
   });
   test("read operations never create change records", () => {
-    store.jobs.get("missing"); store.jobs.list();
+    store.gigs.get("missing"); store.gigs.list();
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(0);
   });
   test("shared read services traverse persisted records without changing operational or audit state", async () => {
     store.change(context("Create records"), (tx) => {
-      tx.jobs.create(job);
+      tx.gigs.create(gig);
       tx.people.create(person);
       tx.networking.create(networking);
-      tx.jobPeople.create({ id: "relationship-1", jobId: job.id, personId: person.id, relationship: "hiring_manager", notes: null });
+      tx.gigPeople.create({ id: "relationship-1", gigId: gig.id, personId: person.id, relationship: "hiring_manager", notes: null });
       tx.tasks.create(task);
     });
     const artifacts = {
@@ -160,24 +178,24 @@ describe("typed CRUD repositories", () => {
       interviewPrepExists: async () => false,
       verify: async () => ({ ok: true, errors: [], unregistered: [] }),
     } satisfies ArtifactPort;
-    const app = new JobSearchApplication(store, new AuditReader(database), artifacts);
+    const app = new GigFinderApplication(store, new AuditReader(database), artifacts);
     const before = database.serialize();
 
-    app.jobs.query({ stages: ["applied"], limit: 10 });
-    app.jobs.read(job.id);
+    app.gigs.query({ stages: ["applied"], limit: 10 });
+    app.gigs.read(gig.id);
     app.networking.query({ statuses: ["not_contacted"] });
     app.networking.read(networking.id);
     app.people.query({ query: "CTO" });
     app.people.read(person.id);
-    expect(app.jobPeople.query({ jobIds: [job.id], personIds: [person.id] }))
+    expect(app.gigPeople.query({ gigIds: [gig.id], personIds: [person.id] }))
       .toMatchObject({ status: "ok", items: [{ id: "relationship-1" }] });
-    expect(app.jobPeople.peopleForJob(job.id)).toMatchObject({
+    expect(app.gigPeople.peopleForGig(gig.id)).toMatchObject({
       status: "ok",
       record: { items: [{ id: person.id }] },
     });
-    expect(app.jobPeople.jobsForPerson(person.id)).toMatchObject({
+    expect(app.gigPeople.gigsForPerson(person.id)).toMatchObject({
       status: "ok",
-      record: { items: [{ id: job.id }] },
+      record: { items: [{ id: gig.id }] },
     });
     app.tasks.query({ statuses: ["open"] });
     app.tasks.read(task.id);
@@ -187,13 +205,13 @@ describe("typed CRUD repositories", () => {
 });
 
 describe("full-row history and revisions", () => {
-  test("copies the complete pre-update job and increments the live revision", () => {
-    store.change(context("Create job"), (tx) => tx.jobs.create(job));
-    const updated = store.change({ ...context("Apply"), occurredAt:"2026-07-22T10:00:00.000Z" }, (tx) => tx.jobs.update("job-1", 1, { stage:"applied", statusSummary:"Applied" }));
+  test("copies the complete pre-update gig and increments the live revision", () => {
+    store.change(context("Create gig"), (tx) => tx.gigs.create(gig));
+    const updated = store.change({ ...context("Apply"), occurredAt:"2026-07-22T10:00:00.000Z" }, (tx) => tx.gigs.update("gig-1", 1, { stage:"applied", statusSummary:"Applied" }));
     expect(updated.value).toMatchObject({ stage:"applied", statusSummary:"Applied", revision:2 });
-    const history = database.query("SELECT * FROM job_history WHERE id = 'job-1'").get() as Record<string,unknown>;
+    const history = database.query("SELECT * FROM gig_history WHERE id = 'gig-1'").get() as Record<string,unknown>;
     expect(history).toMatchObject({ stage:"identified", status_summary:"Identified", revision:1, operation:"update", recorded_by:"test-suite", change_id:updated.changeId });
-    expect(history.company).toBe(job.company); expect(history.tags_json).toBe(job.tagsJson);
+    expect(history.company).toBe(gig.company); expect(history.tags_json).toBe(gig.tagsJson);
   });
   test("takes one snapshot for each update without rewriting older history", () => {
     store.change(context("Create task"), (tx) => tx.tasks.create(task));
@@ -204,9 +222,9 @@ describe("full-row history and revisions", () => {
     expect(store.tasks.get("task-1")).toMatchObject({ revision:3, status:"completed" });
   });
   test("rejects stale revisions without creating history or change records", () => {
-    store.change(context("Create job"), (tx) => tx.jobs.create(job));
-    expect(() => store.change(context("Stale update"), (tx) => tx.jobs.update("job-1", 9, { title:"Wrong" }))).toThrow(RevisionConflictError);
-    expect((database.query("SELECT count(*) count FROM job_history").get() as {count:number}).count).toBe(0);
+    store.change(context("Create gig"), (tx) => tx.gigs.create(gig));
+    expect(() => store.change(context("Stale update"), (tx) => tx.gigs.update("gig-1", 9, { title:"Wrong" }))).toThrow(RevisionConflictError);
+    expect((database.query("SELECT count(*) count FROM gig_history").get() as {count:number}).count).toBe(0);
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(1);
   });
   test("rejects unknown or immutable fields", () => {
@@ -271,13 +289,13 @@ describe("binary deletion", () => {
     expect(() => store.change(context("Update deleted"), (tx) => tx.meetings.update("meeting-1", 2, { title:"Wrong" }))).toThrow(DataError);
     expect(() => store.change(context("Delete deleted"), (tx) => tx.meetings.delete("meeting-1", 2))).toThrow(DataError);
   });
-  test("deletes jobs and tasks without removing their live rows", () => {
-    store.change(context("Create records"), (tx) => { tx.jobs.create(job); tx.tasks.create(task); });
-    store.change(context("Delete records"), (tx) => { tx.jobs.delete(job.id, 1); tx.tasks.delete(task.id, 1); });
-    expect(store.jobs.get(job.id)).toBeNull(); expect(store.tasks.get(task.id)).toBeNull();
-    expect(store.jobs.get(job.id, {includeDeleted:true})).toMatchObject({isDeleted:true,revision:2});
+  test("deletes gigs and tasks without removing their live rows", () => {
+    store.change(context("Create records"), (tx) => { tx.gigs.create(gig); tx.tasks.create(task); });
+    store.change(context("Delete records"), (tx) => { tx.gigs.delete(gig.id, 1); tx.tasks.delete(task.id, 1); });
+    expect(store.gigs.get(gig.id)).toBeNull(); expect(store.tasks.get(task.id)).toBeNull();
+    expect(store.gigs.get(gig.id, {includeDeleted:true})).toMatchObject({isDeleted:true,revision:2});
     expect(store.tasks.get(task.id, {includeDeleted:true})).toMatchObject({isDeleted:true,revision:2});
-    expect(database.query("SELECT operation FROM job_history").get()).toEqual({operation:"delete"});
+    expect(database.query("SELECT operation FROM gig_history").get()).toEqual({operation:"delete"});
     expect(database.query("SELECT operation FROM task_history").get()).toEqual({operation:"delete"});
   });
 });
@@ -285,29 +303,29 @@ describe("binary deletion", () => {
 describe("change envelopes, business events, and evidence", () => {
   test("ties multiple records and events to one change ID", () => {
     const result = store.change(context("Record application and follow-up"), (tx) => {
-      tx.jobs.create(job); tx.tasks.create(task);
-      return tx.recordEvent({ type:"application_submitted", entityType:"job", entityId:job.id, occurredAt:timestamp, summary:"Applied", sources:[{ sourceSystem:"gmail", externalId:"message-1", sourceTimestamp:timestamp, sourceUri:"https://mail.google.com/message-1", importedAt:timestamp, contentHash:"abc", excerpt:"Application received" }] });
+      tx.gigs.create(gig); tx.tasks.create(task);
+      return tx.recordEvent({ type:"application_submitted", entityType:"gig", entityId:gig.id, occurredAt:timestamp, summary:"Applied", sources:[{ sourceSystem:"gmail", externalId:"message-1", sourceTimestamp:timestamp, sourceUri:"https://mail.google.com/message-1", importedAt:timestamp, contentHash:"abc", excerpt:"Application received" }] });
     });
     expect((database.query("SELECT change_id FROM business_events").get() as {change_id:string}).change_id).toBe(result.changeId);
     expect(database.query("SELECT source_system, external_id FROM event_sources").get()).toEqual({source_system:"gmail",external_id:"message-1"});
     expect(database.query("SELECT actor, source, summary FROM changes WHERE id = ?").get(result.changeId)).toEqual({ actor:"test-suite", source:"test", summary:"Record application and follow-up" });
   });
   test("uses one shared change ID for multiple history snapshots", () => {
-    store.change(context("Create records"), (tx) => { tx.jobs.create(job); tx.tasks.create(task); });
-    const result = store.change(context("Advance records"), (tx) => { tx.jobs.update(job.id, 1, { stage:"applied" }); tx.tasks.update(task.id, 1, { status:"completed", completedAt:"2026-07-21" }); });
-    expect((database.query("SELECT change_id FROM job_history").get() as {change_id:string}).change_id).toBe(result.changeId);
+    store.change(context("Create records"), (tx) => { tx.gigs.create(gig); tx.tasks.create(task); });
+    const result = store.change(context("Advance records"), (tx) => { tx.gigs.update(gig.id, 1, { stage:"applied" }); tx.tasks.update(task.id, 1, { status:"completed", completedAt:"2026-07-21" }); });
+    expect((database.query("SELECT change_id FROM gig_history").get() as {change_id:string}).change_id).toBe(result.changeId);
     expect((database.query("SELECT change_id FROM task_history").get() as {change_id:string}).change_id).toBe(result.changeId);
   });
   test("rolls back all records, history, events, sources, and the change on failure", () => {
-    expect(() => store.change(context("Fail everything"), (tx) => { tx.jobs.create(job); tx.recordEvent({ type:"role_identified", entityType:"job", entityId:job.id, occurredAt:timestamp, summary:"Found", sources:[{sourceSystem:"scout",externalId:"role-1",importedAt:timestamp}] }); throw new Error("boom"); })).toThrow("boom");
-    for (const table of ["jobs","changes","business_events","event_sources","job_history"]) expect((database.query(`SELECT count(*) count FROM ${table}`).get() as {count:number}).count).toBe(0);
+    expect(() => store.change(context("Fail everything"), (tx) => { tx.gigs.create(gig); tx.recordEvent({ type:"role_identified", entityType:"gig", entityId:gig.id, occurredAt:timestamp, summary:"Found", sources:[{sourceSystem:"scout",externalId:"role-1",importedAt:timestamp}] }); throw new Error("boom"); })).toThrow("boom");
+    for (const table of ["gigs","changes","business_events","event_sources","gig_history"]) expect((database.query(`SELECT count(*) count FROM ${table}`).get() as {count:number}).count).toBe(0);
   });
   test("rolls back record updates and their snapshots together", () => {
-    store.change(context("Create records"), (tx) => { tx.jobs.create(job); tx.tasks.create(task); });
-    expect(() => store.change(context("Failed update"), (tx) => { tx.jobs.update(job.id, 1, { stage:"applied" }); tx.tasks.update(task.id, 1, { status:"completed", completedAt:"2026-07-21" }); throw new Error("stop"); })).toThrow("stop");
-    expect(store.jobs.get(job.id)).toMatchObject({stage:"identified",revision:1});
+    store.change(context("Create records"), (tx) => { tx.gigs.create(gig); tx.tasks.create(task); });
+    expect(() => store.change(context("Failed update"), (tx) => { tx.gigs.update(gig.id, 1, { stage:"applied" }); tx.tasks.update(task.id, 1, { status:"completed", completedAt:"2026-07-21" }); throw new Error("stop"); })).toThrow("stop");
+    expect(store.gigs.get(gig.id)).toMatchObject({stage:"identified",revision:1});
     expect(store.tasks.get(task.id)).toMatchObject({status:"open",revision:1});
-    expect((database.query("SELECT count(*) count FROM job_history").get() as {count:number}).count).toBe(0);
+    expect((database.query("SELECT count(*) count FROM gig_history").get() as {count:number}).count).toBe(0);
     expect((database.query("SELECT count(*) count FROM task_history").get() as {count:number}).count).toBe(0);
     expect((database.query("SELECT count(*) count FROM changes").get() as {count:number}).count).toBe(1);
   });
@@ -322,32 +340,32 @@ describe("change envelopes, business events, and evidence", () => {
 
 describe("change idempotency and reversal", () => {
   test("rejects a duplicate explicit change ID before applying a retry", () => {
-    store.change(context("Create job"), tx => tx.jobs.create(job));
+    store.change(context("Create gig"), tx => tx.gigs.create(gig));
     const updateContext: ChangeContext = {
       actor: "Candidate",
       source: "user_request",
-      summary: "Update job",
-      changeId: "change:update-job",
+      summary: "Update gig",
+      changeId: "change:update-gig",
     };
     store.change(updateContext, tx =>
-      tx.jobs.update(job.id, 1, { statusSummary: "Updated once" }));
+      tx.gigs.update(gig.id, 1, { statusSummary: "Updated once" }));
     expect(() => store.change(updateContext, tx =>
-      tx.jobs.update(job.id, 2, { statusSummary: "Updated twice" })))
+      tx.gigs.update(gig.id, 2, { statusSummary: "Updated twice" })))
       .toThrow(MutationError);
-    expect(store.jobs.get(job.id)).toMatchObject({
+    expect(store.gigs.get(gig.id)).toMatchObject({
       revision: 2,
       statusSummary: "Updated once",
     });
   });
 
-  test("reverts a job update as a new audited revision", () => {
-    store.change(context("Create job"), tx => tx.jobs.create(job));
+  test("reverts a gig update as a new audited revision", () => {
+    store.change(context("Create gig"), tx => tx.gigs.create(gig));
     store.change({
       actor: "Candidate",
       source: "user_request",
-      summary: "Update job",
-      changeId: "change:update-job",
-    }, tx => tx.jobs.update(job.id, 1, {
+      summary: "Update gig",
+      changeId: "change:update-gig",
+    }, tx => tx.gigs.update(gig.id, 1, {
       stage: "applied",
       statusSummary: "Application submitted",
     }));
@@ -355,31 +373,31 @@ describe("change idempotency and reversal", () => {
     const reverted = store.revertChange({
       actor: "Candidate",
       source: "user_request",
-      summary: "Revert job update",
-      changeId: "change:revert-job",
-    }, "change:update-job");
+      summary: "Revert gig update",
+      changeId: "change:revert-gig",
+    }, "change:update-gig");
 
-    expect(reverted.value).toEqual([{ entity: "job", id: job.id }]);
-    expect(store.jobs.get(job.id)).toMatchObject({
+    expect(reverted.value).toEqual([{ entity: "gig", id: gig.id }]);
+    expect(store.gigs.get(gig.id)).toMatchObject({
       revision: 3,
       stage: "identified",
       statusSummary: "Identified",
     });
     expect(database.query(
-      "SELECT parent_change_id FROM changes WHERE id = 'change:revert-job'",
-    ).get()).toEqual({ parent_change_id: "change:update-job" });
+      "SELECT parent_change_id FROM changes WHERE id = 'change:revert-gig'",
+    ).get()).toEqual({ parent_change_id: "change:update-gig" });
     expect(database.query(
-      "SELECT change_id, revision FROM job_history ORDER BY history_id",
+      "SELECT change_id, revision FROM gig_history ORDER BY history_id",
     ).all()).toEqual([
-      { change_id: "change:update-job", revision: 1 },
-      { change_id: "change:revert-job", revision: 2 },
+      { change_id: "change:update-gig", revision: 1 },
+      { change_id: "change:revert-gig", revision: 2 },
     ]);
     expect(() => store.revertChange({
       actor: "Candidate",
       source: "user_request",
       summary: "Retry revert",
-      changeId: "change:revert-job",
-    }, "change:update-job")).toThrow("already been applied");
+      changeId: "change:revert-gig",
+    }, "change:update-gig")).toThrow("already been applied");
   });
 
   test("reverts person and networking rows atomically", () => {
@@ -439,15 +457,15 @@ describe("change idempotency and reversal", () => {
   });
 
   test("rejects a revert when a later edit would be overwritten", () => {
-    store.change(context("Create job"), tx => tx.jobs.create(job));
+    store.change(context("Create gig"), tx => tx.gigs.create(gig));
     store.change({
       actor: "Candidate",
       source: "user_request",
-      summary: "Update job",
+      summary: "Update gig",
       changeId: "change:update-conflict",
-    }, tx => tx.jobs.update(job.id, 1, { statusSummary: "First update" }));
+    }, tx => tx.gigs.update(gig.id, 1, { statusSummary: "First update" }));
     store.change(context("Later edit"), tx =>
-      tx.jobs.update(job.id, 2, { statusSummary: "Later edit" }));
+      tx.gigs.update(gig.id, 2, { statusSummary: "Later edit" }));
 
     expect(() => store.revertChange({
       actor: "Candidate",
@@ -455,7 +473,7 @@ describe("change idempotency and reversal", () => {
       summary: "Unsafe revert",
       changeId: "change:revert-conflict",
     }, "change:update-conflict")).toThrow("immediately preceding active revision");
-    expect(store.jobs.get(job.id)).toMatchObject({
+    expect(store.gigs.get(gig.id)).toMatchObject({
       revision: 3,
       statusSummary: "Later edit",
     });

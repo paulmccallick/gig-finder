@@ -11,11 +11,11 @@ describe("agent dashboard refresh signal", () => {
   test("recognizes successful update and revert tool output", () => {
     const parts: UIMessage["parts"] = [{
       type: "dynamic-tool",
-      toolName: "update_job",
+      toolName: "update_gig",
       toolCallId: "call-1",
       state: "output-available",
       input: {
-        id: "job-1",
+        id: "gig-1",
         changes: [{ operation: "set", field: "stage", value: "applied" }],
       },
       output: { status: "ok", changeId: "agent-tool:call-1" },
@@ -39,19 +39,19 @@ describe("agent dashboard refresh signal", () => {
     const parts: UIMessage["parts"] = [
       {
         type: "dynamic-tool",
-        toolName: "get_job",
+        toolName: "get_gig",
         toolCallId: "call-1",
         state: "output-available",
-        input: { id: "job-1" },
-        output: { status: "ok", record: { id: "job-1" } },
+        input: { id: "gig-1" },
+        output: { status: "ok", record: { id: "gig-1" } },
       },
       {
         type: "dynamic-tool",
-        toolName: "update_job",
+        toolName: "update_gig",
         toolCallId: "call-2",
         state: "output-available",
         input: {
-          id: "job-1",
+          id: "gig-1",
           changes: [{ operation: "set", field: "stage", value: "applied" }],
         },
         output: { status: "error", error: "validation_failed" },

@@ -1,13 +1,13 @@
 import type { ArtifactPort, Persistence } from "./ports";
-import type { ChangeContext, EntityRecord, JobData, NetworkingContactData, PersonData, TaskData } from "./models";
-import { fitRatings, outcomes, pipelineStages, type Job, type JobRecord, type JobRole } from "./jobs";
+import type { ChangeContext, EntityRecord, GigData, NetworkingContactData, PersonData, TaskData } from "./models";
+import { fitRatings, outcomes, pipelineStages, type Gig, type GigRecord, type GigSummary } from "./gigs";
 import { DomainValidationError } from "./errors";
 import { compareContacts, contactIsOverdue, contactPriorities, contactStatuses, type NetworkContact, type NetworkContactRecord } from "./network";
 import { compareTasks, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskRecord } from "./tasks";
 import {
-  jobUpdateSchema,
+  gigUpdateSchema,
   networkingContactUpdateSchema,
-  type JobUpdate,
+  type GigUpdate,
   type NetworkingContactUpdate,
 } from "./update-contracts";
 import { ChangeExecutor, type MutationOptions } from "./changes";
@@ -18,23 +18,23 @@ import {
   normalizedQuery,
   pacificDate,
   page,
-  type JobQueryInput,
+  type GigQueryInput,
   type NetworkingContactQueryInput,
   type Page,
   type ReadResult,
   type TaskQueryInput,
 } from "./queries";
 
-export interface JobTouchInput { date:string;stage:Job["stage"];summary:string;outcome?:Job["outcome"];nextAction?:string|null;due?:string|null }
+export interface GigTouchInput { date:string;stage:Gig["stage"];summary:string;outcome?:Gig["outcome"];nextAction?:string|null;due?:string|null }
 export interface ContactTouchInput { date:string;status:NetworkContact["status"];method:string;summary:string;nextAction?:string|null;due?:string|null }
 export interface TaskCreateInput { id:string;title:string;type:TaskRecord["type"];priority?:TaskRecord["priority"];dueDate:string|null;relatedEntity:TaskRecord["relatedEntity"];notes?:string|null;date:string }
 
-export const defaultJobStages = [
+export const defaultGigStages = [
   "applied",
   "recruiter_contact",
   "screening",
   "technical_interview",
-] as const satisfies readonly Job["stage"][];
+] as const satisfies readonly Gig["stage"][];
 export const defaultNetworkingContactStatuses = [
   "active_relationship",
 ] as const satisfies readonly NetworkContact["status"][];
@@ -56,36 +56,36 @@ export function deepPatch<T>(current: T, patch: unknown): T {
   return result as T;
 }
 
-function validateJob(job: Job) {
-  if (!job.id || !job.company || !job.title || !job.statusSummary) throw new DomainValidationError("Job id, company, title, and status summary are required.");
-  if (!pipelineStages.includes(job.stage)) throw new DomainValidationError(`Job ${job.id} has an unknown stage: ${job.stage}.`);
-  if (!outcomes.includes(job.outcome)) throw new DomainValidationError(`Job ${job.id} has an unknown outcome: ${job.outcome}.`);
-  if (!fitRatings.includes(job.fit.rating)) throw new DomainValidationError(`Job ${job.id} has an invalid fit rating: ${job.fit.rating}.`);
-  if (job.stage === "closed" && job.outcome === "pending") {
-    throw new DomainValidationError(`Job ${job.id} cannot be closed while its outcome is pending.`);
+function validateGig(gig: Gig) {
+  if (!gig.id || !gig.company || !gig.title || !gig.statusSummary) throw new DomainValidationError("Gig id, company, title, and status summary are required.");
+  if (!pipelineStages.includes(gig.stage)) throw new DomainValidationError(`Gig ${gig.id} has an unknown stage: ${gig.stage}.`);
+  if (!outcomes.includes(gig.outcome)) throw new DomainValidationError(`Gig ${gig.id} has an unknown outcome: ${gig.outcome}.`);
+  if (!fitRatings.includes(gig.fit.rating)) throw new DomainValidationError(`Gig ${gig.id} has an invalid fit rating: ${gig.fit.rating}.`);
+  if (gig.stage === "closed" && gig.outcome === "pending") {
+    throw new DomainValidationError(`Gig ${gig.id} cannot be closed while its outcome is pending.`);
   }
-  if (job.stage !== "closed" && job.outcome !== "pending") {
-    throw new DomainValidationError(`Job ${job.id} must remain pending until its stage is closed.`);
+  if (gig.stage !== "closed" && gig.outcome !== "pending") {
+    throw new DomainValidationError(`Gig ${gig.id} must remain pending until its stage is closed.`);
   }
-  assertDate(job.lastActivity, `${job.id}.lastActivity`);
-  if (job.nextAction) {
-    if (!job.nextAction.description?.trim()) {
-      throw new DomainValidationError(`Job ${job.id} next action requires a description.`);
+  assertDate(gig.lastActivity, `${gig.id}.lastActivity`);
+  if (gig.nextAction) {
+    if (!gig.nextAction.description?.trim()) {
+      throw new DomainValidationError(`Gig ${gig.id} next action requires a description.`);
     }
-    assertDate(job.nextAction.due, `${job.id}.nextAction.due`, true);
+    assertDate(gig.nextAction.due, `${gig.id}.nextAction.due`, true);
   }
-  if (job.stage === "closed" && job.nextAction !== null) throw new DomainValidationError(`${job.id} is closed but still has a next action.`);
-  if (job.payRange && (!job.payRange.currency || !job.payRange.period)) {
-    throw new DomainValidationError(`Job ${job.id} pay range requires currency and period.`);
+  if (gig.stage === "closed" && gig.nextAction !== null) throw new DomainValidationError(`${gig.id} is closed but still has a next action.`);
+  if (gig.payRange && (!gig.payRange.currency || !gig.payRange.period)) {
+    throw new DomainValidationError(`Gig ${gig.id} pay range requires currency and period.`);
   }
-  if (job.payRange?.minimum !== null && job.payRange?.maximum !== null && job.payRange && job.payRange.minimum! > job.payRange.maximum!) throw new DomainValidationError(`${job.id} has an inverted pay range.`);
+  if (gig.payRange?.minimum !== null && gig.payRange?.maximum !== null && gig.payRange && gig.payRange.minimum! > gig.payRange.maximum!) throw new DomainValidationError(`${gig.id} has an inverted pay range.`);
 }
 
-function jobFromData(r: JobData): Job {
-  return {id:r.id,company:r.company,title:r.title,jobId:r.externalJobId,roleDirectory:`artifacts/jobs/${r.id}`,stage:r.stage as Job["stage"],outcome:r.outcome as Job["outcome"],statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextAction:r.nextActionDescription?{description:r.nextActionDescription,due:r.nextActionDue}:null,fit:{rating:r.fitRating as Job["fit"]["rating"],summary:r.fitSummary},payRange:r.payCurrency||r.payMinimum!==null||r.payMaximum!==null||r.payPeriod||r.payNotes?{currency:(r.payCurrency??"USD") as "USD",minimum:r.payMinimum,maximum:r.payMaximum,period:(r.payPeriod??"year") as "hour"|"year",notes:r.payNotes}:null,sourceUrl:r.sourceUrl,tags:JSON.parse(r.tagsJson),hasJobDescription:r.hasJobDescription,hasInterviewPrep:r.hasInterviewPrep,location:r.location,workArrangement:r.workArrangement,postedDate:r.postedDate,businessUnitTeam:r.businessUnitTeam,recruiterSource:r.recruiterSource,bonus:r.bonus,equity:r.equity,otherCompensation:r.otherCompensation};
+function gigFromData(r: GigData): Gig {
+  return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId,artifactDirectory:`artifacts/gigs/${r.id}`,stage:r.stage as Gig["stage"],outcome:r.outcome as Gig["outcome"],statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextAction:r.nextActionDescription?{description:r.nextActionDescription,due:r.nextActionDue}:null,fit:{rating:r.fitRating as Gig["fit"]["rating"],summary:r.fitSummary},payRange:r.payCurrency||r.payMinimum!==null||r.payMaximum!==null||r.payPeriod||r.payNotes?{currency:(r.payCurrency??"USD") as "USD",minimum:r.payMinimum,maximum:r.payMaximum,period:(r.payPeriod??"year") as "hour"|"year",notes:r.payNotes}:null,sourceUrl:r.sourceUrl,tags:JSON.parse(r.tagsJson),hasJobDescription:r.hasJobDescription,hasInterviewPrep:r.hasInterviewPrep,location:r.location,workArrangement:r.workArrangement,postedDate:r.postedDate,businessUnitTeam:r.businessUnitTeam,recruiterSource:r.recruiterSource,bonus:r.bonus,equity:r.equity,otherCompensation:r.otherCompensation};
 }
-function jobToData(r: JobRole): JobData {
-  return {id:r.id,company:r.company,title:r.title,externalJobId:r.jobId??null,stage:r.stage,outcome:r.outcome,statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextActionDescription:r.nextAction?.description??null,nextActionDue:r.nextAction?.due??null,fitRating:r.fit.rating,fitSummary:r.fit.summary??null,payCurrency:r.payRange?.currency??null,payMinimum:r.payRange?.minimum??null,payMaximum:r.payRange?.maximum??null,payPeriod:r.payRange?.period??null,payNotes:r.payRange?.notes??null,sourceUrl:r.sourceUrl??null,location:r.location??null,workArrangement:r.workArrangement??null,postedDate:r.postedDate??null,businessUnitTeam:r.businessUnitTeam??null,recruiterSource:r.recruiterSource??null,bonus:r.bonus??null,equity:r.equity??null,otherCompensation:r.otherCompensation??null,tagsJson:JSON.stringify(r.tags??[]),hasJobDescription:r.hasJobDescription??false,hasInterviewPrep:r.hasInterviewPrep??false};
+function gigToData(r: GigSummary): GigData {
+  return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId??null,stage:r.stage,outcome:r.outcome,statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextActionDescription:r.nextAction?.description??null,nextActionDue:r.nextAction?.due??null,fitRating:r.fit.rating,fitSummary:r.fit.summary??null,payCurrency:r.payRange?.currency??null,payMinimum:r.payRange?.minimum??null,payMaximum:r.payRange?.maximum??null,payPeriod:r.payRange?.period??null,payNotes:r.payRange?.notes??null,sourceUrl:r.sourceUrl??null,location:r.location??null,workArrangement:r.workArrangement??null,postedDate:r.postedDate??null,businessUnitTeam:r.businessUnitTeam??null,recruiterSource:r.recruiterSource??null,bonus:r.bonus??null,equity:r.equity??null,otherCompensation:r.otherCompensation??null,tagsJson:JSON.stringify(r.tags??[]),hasJobDescription:r.hasJobDescription??false,hasInterviewPrep:r.hasInterviewPrep??false};
 }
 
 function contactFromData(c: NetworkingContactData & {person:PersonData;createdAt:string;updatedAt:string}): NetworkContact {
@@ -104,32 +104,32 @@ const taskFromData=(t:TaskData&{createdAt:string;updatedAt:string}):TaskRecord=>
 const taskData=(t:TaskRecord):TaskData=>({id:t.id,title:t.title,type:t.type,status:t.status,priority:t.priority,dueDate:t.dueDate,relatedEntityType:t.relatedEntity.type,relatedEntityId:t.relatedEntity.id,relatedEntityLabel:t.relatedEntity.label,notes:t.notes,completedAt:t.completedAt});
 function validateTask(t:TaskRecord){if(!t.id||!t.title)throw new Error("Task id and title are required.");if(!taskTypes.includes(t.type)||!taskStatuses.includes(t.status)||!taskPriorities.includes(t.priority))throw new Error(`${t.id} has an invalid type, status, or priority.`);assertDate(t.dueDate,`${t.id}.dueDate`,true)}
 
-export class JobDomainService {
+export class GigDomainService {
   constructor(private p:Persistence,private artifacts:ArtifactPort,private changes:ChangeExecutor,private documents:ManagedDocumentService){}
-  private record(r:JobData){return{...jobFromData(r),documents:this.documents.summaries("job",r.id)}}
-  get(id:string){const r=this.p.jobs.get(id);return r?this.record(r):null}
-  list(){return this.p.jobs.list().map(r=>this.record(r))}
-  read(id:string):ReadResult<JobRecord>{const record=this.get(id);return record?{status:"ok",record}:{status:"not_found",id}}
-  query(input:JobQueryInput):Page<JobRecord>{
+  private record(r:GigData){return{...gigFromData(r),documents:this.documents.summaries("gig",r.id)}}
+  get(id:string){const r=this.p.gigs.get(id);return r?this.record(r):null}
+  list(){return this.p.gigs.list().map(r=>this.record(r))}
+  read(id:string):ReadResult<GigRecord>{const record=this.get(id);return record?{status:"ok",record}:{status:"not_found",id}}
+  query(input:GigQueryInput):Page<GigRecord>{
     const today=pacificDate();
     const hasFilters=hasMeaningfulFilters(input as Record<string,unknown>);
-    const stages=input.stages??(hasFilters?[...pipelineStages]:[...defaultJobStages]);
+    const stages=input.stages??(hasFilters?[...pipelineStages]:[...defaultGigStages]);
     const query=normalizedQuery(input.query);
     return page(this.list()
-      .filter(job=>stages.includes(job.stage))
-      .filter(job=>input.outcomes===undefined||input.outcomes.includes(job.outcome))
-      .filter(job=>input.fitRatings===undefined||input.fitRatings.includes(job.fit.rating))
-      .filter(job=>!input.overdueOnly||Boolean(job.nextAction?.due&&job.nextAction.due<today))
-      .filter(job=>matchesQuery(query,[job.company,job.title,job.statusSummary,job.nextAction?.description]))
+      .filter(gig=>stages.includes(gig.stage))
+      .filter(gig=>input.outcomes===undefined||input.outcomes.includes(gig.outcome))
+      .filter(gig=>input.fitRatings===undefined||input.fitRatings.includes(gig.fit.rating))
+      .filter(gig=>!input.overdueOnly||Boolean(gig.nextAction?.due&&gig.nextAction.due<today))
+      .filter(gig=>matchesQuery(query,[gig.company,gig.title,gig.statusSummary,gig.nextAction?.description]))
       .sort((a,b)=>Number(Boolean(b.nextAction?.due&&b.nextAction.due<today))-Number(Boolean(a.nextAction?.due&&a.nextAction.due<today))
         ||(a.nextAction?.due??"9999-12-31").localeCompare(b.nextAction?.due??"9999-12-31")
         ||b.lastActivity.localeCompare(a.lastActivity)||a.company.localeCompare(b.company)||a.id.localeCompare(b.id)),input)
   }
-  create(context:ChangeContext,job:JobRole,options:MutationOptions={}){const complete=jobFromData(jobToData(job));validateJob(complete);if(!options.dryRun)this.p.change(context,u=>u.jobs.create(jobToData(complete)));return{...complete,documents:[]}}
-  update(context:ChangeContext,id:string,patch:JobUpdate,options:MutationOptions={}){const validatedPatch=jobUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Job not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateJob(updated);const raw=this.p.jobs.get(id)!;const{id:_,...data}=jobToData(updated);return this.changes.execute(context,updated,options,u=>this.record(u.jobs.update(id,raw.revision,data)))}
-  touch(context:ChangeContext,id:string,input:JobTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
-  async description(id:string){const job=this.get(id);if(!job)throw new Error(`Job not found: ${id}`);return job.hasJobDescription?this.artifacts.jobDescription(id):null}
-  async prep(id:string){const job=this.get(id);if(!job)throw new Error(`Job not found: ${id}`);return job.hasInterviewPrep?this.artifacts.interviewPrep(id):[]}
+  create(context:ChangeContext,gig:GigSummary,options:MutationOptions={}){const complete=gigFromData(gigToData(gig));validateGig(complete);if(!options.dryRun)this.p.change(context,u=>u.gigs.create(gigToData(complete)));return{...complete,documents:[]}}
+  update(context:ChangeContext,id:string,patch:GigUpdate,options:MutationOptions={}){const validatedPatch=gigUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Gig not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateGig(updated);const raw=this.p.gigs.get(id)!;const{id:_,...data}=gigToData(updated);return this.changes.execute(context,updated,options,u=>this.record(u.gigs.update(id,raw.revision,data)))}
+  touch(context:ChangeContext,id:string,input:GigTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
+  async description(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasJobDescription?this.artifacts.jobDescription(id):null}
+  async prep(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasInterviewPrep?this.artifacts.interviewPrep(id):[]}
 }
 
 export class ContactDomainService {
@@ -190,10 +190,10 @@ export class TaskDomainService {
 
 export class ArtifactDomainService {
   constructor(private p:Persistence,private artifacts:ArtifactPort){}
-  verify(){return this.artifacts.verify({jobs:this.p.jobs.list({includeDeleted:true}).map(j=>({id:j.id,hasJobDescription:j.hasJobDescription,hasInterviewPrep:j.hasInterviewPrep}))})}
+  verify(){return this.artifacts.verify({gigs:this.p.gigs.list({includeDeleted:true}).map(j=>({id:j.id,hasJobDescription:j.hasJobDescription,hasInterviewPrep:j.hasInterviewPrep}))})}
   async sync(context:ChangeContext){
-    for(const job of this.p.jobs.list({includeDeleted:true})){const hasJobDescription=await this.artifacts.jobDescriptionExists(job.id),hasInterviewPrep=await this.artifacts.interviewPrepExists(job.id);if(hasJobDescription!==job.hasJobDescription||hasInterviewPrep!==job.hasInterviewPrep)this.updateJob(context,job,hasJobDescription,hasInterviewPrep)}
-    return{jobs:this.p.jobs.list({includeDeleted:true}).filter(j=>j.hasJobDescription||j.hasInterviewPrep).length}
+    for(const gig of this.p.gigs.list({includeDeleted:true})){const hasJobDescription=await this.artifacts.jobDescriptionExists(gig.id),hasInterviewPrep=await this.artifacts.interviewPrepExists(gig.id);if(hasJobDescription!==gig.hasJobDescription||hasInterviewPrep!==gig.hasInterviewPrep)this.updateGig(context,gig,hasJobDescription,hasInterviewPrep)}
+    return{gigs:this.p.gigs.list({includeDeleted:true}).filter(j=>j.hasJobDescription||j.hasInterviewPrep).length}
   }
-  private updateJob(context:ChangeContext,record:EntityRecord<JobData>,hasJobDescription:boolean,hasInterviewPrep:boolean){this.p.change({...context,summary:`Sync job artifact ${record.id}`},u=>{const patch={hasJobDescription,hasInterviewPrep};if(!record.isDeleted)return u.jobs.update(record.id,record.revision,patch);const restored=u.jobs.restore(record.id,record.revision,patch);return u.jobs.delete(record.id,restored.revision)})}
+  private updateGig(context:ChangeContext,record:EntityRecord<GigData>,hasJobDescription:boolean,hasInterviewPrep:boolean){this.p.change({...context,summary:`Sync gig artifact ${record.id}`},u=>{const patch={hasJobDescription,hasInterviewPrep};if(!record.isDeleted)return u.gigs.update(record.id,record.revision,patch);const restored=u.gigs.restore(record.id,record.revision,patch);return u.gigs.delete(record.id,restored.revision)})}
 }

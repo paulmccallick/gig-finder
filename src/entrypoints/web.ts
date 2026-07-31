@@ -7,8 +7,8 @@ import {
   logger,
   requestLogger,
 } from "../observability/logger";
-import { loadJobSearchProfile } from "../agent/profile-loader";
-import { openLocalApplication, resolveJobSearchContext } from "../sqlite/src";
+import { loadCandidateProfile } from "../agent/profile-loader";
+import { openLocalApplication, resolveGigFinderContext } from "../data/src";
 import { registerDevelopmentTelemetry } from "../observability/devtools";
 import { managedDocumentContentLimit, StagedDocumentService } from "../core/src";
 import { LocalDocumentConverter } from "../web/document-conversion";
@@ -16,12 +16,12 @@ import { createDocumentUploadHandler } from "../web/document-upload-handler";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const devToolsEnabled = await registerDevelopmentTelemetry();
-const context = resolveJobSearchContext(repoRoot);
+const context = resolveGigFinderContext(repoRoot);
 const local = openLocalApplication({
   database: context.database,
   artifacts: context.artifacts,
 });
-const jobSearch = local.application;
+const gigFinder = local.application;
 const port = Number(process.env.API_PORT ?? 3001);
 const positiveInteger = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
@@ -44,28 +44,28 @@ const uploadHandler = createDocumentUploadHandler(
   uploadLimits.maxBytes,
 );
 const agentHandler = createAgentHandler(
-  loadJobSearchProfile(context.profile),
+  loadCandidateProfile(context.profile),
   undefined,
   logger,
   {
-    jobs: jobSearch.jobs,
-    networking: jobSearch.networking,
-    people: jobSearch.people,
-    jobPeople: jobSearch.jobPeople,
-    tasks: jobSearch.tasks,
-    meetings: jobSearch.meetings,
-    documents: jobSearch.documentReader,
+    gigs: gigFinder.gigs,
+    networking: gigFinder.networking,
+    people: gigFinder.people,
+    gigPeople: gigFinder.gigPeople,
+    tasks: gigFinder.tasks,
+    meetings: gigFinder.meetings,
+    documents: gigFinder.documentReader,
   },
-  jobSearch,
+  gigFinder,
   context.actor,
-  { contextSearch: jobSearch.contextSearch, stagedDocuments },
+  { contextSearch: gigFinder.contextSearch, stagedDocuments },
 );
 const server = Bun.serve({
   port,
   hostname: "127.0.0.1",
   maxRequestBodySize: uploadLimits.maxBytes + 1_000_000,
   fetch: createWebHandler({
-    jobSearch,
+    gigFinder,
     agentHandler,
     uploadHandler,
     discardStagedDocument: reference => stagedDocuments.discard(reference),
@@ -90,4 +90,4 @@ logger.info({
   logFile: activeLogFile,
   logLevel: configuredLogLevel,
   aiSdkDevTools: devToolsEnabled,
-}, "Read-only jobs API listening");
+}, "Read-only gigs API listening");

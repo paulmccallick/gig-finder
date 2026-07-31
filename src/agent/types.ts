@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const jobSearchProfileSchema = z.object({
+export const candidateProfileSchema = z.object({
   version: z.string().min(1),
   candidate: z.object({
     displayName: z.string().min(1),
@@ -24,12 +24,12 @@ export const jobSearchProfileSchema = z.object({
   decisionRules: z.array(z.string().min(1)),
 });
 
-export type JobSearchProfile = z.infer<typeof jobSearchProfileSchema>;
+export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 
-export interface JobSearchAgentOptions {
-  profile: JobSearchProfile;
+export interface GigFinderAgentOptions {
+  profile: CandidateProfile;
   model: import("ai").LanguageModel;
   logger?: import("pino").Logger;
-  tools?: import("./job-search-tools").JobSearchTools;
+  tools?: import("./gig-finder-tools").GigFinderTools;
   canUpdateRecords?: boolean;
 }

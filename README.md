@@ -1,7 +1,7 @@
-# Job Search Agent
+# GigFinder
 
-A local-first job-search tracker with an interactive dashboard, CLI, and AI
-agent that can read current context and update existing jobs and contacts.
+A local-first opportunity tracker with an interactive dashboard, CLI, and AI
+agent that can read current context and update existing gigs and contacts.
 
 ## Requirements
 

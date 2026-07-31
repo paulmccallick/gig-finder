@@ -58,7 +58,7 @@ export async function createCodexLanguageModel(
     headers.set("Authorization", `Bearer ${credential.accessToken}`);
     headers.set("chatgpt-account-id", credential.accountId);
     headers.set("OpenAI-Beta", "responses=experimental");
-    headers.set("originator", "job-search-agent");
+    headers.set("originator", "gig-finder-agent");
     headers.set("accept", "text/event-stream");
     headers.set("content-type", "application/json");
     return fetch(input, { ...init, headers });

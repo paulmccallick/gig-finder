@@ -1,12 +1,12 @@
 import type { ManagedDocumentService, ManagedDocumentType } from "./documents";
-import type { JobRecord } from "./jobs";
+import type { GigRecord } from "./gigs";
 import type { ReadResult } from "./queries";
 
 export type ReadableDocumentType = ManagedDocumentType | "contact_profile";
 
 interface DocumentReferenceBase {
   reference: string;
-  entityType: "job" | "contact";
+  entityType: "gig" | "contact";
   entityId: string;
   documentType: ReadableDocumentType;
   title: string | null;
@@ -27,13 +27,13 @@ export type ReadableDocument = DocumentReference & {
 export const readableDocumentContentLimit = 50_000;
 
 export interface DocumentReader {
-  list(entityType: "job" | "contact", entityId: string): Promise<DocumentReference[]>;
+  list(entityType: "gig" | "contact", entityId: string): Promise<DocumentReference[]>;
   get(reference: string): Promise<ReadResult<ReadableDocument>>;
 }
 
 export interface DocumentReaderServices {
-  jobs: {
-    get(id: string): JobRecord | null;
+  gigs: {
+    get(id: string): GigRecord | null;
     description(id: string): Promise<string | null>;
     prep(id: string): Promise<Array<{ name: string; content: string }>>;
   };
@@ -54,7 +54,7 @@ export class ApplicationDocumentReader implements DocumentReader {
   constructor(private readonly services: DocumentReaderServices) {}
 
   async list(
-    entityType: "job" | "contact",
+    entityType: "gig" | "contact",
     entityId: string,
   ): Promise<DocumentReference[]> {
     if (entityType === "contact") {
@@ -72,25 +72,25 @@ export class ApplicationDocumentReader implements DocumentReader {
         }));
     }
 
-    const job = this.services.jobs.get(entityId);
-    if (!job) return [];
+    const gig = this.services.gigs.get(entityId);
+    if (!gig) return [];
     const references: DocumentReference[] = [];
-    if (job.hasJobDescription) {
+    if (gig.hasJobDescription) {
       references.push({
-        reference: `job:${encoded(entityId)}:job_description`,
+        reference: `gig:${encoded(entityId)}:job_description`,
         entityType,
         entityId,
         documentType: "job_description",
         title: "Job description",
-        displayName: "Job Description",
+        displayName: "Gig Description",
         storage: "artifact",
         currentVersion: null,
       });
     }
-    if (job.hasInterviewPrep) {
-      for (const document of await this.services.jobs.prep(entityId)) {
+    if (gig.hasInterviewPrep) {
+      for (const document of await this.services.gigs.prep(entityId)) {
         references.push({
-          reference: `job:${encoded(entityId)}:interview_prep:${encoded(document.name)}`,
+          reference: `gig:${encoded(entityId)}:interview_prep:${encoded(document.name)}`,
           entityType,
           entityId,
           documentType: "interview_prep",
@@ -101,7 +101,7 @@ export class ApplicationDocumentReader implements DocumentReader {
         });
       }
     }
-    for (const document of this.services.managed?.list("job", entityId) ?? []) {
+    for (const document of this.services.managed?.list("gig", entityId) ?? []) {
       references.push({
         reference: document.id,
         entityType,
@@ -125,7 +125,7 @@ export class ApplicationDocumentReader implements DocumentReader {
             status: "ok",
             record: documentRecord({
               reference: managed.id,
-              entityType: primaryLink.entityType === "job" ? "job" : "contact",
+              entityType: primaryLink.entityType === "gig" ? "gig" : "contact",
               entityId: primaryLink.entityId,
               documentType: managed.documentType,
               title: managed.title,
@@ -141,21 +141,21 @@ export class ApplicationDocumentReader implements DocumentReader {
     const entityType = parts[0];
     const entityId = parts[1] ? decoded(parts[1]) : null;
     const documentType = parts[2];
-    if (!entityId || (entityType !== "job" && entityType !== "contact")) {
+    if (!entityId || (entityType !== "gig" && entityType !== "contact")) {
       return { status: "not_found", id: reference };
     }
     const match = (await this.list(entityType, entityId))
       .find(item => item.reference === reference);
     if (!match) return { status: "not_found", id: reference };
     if (documentType === "job_description") {
-      const content = await this.services.jobs.description(entityId);
+      const content = await this.services.gigs.description(entityId);
       return content === null
         ? { status: "not_found", id: reference }
         : { status: "ok", record: documentRecord(match, content) };
     }
     const title = parts[3] ? decoded(parts[3]) : null;
     const document = title
-      ? (await this.services.jobs.prep(entityId)).find(item => item.name === title)
+      ? (await this.services.gigs.prep(entityId)).find(item => item.name === title)
       : null;
     return document
       ? { status: "ok", record: documentRecord(match, document.content) }

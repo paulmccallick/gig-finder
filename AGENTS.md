@@ -4,7 +4,7 @@ Read the relevant files in `docs/product/` and `docs/architecture/` before
 changing behavior or contracts. Update them in the same change. If code and
 documentation conflict, stop and flag it.
 
-The backlog is the [Job Search Agent GitHub
+The backlog is the [GigFinder GitHub
 Project](https://github.com/users/paulmccallick/projects/5).
 
 ## GitHub workflow

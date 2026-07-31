@@ -2,12 +2,14 @@ import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   dialect: "sqlite",
-  schema: "./src/sqlite/src/schema.ts",
-  out: "./src/sqlite/drizzle",
+  schema: "./src/data/src/schema.ts",
+  out: "./src/data/drizzle",
   dbCredentials: {
-    url: process.env.JOB_SEARCH_DB
+    url: process.env.GIG_FINDER_DB
+      ?? process.env.GIG_FINDER_DATABASE
+      ?? process.env.JOB_SEARCH_DB
       ?? process.env.JOB_SEARCH_DATABASE
-      ?? "./context/data/job-search.sqlite",
+      ?? "./context/data/gig-finder.sqlite",
   },
   strict: true,
   verbose: true,

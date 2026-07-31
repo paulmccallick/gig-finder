@@ -4,8 +4,8 @@ import {
   type ModelMessage,
 } from "ai";
 import { logger as defaultLogger } from "../observability/logger";
-import { buildJobSearchInstructions } from "./system-prompt";
-import type { JobSearchAgentOptions } from "./types";
+import { buildGigFinderInstructions } from "./system-prompt";
+import type { GigFinderAgentOptions } from "./types";
 
 function textCharacters(messages: ModelMessage[]) {
   return messages.reduce((total, message) => {
@@ -16,8 +16,8 @@ function textCharacters(messages: ModelMessage[]) {
   }, 0);
 }
 
-export class JobSearchAgent {
-  constructor(private readonly options: JobSearchAgentOptions) {}
+export class GigFinderAgent {
+  constructor(private readonly options: GigFinderAgentOptions) {}
 
   respond(messages: ModelMessage[], signal?: AbortSignal) {
     const startedAt = performance.now();
@@ -43,7 +43,7 @@ export class JobSearchAgent {
     log.debug(interaction, "Starting model interaction");
     const result = streamText({
       model,
-      instructions: buildJobSearchInstructions(this.options.profile, {
+      instructions: buildGigFinderInstructions(this.options.profile, {
         liveRecords: this.options.tools !== undefined,
         canUpdateRecords: this.options.canUpdateRecords,
       }),

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { archiveGroup, compareRoles, filterRoles, formatPay, isOverdue, todayInPacific } from "./board";
-import type { JobRole } from "../../../core/src/jobs";
+import { archiveGroup, compareGigs, filterGigs, formatPay, isOverdue, todayInPacific } from "./board";
+import type { GigSummary } from "../../../core/src/gigs";
 
-const role = (overrides: Partial<JobRole> = {}): JobRole => ({
-  id: "test-role",
+const gig = (overrides: Partial<GigSummary> = {}): GigSummary => ({
+  id: "test-gig",
   company: "Acme",
   title: "VP Engineering",
-  jobId: null,
-  roleDirectory: null,
+  externalJobId: null,
+  artifactDirectory: null,
   stage: "identified",
   outcome: "pending",
   statusSummary: "Promising platform role",
@@ -26,36 +26,36 @@ describe("board domain", () => {
   });
 
   test("marks only active past-due actions overdue", () => {
-    expect(isOverdue(role(), "2026-07-14")).toBe(true);
-    expect(isOverdue(role({ stage: "closed" }), "2026-07-14")).toBe(false);
-    expect(isOverdue(role({ nextAction: null }), "2026-07-14")).toBe(false);
+    expect(isOverdue(gig(), "2026-07-14")).toBe(true);
+    expect(isOverdue(gig({ stage: "closed" }), "2026-07-14")).toBe(false);
+    expect(isOverdue(gig({ nextAction: null }), "2026-07-14")).toBe(false);
   });
 
   test("separates active and archive records", () => {
-    const roles = [role(), role({ id: "closed", stage: "closed", outcome: "rejected" })];
-    expect(filterRoles(roles, "active", { search: "", stage: "all", fit: "all", overdueOnly: false })).toHaveLength(1);
-    expect(filterRoles(roles, "archive", { search: "", stage: "all", fit: "all", overdueOnly: false })).toHaveLength(1);
+    const gigs = [gig(), gig({ id: "closed", stage: "closed", outcome: "rejected" })];
+    expect(filterGigs(gigs, "active", { search: "", stage: "all", fit: "all", overdueOnly: false })).toHaveLength(1);
+    expect(filterGigs(gigs, "archive", { search: "", stage: "all", fit: "all", overdueOnly: false })).toHaveLength(1);
   });
 
   test("combines search, stage, fit, and overdue filters", () => {
-    const roles = [role(), role({ id: "other", company: "Beta", stage: "applied", fit: { rating: "stretch", summary: null } })];
-    const result = filterRoles(roles, "active", { search: "acme", stage: "identified", fit: "good", overdueOnly: true }, "2026-07-14");
-    expect(result.map((item) => item.id)).toEqual(["test-role"]);
+    const gigs = [gig(), gig({ id: "other", company: "Beta", stage: "applied", fit: { rating: "stretch", summary: null } })];
+    const result = filterGigs(gigs, "active", { search: "acme", stage: "identified", fit: "good", overdueOnly: true }, "2026-07-14");
+    expect(result.map((item) => item.id)).toEqual(["test-gig"]);
   });
 
   test("sorts overdue records before newer records", () => {
-    const urgent = role({ id: "urgent" });
-    const current = role({ id: "current", lastActivity: "2026-07-14", nextAction: { description: "Later", due: "2026-07-20" } });
-    expect([current, urgent].sort((a, b) => compareRoles(a, b, "2026-07-14"))[0]?.id).toBe("urgent");
+    const urgent = gig({ id: "urgent" });
+    const current = gig({ id: "current", lastActivity: "2026-07-14", nextAction: { description: "Later", due: "2026-07-20" } });
+    expect([current, urgent].sort((a, b) => compareGigs(a, b, "2026-07-14"))[0]?.id).toBe("urgent");
   });
 
   test("groups less-common outcomes under other", () => {
-    expect(archiveGroup(role({ stage: "closed", outcome: "withdrawn" }))).toBe("other");
-    expect(archiveGroup(role({ stage: "closed", outcome: "role_pulled" }))).toBe("role_pulled");
+    expect(archiveGroup(gig({ stage: "closed", outcome: "withdrawn" }))).toBe("other");
+    expect(archiveGroup(gig({ stage: "closed", outcome: "role_pulled" }))).toBe("role_pulled");
   });
 
   test("formats annual compensation and handles unknown pay", () => {
-    expect(formatPay(role())).toBeNull();
-    expect(formatPay(role({ payRange: { currency: "USD", minimum: 200000, maximum: 300000, period: "year", notes: null } }))).toBe("$200K–$300K/yr");
+    expect(formatPay(gig())).toBeNull();
+    expect(formatPay(gig({ payRange: { currency: "USD", minimum: 200000, maximum: 300000, period: "year", notes: null } }))).toBe("$200K–$300K/yr");
   });
 });

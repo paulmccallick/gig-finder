@@ -103,7 +103,7 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
     entityType: DocumentLinkEntityType,
     entityId: string,
   ): ManagedDocumentRecord[] {
-    const targetColumn = entityType === "job" ? "job_id" : "person_id";
+    const targetColumn = entityType === "gig" ? "gig_id" : "person_id";
     const rows = this.database.query(
       `${selectCurrent}
        JOIN managed_document_links l ON l.document_id = d.id
@@ -123,11 +123,11 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
 
   private links(documentId: string): DocumentLink[] {
     const rows = this.database.query(
-      `SELECT job_id, person_id FROM managed_document_links
-       WHERE document_id = ? ORDER BY person_id, job_id`,
-    ).all(documentId) as Array<{ job_id: string | null; person_id: string | null }>;
-    return rows.map(row => row.job_id
-      ? { entityType: "job" as const, entityId: row.job_id }
+      `SELECT gig_id, person_id FROM managed_document_links
+       WHERE document_id = ? ORDER BY person_id, gig_id`,
+    ).all(documentId) as Array<{ gig_id: string | null; person_id: string | null }>;
+    return rows.map(row => row.gig_id
+      ? { entityType: "gig" as const, entityId: row.gig_id }
       : { entityType: "person" as const, entityId: row.person_id! });
   }
 }
@@ -172,11 +172,11 @@ export class SqliteDocumentWriteRepository
     );
     for (const link of input.document.links) {
       this.database.query(
-        `INSERT INTO managed_document_links (document_id, job_id, person_id)
+        `INSERT INTO managed_document_links (document_id, gig_id, person_id)
          VALUES (?, ?, ?)`,
       ).run(
         input.document.id,
-        link.entityType === "job" ? link.entityId : null,
+        link.entityType === "gig" ? link.entityId : null,
         link.entityType === "person" ? link.entityId : null,
       );
     }

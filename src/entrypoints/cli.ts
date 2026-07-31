@@ -1,6 +1,6 @@
 import path from "node:path";
 import { cliUsage, runCli } from "../cli/src/cli";
-import { openLocalApplication, resolveJobSearchContext } from "../sqlite/src";
+import { openLocalApplication, resolveGigFinderContext } from "../data/src";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const args = process.argv.slice(2);
@@ -10,7 +10,7 @@ if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
   process.exit(0);
 }
 
-const context = resolveJobSearchContext(repoRoot);
+const context = resolveGigFinderContext(repoRoot);
 const local = openLocalApplication({database:context.database,artifacts:context.artifacts});
 
 try {

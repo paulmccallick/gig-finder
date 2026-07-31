@@ -6,14 +6,14 @@ import {
 } from "ai";
 import type { Logger } from "pino";
 import { createCodexLanguageModel } from "../agent/codex-provider";
-import { JobSearchAgent } from "../agent/job-search-agent";
-import type { JobSearchProfile } from "../agent/types";
+import { GigFinderAgent } from "../agent/gig-finder-agent";
+import type { CandidateProfile } from "../agent/types";
 import {
-  createJobSearchTools,
-  type JobSearchReadCapabilities,
-  type JobSearchToolExtensions,
-} from "../agent/job-search-tools";
-import type { JobSearchMutationCapabilities } from "../agent/job-search-tools";
+  createGigFinderTools,
+  type GigFinderReadCapabilities,
+  type GigFinderToolExtensions,
+} from "../agent/gig-finder-tools";
+import type { GigFinderMutationCapabilities } from "../agent/gig-finder-tools";
 import { logger as defaultLogger } from "../observability/logger";
 
 type ModelFactory = () => Promise<LanguageModel>;
@@ -88,17 +88,17 @@ export function safeAgentError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (/codex authentication/i.test(message)) return message;
   if (/unsupported codex model/i.test(message)) return message;
-  return "The JobSearchAgent could not complete that response. Please try again.";
+  return "The GigFinderAgent could not complete that response. Please try again.";
 }
 
 export function createAgentHandler(
-  profile: JobSearchProfile,
+  profile: CandidateProfile,
   modelFactory: ModelFactory = createCodexLanguageModel,
   logger: Logger = defaultLogger,
-  reads?: JobSearchReadCapabilities,
-  mutations?: JobSearchMutationCapabilities,
-  actor = "JobSearchAgent",
-  toolExtensions?: JobSearchToolExtensions,
+  reads?: GigFinderReadCapabilities,
+  mutations?: GigFinderMutationCapabilities,
+  actor = "GigFinderAgent",
+  toolExtensions?: GigFinderToolExtensions,
 ) {
   return async (request: Request) => {
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -122,12 +122,12 @@ export function createAgentHandler(
         err: request.signal.reason,
       }, "Agent request signal aborted");
     }, { once: true });
-    const agent = new JobSearchAgent({
+    const agent = new GigFinderAgent({
       profile,
       model: await modelFactory(),
       logger: agentLogger,
       tools: reads
-        ? createJobSearchTools(
+        ? createGigFinderTools(
           reads,
           agentLogger,
           mutations,

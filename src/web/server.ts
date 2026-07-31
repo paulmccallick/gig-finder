@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { JobSearchApplication } from "../core/src/application";
+import type { GigFinderApplication } from "../core/src/application";
 import { toWebError } from "./error-response";
 
 const agentIdleTimeoutSeconds = 120;
@@ -7,7 +7,7 @@ const documentUploadTimeoutSeconds = 60;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 
 export interface WebHandlerDependencies {
-  jobSearch: JobSearchApplication;
+  gigFinder: GigFinderApplication;
   agentHandler(request: Request): Promise<Response>;
   uploadHandler(request: Request): Promise<Response>;
   discardStagedDocument(reference: string): boolean;
@@ -18,7 +18,7 @@ interface RequestTimeoutController {
   timeout(request: Request, seconds: number): void;
 }
 
-export function createWebHandler({jobSearch,agentHandler,uploadHandler,discardStagedDocument,requestLogger}:WebHandlerDependencies) {
+export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardStagedDocument,requestLogger}:WebHandlerDependencies) {
   return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -65,17 +65,17 @@ export function createWebHandler({jobSearch,agentHandler,uploadHandler,discardSt
           : json({ error: "Method not allowed" }, 405);
       } else if (request.method !== "GET") {
         response = json({ error: "Read-only API" }, 405);
-      } else if (url.pathname === "/api/jobs") {
-        response = json(jobSearch.jobs.list());
+      } else if (url.pathname === "/api/gigs") {
+        response = json(gigFinder.gigs.list());
       } else if (url.pathname === "/api/network") {
-        response = json(jobSearch.networking.list());
+        response = json(gigFinder.networking.list());
       } else if (url.pathname === "/api/tasks") {
-        response = json(jobSearch.tasks.list());
+        response = json(gigFinder.tasks.list());
       } else {
-        const match = url.pathname.match(/^\/api\/jobs\/([^/]+)\/artifacts$/);
+        const match = url.pathname.match(/^\/api\/gigs\/([^/]+)\/artifacts$/);
         if (match) {
-          const id=decodeURIComponent(match[1]??"");const role=jobSearch.jobs.get(id);
-          response = role?json({jobDescription:await jobSearch.jobs.description(id),sourceUrl:role.sourceUrl,roleDirectory:`artifacts/jobs/${id}/`}):json({error:"Role not found"},404);
+          const id=decodeURIComponent(match[1]??"");const gig=gigFinder.gigs.get(id);
+          response = gig?json({jobDescription:await gigFinder.gigs.description(id),sourceUrl:gig.sourceUrl,artifactDirectory:`artifacts/gigs/${id}/`}):json({error:"Gig not found"},404);
         } else {
           response = json({ error: "Not found" }, 404);
         }

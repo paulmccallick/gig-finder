@@ -1,5 +1,5 @@
 import type { AuditQuery } from "./services";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, JobData, JobPersonData, MeetingData, MeetingParticipantData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "./models";
+import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, MeetingData, MeetingParticipantData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "./models";
 import type {
   DocumentLinkEntityType,
   ManagedDocumentData,
@@ -28,8 +28,8 @@ export interface DocumentWriteRepository extends DocumentReadRepository {
     changeSummary: string;
   }): ManagedDocumentRecord;
 }
-export interface UnitOfWork{jobs:WriteRepository<JobData>;people:WriteRepository<PersonData>;networking:WriteRepository<NetworkingContactData>;jobPeople:WriteRepository<JobPersonData>;tasks:WriteRepository<TaskData>;meetings:WriteRepository<MeetingData>;meetingParticipants:WriteRepository<MeetingParticipantData>;documents:DocumentWriteRepository;recordEvent(input:BusinessEventInput):string}
-export interface Persistence{jobs:ReadRepository<JobData>;people:ReadRepository<PersonData>;networking:ReadRepository<NetworkingContactData>;jobPeople:ReadRepository<JobPersonData>;tasks:ReadRepository<TaskData>;meetings:ReadRepository<MeetingData>;meetingParticipants:ReadRepository<MeetingParticipantData>;documents:DocumentReadRepository;change<T>(context:ChangeContext,action:(transaction:UnitOfWork)=>T):ChangeResult<T>;revertChange(context:ChangeContext,targetChangeId:string):ChangeResult<RevertedRecord[]>}
+export interface UnitOfWork{gigs:WriteRepository<GigData>;people:WriteRepository<PersonData>;networking:WriteRepository<NetworkingContactData>;gigPeople:WriteRepository<GigPersonData>;tasks:WriteRepository<TaskData>;meetings:WriteRepository<MeetingData>;meetingParticipants:WriteRepository<MeetingParticipantData>;documents:DocumentWriteRepository;recordEvent(input:BusinessEventInput):string}
+export interface Persistence{gigs:ReadRepository<GigData>;people:ReadRepository<PersonData>;networking:ReadRepository<NetworkingContactData>;gigPeople:ReadRepository<GigPersonData>;tasks:ReadRepository<TaskData>;meetings:ReadRepository<MeetingData>;meetingParticipants:ReadRepository<MeetingParticipantData>;documents:DocumentReadRepository;change<T>(context:ChangeContext,action:(transaction:UnitOfWork)=>T):ChangeResult<T>;revertChange(context:ChangeContext,targetChangeId:string):ChangeResult<RevertedRecord[]>}
 export interface AuditPort{query(query:AuditQuery):Record<string,unknown>|Record<string,unknown>[]|null}
-export interface ArtifactPort{jobDescription(jobId:string):Promise<string>;interviewPrep(jobId:string):Promise<{name:string;content:string}[]>;jobDescriptionExists(jobId:string):Promise<boolean>;interviewPrepExists(jobId:string):Promise<boolean>;verify(expectations:{jobs:{id:string;hasJobDescription:boolean;hasInterviewPrep:boolean}[]}):Promise<ArtifactVerification>}
+export interface ArtifactPort{jobDescription(gigId:string):Promise<string>;interviewPrep(gigId:string):Promise<{name:string;content:string}[]>;jobDescriptionExists(gigId:string):Promise<boolean>;interviewPrepExists(gigId:string):Promise<boolean>;verify(expectations:{gigs:{id:string;hasJobDescription:boolean;hasInterviewPrep:boolean}[]}):Promise<ArtifactVerification>}
 export interface ArtifactVerification{ok:boolean;errors:string[];unregistered:string[]}

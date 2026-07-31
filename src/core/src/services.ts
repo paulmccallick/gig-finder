@@ -1,9 +1,9 @@
 import type { AuditPort, Persistence } from "./ports";
-import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, JobPersonData, MeetingData, MeetingParticipantData, Person, PersonData } from "./models";
+import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, GigPersonData, MeetingData, MeetingParticipantData, Person, PersonData } from "./models";
 import {
-  jobPersonRelationships,
-  type JobPersonRelationship,
-  type JobPersonRelationshipType,
+  gigPersonRelationships,
+  type GigPersonRelationship,
+  type GigPersonRelationshipType,
 } from "./people";
 import {
   meetingStatuses,
@@ -17,14 +17,14 @@ import {
   matchesQuery,
   normalizedQuery,
   page,
-  type JobPersonRelationshipQueryInput,
+  type GigPersonRelationshipQueryInput,
   type MeetingQueryInput,
   type Page,
   type PageResult,
   type PeopleQueryInput,
   type ReadResult,
 } from "./queries";
-import type { JobRecord } from "./jobs";
+import type { GigRecord } from "./gigs";
 import { DomainValidationError } from "./errors";
 
 export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
@@ -80,7 +80,7 @@ export class PeopleService {
 export class MeetingService {
   constructor(
     private readonly persistence: Persistence,
-    private readonly jobs: JobReadService,
+    private readonly gigs: GigReadService,
     private readonly people: PeopleService,
   ) {}
 
@@ -124,8 +124,8 @@ export class MeetingService {
     const filtered = records
       .filter(({ record }) => input.personIds === undefined
         || record.personIds.some(personId => input.personIds?.includes(personId)))
-      .filter(({ record }) => input.jobIds === undefined
-        || (record.jobId !== null && input.jobIds.includes(record.jobId)))
+      .filter(({ record }) => input.gigIds === undefined
+        || (record.gigId !== null && input.gigIds.includes(record.gigId)))
       .filter(({ record }) => input.statuses === undefined || input.statuses.includes(record.status))
       .filter(({ startsAt }) => startsFrom === undefined || startsAt >= startsFrom)
       .filter(({ startsAt }) => startsThrough === undefined || startsAt <= startsThrough)
@@ -136,7 +136,7 @@ export class MeetingService {
   }
 
   create(context: ChangeContext, meeting: Meeting): MeetingRecord {
-    validateMeeting(meeting, this.jobs, this.people);
+    validateMeeting(meeting, this.gigs, this.people);
     const { personIds, ...data } = meeting;
     this.persistence.change(context, transaction => {
       transaction.meetings.create(data);
@@ -159,8 +159,8 @@ export class MeetingService {
     if (endsAt < startsAt) {
       return consistencyFailure(raw.id, `Meeting ${raw.id} ends before it starts.`);
     }
-    if (raw.jobId !== null && this.jobs.read(raw.jobId).status !== "ok") {
-      return consistencyFailure(raw.id, `Meeting ${raw.id} references missing job ${raw.jobId}.`);
+    if (raw.gigId !== null && this.gigs.read(raw.gigId).status !== "ok") {
+      return consistencyFailure(raw.id, `Meeting ${raw.id} references missing gig ${raw.gigId}.`);
     }
     const participants = this.persistence.meetingParticipants.list()
       .filter(participant => participant.meetingId === raw.id)
@@ -191,54 +191,54 @@ type ComposeResult<T> =
   | { status: "ok"; record: T }
   | { status: "consistency_error"; id: string; message: string };
 export class EventService{constructor(private readonly persistence:Persistence){}record(context:ChangeContext,event:BusinessEventInput){return this.persistence.change(context,u=>u.recordEvent(event)).value}}
-interface JobReadService {
-  read(id: string): ReadResult<JobRecord>;
+interface GigReadService {
+  read(id: string): ReadResult<GigRecord>;
 }
 
-export class JobPeopleService {
+export class GigPeopleService {
   constructor(
     private readonly persistence: Persistence,
-    private readonly jobs: JobReadService,
+    private readonly gigs: GigReadService,
     private readonly people: PeopleService,
   ) {}
 
-  get(id: string): JobPersonRelationship | null {
-    const raw = this.persistence.jobPeople.get(id);
+  get(id: string): GigPersonRelationship | null {
+    const raw = this.persistence.gigPeople.get(id);
     return raw ? relationshipFromData(raw) : null;
   }
 
-  list(): JobPersonRelationship[] {
-    return this.persistence.jobPeople.list().map(relationshipFromData);
+  list(): GigPersonRelationship[] {
+    return this.persistence.gigPeople.list().map(relationshipFromData);
   }
 
-  create(context: ChangeContext, record: JobPersonData): JobPersonRelationship {
+  create(context: ChangeContext, record: GigPersonData): GigPersonRelationship {
     const relationship = relationshipFromData(record);
     return relationshipFromData(this.persistence.change(
       context,
-      transaction => transaction.jobPeople.create(relationshipToData(relationship)),
+      transaction => transaction.gigPeople.create(relationshipToData(relationship)),
     ).value);
   }
 
-  read(id: string): ReadResult<JobPersonRelationship> {
-    const raw = this.persistence.jobPeople.get(id);
+  read(id: string): ReadResult<GigPersonRelationship> {
+    const raw = this.persistence.gigPeople.get(id);
     if (!raw) return { status: "not_found", id };
     const relationship = parseRelationship(raw);
     if (!relationship) return unsupportedRelationship(raw);
     return this.validateLinks(relationship) ?? { status: "ok", record: relationship };
   }
 
-  query(input: JobPersonRelationshipQueryInput): PageResult<JobPersonRelationship> {
-    const relationships: JobPersonRelationship[] = [];
-    for (const raw of this.persistence.jobPeople.list()) {
+  query(input: GigPersonRelationshipQueryInput): PageResult<GigPersonRelationship> {
+    const relationships: GigPersonRelationship[] = [];
+    for (const raw of this.persistence.gigPeople.list()) {
       const relationship = parseRelationship(raw);
       if (!relationship) return unsupportedRelationship(raw);
       relationships.push(relationship);
     }
     const filtered = relationships
-      .filter(record => input.jobIds === undefined || input.jobIds.includes(record.jobId))
+      .filter(record => input.gigIds === undefined || input.gigIds.includes(record.gigId))
       .filter(record => input.personIds === undefined || input.personIds.includes(record.personId))
       .filter(record => input.relationships === undefined || input.relationships.includes(record.relationship))
-      .sort((a, b) => a.jobId.localeCompare(b.jobId)
+      .sort((a, b) => a.gigId.localeCompare(b.gigId)
         || a.personId.localeCompare(b.personId)
         || a.relationship.localeCompare(b.relationship)
         || a.id.localeCompare(b.id));
@@ -249,10 +249,10 @@ export class JobPeopleService {
     return { status: "ok", ...page(filtered, input) };
   }
 
-  peopleForJob(jobId: string, input: PeopleQueryInput = {}): ReadResult<Page<Person>> {
-    const job = this.jobs.read(jobId);
-    if (job.status !== "ok") return job;
-    const related = this.query({ jobIds: [jobId], offset: 0, limit: 50 });
+  peopleForGig(gigId: string, input: PeopleQueryInput = {}): ReadResult<Page<Person>> {
+    const gig = this.gigs.read(gigId);
+    if (gig.status !== "ok") return gig;
+    const related = this.query({ gigIds: [gigId], offset: 0, limit: 50 });
     if (related.status !== "ok") return related;
     const people: Person[] = [];
     for (const relationship of related.items) {
@@ -277,26 +277,26 @@ export class JobPeopleService {
     };
   }
 
-  jobsForPerson(personId: string, input: { offset?: number; limit?: number } = {}): ReadResult<Page<JobRecord>> {
+  gigsForPerson(personId: string, input: { offset?: number; limit?: number } = {}): ReadResult<Page<GigRecord>> {
     const person = this.people.read(personId);
     if (person.status !== "ok") return person;
     const related = this.query({ personIds: [personId], offset: 0, limit: 50 });
     if (related.status !== "ok") return related;
-    const jobs: JobRecord[] = [];
+    const gigs: GigRecord[] = [];
     for (const relationship of related.items) {
-      const job = this.jobs.read(relationship.jobId);
-      if (job.status !== "ok") {
+      const gig = this.gigs.read(relationship.gigId);
+      if (gig.status !== "ok") {
         return consistencyFailure(
           relationship.id,
-          `Relationship ${relationship.id} references missing job ${relationship.jobId}.`,
+          `Relationship ${relationship.id} references missing gig ${relationship.gigId}.`,
         );
       }
-      jobs.push(job.record);
+      gigs.push(gig.record);
     }
     return {
       status: "ok",
       record: page(
-        jobs.sort((a, b) => a.company.localeCompare(b.company)
+        gigs.sort((a, b) => a.company.localeCompare(b.company)
           || a.title.localeCompare(b.title)
           || a.id.localeCompare(b.id)),
         input,
@@ -305,12 +305,12 @@ export class JobPeopleService {
   }
 
   private validateLinks(
-    relationship: JobPersonRelationship,
+    relationship: GigPersonRelationship,
   ): Extract<ReadResult<never>, { status: "consistency_error" }> | null {
-    if (this.jobs.read(relationship.jobId).status !== "ok") {
+    if (this.gigs.read(relationship.gigId).status !== "ok") {
       return consistencyFailure(
         relationship.id,
-        `Relationship ${relationship.id} references missing job ${relationship.jobId}.`,
+        `Relationship ${relationship.id} references missing gig ${relationship.gigId}.`,
       );
     }
     if (this.people.read(relationship.personId).status !== "ok") {
@@ -332,21 +332,21 @@ const personFromData = (person: PersonData): Person => ({
   connectedOn: person.connectedOn,
 });
 
-function parseRelationship(record: JobPersonData): JobPersonRelationship | null {
-  if (!isJobPersonRelationship(record.relationship)) return null;
+function parseRelationship(record: GigPersonData): GigPersonRelationship | null {
+  if (!isGigPersonRelationship(record.relationship)) return null;
   return {
     id: record.id,
-    jobId: record.jobId,
+    gigId: record.gigId,
     personId: record.personId,
     relationship: record.relationship,
     notes: record.notes,
   };
 }
 
-const isJobPersonRelationship = (
+const isGigPersonRelationship = (
   value: string,
-): value is JobPersonRelationshipType =>
-  jobPersonRelationships.some(relationship => relationship === value);
+): value is GigPersonRelationshipType =>
+  gigPersonRelationships.some(relationship => relationship === value);
 
 const isMeetingStatus = (value: string): value is MeetingStatus =>
   meetingStatuses.some(status => status === value);
@@ -359,7 +359,7 @@ const participantData = (meetingId: string, personId: string): MeetingParticipan
 
 function validateMeeting(
   meeting: Meeting,
-  jobs: JobReadService,
+  gigs: GigReadService,
   people: PeopleService,
 ) {
   if (!meeting.id.trim() || !meeting.title.trim()) {
@@ -388,8 +388,8 @@ function validateMeeting(
       throw new DomainValidationError(`Meeting ${meeting.id} references missing person ${personId}.`);
     }
   }
-  if (meeting.jobId !== null && jobs.read(meeting.jobId).status !== "ok") {
-    throw new DomainValidationError(`Meeting ${meeting.id} references missing job ${meeting.jobId}.`);
+  if (meeting.gigId !== null && gigs.read(meeting.gigId).status !== "ok") {
+    throw new DomainValidationError(`Meeting ${meeting.id} references missing gig ${meeting.gigId}.`);
   }
 }
 
@@ -402,19 +402,19 @@ function queryInstant(value: string | undefined, field: string) {
   return instant;
 }
 
-function relationshipFromData(record: JobPersonData): JobPersonRelationship {
+function relationshipFromData(record: GigPersonData): GigPersonRelationship {
   const relationship = parseRelationship(record);
   if (!relationship) {
     throw new DomainValidationError(
-      `Job-person relationship ${record.id} has unsupported relationship ${record.relationship}.`,
+      `Gig-person relationship ${record.id} has unsupported relationship ${record.relationship}.`,
     );
   }
   return relationship;
 }
 
-const relationshipToData = (record: JobPersonRelationship): JobPersonData => ({
+const relationshipToData = (record: GigPersonRelationship): GigPersonData => ({
   id: record.id,
-  jobId: record.jobId,
+  gigId: record.gigId,
   personId: record.personId,
   relationship: record.relationship,
   notes: record.notes,
@@ -426,7 +426,7 @@ const consistencyFailure = (id: string, message: string) => ({
   message,
 });
 
-const unsupportedRelationship = (record: JobPersonData) => consistencyFailure(
+const unsupportedRelationship = (record: GigPersonData) => consistencyFailure(
   record.id,
   `Relationship ${record.id} has unsupported relationship ${record.relationship}.`,
 );
