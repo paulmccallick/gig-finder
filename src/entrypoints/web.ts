@@ -53,6 +53,7 @@ const agentHandler = createAgentHandler(
     people: jobSearch.people,
     jobPeople: jobSearch.jobPeople,
     tasks: jobSearch.tasks,
+    meetings: jobSearch.meetings,
     documents: jobSearch.documentReader,
   },
   jobSearch,

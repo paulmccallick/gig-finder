@@ -12,6 +12,7 @@ const entityTables=[
   {entity:"job-person",live:"job_people",history:"job_people_history"},
   {entity:"task",live:"tasks",history:"task_history"},
   {entity:"meeting",live:"meetings",history:"meeting_history"},
+  {entity:"meeting-participant",live:"meeting_participants",history:"meeting_participant_history"},
 ] as const;
 
 export interface ValidationIssue { check:string; message:string }
@@ -43,10 +44,19 @@ export function validateDatabase(database:Database):ValidationReport {
   const foreignKeys=database.query("PRAGMA foreign_key_check").all();
   if(foreignKeys.length)issues.push({check:"foreign_keys",message:`${foreignKeys.length} foreign-key violation(s)`});
   const counts:Record<string,number>={};
-  for(const table of ["changes","business_events","event_sources",...entityTables.flatMap((item)=>[item.live,item.history])]){
+  const existingTables=new Set((database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{name:string}>).map(row=>row.name));
+  const legacyMeetingSchema=existingTables.has("meetings")&&(database.query("PRAGMA table_info(meetings)").all() as Array<{name:string}>).some(column=>column.name==="related_entity_type");
+  const expectedTables=["changes","business_events","event_sources",...entityTables.flatMap((item)=>[item.live,item.history])];
+  for(const table of expectedTables){
+    if(!existingTables.has(table)){
+      const allowedLegacyTable=legacyMeetingSchema&&(table==="meeting_participants"||table==="meeting_participant_history");
+      if(!allowedLegacyTable)issues.push({check:"missing_table",message:`Missing required table: ${table}`});
+      continue;
+    }
     counts[table]=Number((database.query(`SELECT count(*) AS count FROM ${table}`).get() as {count:number}).count);
   }
   for(const {entity,live,history} of entityTables){
+    if(!existingTables.has(live)||!existingTables.has(history))continue;
     const rows=database.query(`SELECT id, revision FROM ${live} ORDER BY id`).all() as {id:string;revision:number}[];
     for(const row of rows){
       const revisions=(database.query(`SELECT revision FROM ${history} WHERE id = ? ORDER BY revision`).all(row.id) as {revision:number}[]).map((item)=>item.revision);

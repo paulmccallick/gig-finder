@@ -1,7 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
 import { MutationError } from "../../core/src/errors";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
+import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, JobData, JobPersonData, MeetingData, MeetingParticipantData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
 import {
   SqliteDocumentReadRepository,
   SqliteDocumentWriteRepository,
@@ -18,7 +18,8 @@ const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company"
 const networkingColumns:ColumnMap<NetworkingContactData>={id:"id",personId:"person_id",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",lastContacted:"last_contacted",lastContactMethod:"last_contact_method",lastContactSummary:"last_contact_summary",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
 const jobPersonColumns:ColumnMap<JobPersonData>={id:"id",jobId:"job_id",personId:"person_id",relationship:"relationship",notes:"notes"};
 const taskColumns: ColumnMap<TaskData> = { id:"id",title:"title",type:"type",status:"status",priority:"priority",dueDate:"due_date",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",relatedEntityLabel:"related_entity_label",notes:"notes",completedAt:"completed_at" };
-const meetingColumns: ColumnMap<MeetingData> = { id:"id",title:"title",startsAt:"starts_at",endsAt:"ends_at",timezone:"timezone",location:"location",description:"description",status:"status",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",externalCalendarId:"external_calendar_id",externalEventId:"external_event_id" };
+const meetingColumns: ColumnMap<MeetingData> = { id:"id",title:"title",startsAt:"starts_at",endsAt:"ends_at",timezone:"timezone",location:"location",description:"description",status:"status",jobId:"job_id",externalCalendarId:"external_calendar_id",externalEventId:"external_event_id" };
+const meetingParticipantColumns: ColumnMap<MeetingParticipantData> = { id:"id",meetingId:"meeting_id",personId:"person_id" };
 
 const configs = {
   jobs: { entity:"job", table:"jobs", historyTable:"job_history", columns: jobColumns,booleans:["hasJobDescription","hasInterviewPrep"] } satisfies RepositoryConfig<JobData>,
@@ -27,6 +28,7 @@ const configs = {
   jobPeople:{entity:"job-person",table:"job_people",historyTable:"job_people_history",columns:jobPersonColumns} satisfies RepositoryConfig<JobPersonData>,
   tasks: { entity:"task", table:"tasks", historyTable:"task_history", columns: taskColumns } satisfies RepositoryConfig<TaskData>,
   meetings: { entity:"meeting", table:"meetings", historyTable:"meeting_history", columns: meetingColumns } satisfies RepositoryConfig<MeetingData>,
+  meetingParticipants: { entity:"meeting-participant", table:"meeting_participants", historyTable:"meeting_participant_history", columns: meetingParticipantColumns } satisfies RepositoryConfig<MeetingParticipantData>,
 };
 
 const quote = (identifier: string) => `"${identifier}"`;
@@ -157,12 +159,13 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly jobs: MutationRepository<JobData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly jobPeople:MutationRepository<JobPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly documents: SqliteDocumentWriteRepository;
+  readonly jobs: MutationRepository<JobData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly jobPeople:MutationRepository<JobPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly meetingParticipants: MutationRepository<MeetingParticipantData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
     this.jobs = new MutationRepository(database, configs.jobs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.networking=new MutationRepository(database,configs.networking,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.jobPeople=new MutationRepository(database,configs.jobPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
     this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.meetings = new MutationRepository(database, configs.meetings, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.meetingParticipants = new MutationRepository(database, configs.meetingParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.documents = new SqliteDocumentWriteRepository(
       database,
       context,
@@ -183,8 +186,8 @@ export class ChangeTransaction {
 }
 
 export class DataStore {
-  readonly jobs: ReadRepository<JobData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly jobPeople:ReadRepository<JobPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly documents: SqliteDocumentReadRepository;
-  constructor(private readonly database: Database) { this.jobs = new ReadRepository(database, configs.jobs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.jobPeople=new ReadRepository(database,configs.jobPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.documents = new SqliteDocumentReadRepository(database); }
+  readonly jobs: ReadRepository<JobData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly jobPeople:ReadRepository<JobPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly meetingParticipants: ReadRepository<MeetingParticipantData>; readonly documents: SqliteDocumentReadRepository;
+  constructor(private readonly database: Database) { this.jobs = new ReadRepository(database, configs.jobs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.jobPeople=new ReadRepository(database,configs.jobPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.meetingParticipants = new ReadRepository(database, configs.meetingParticipants); this.documents = new SqliteDocumentReadRepository(database); }
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");
@@ -215,6 +218,7 @@ export class DataStore {
       jobPeople: this.historyRecords(targetChangeId, configs.jobPeople),
       tasks: this.historyRecords(targetChangeId, configs.tasks),
       meetings: this.historyRecords(targetChangeId, configs.meetings),
+      meetingParticipants: this.historyRecords(targetChangeId, configs.meetingParticipants),
     };
     if (Object.values(snapshots).every(records => records.length === 0)) {
       throw new MutationError(
@@ -232,6 +236,7 @@ export class DataStore {
         ...this.restoreRecords(snapshots.jobPeople, this.jobPeople, transaction.jobPeople, "job-person"),
         ...this.restoreRecords(snapshots.tasks, this.tasks, transaction.tasks, "task"),
         ...this.restoreRecords(snapshots.meetings, this.meetings, transaction.meetings, "meeting"),
+        ...this.restoreRecords(snapshots.meetingParticipants, this.meetingParticipants, transaction.meetingParticipants, "meeting-participant"),
       ],
     );
   }

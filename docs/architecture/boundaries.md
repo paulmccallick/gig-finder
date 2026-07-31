@@ -12,6 +12,8 @@
   metadata stays in their adapters.
 - Filtering, joins, traversal, ordering, pagination, and consistency checks
   belong to caller-neutral core read services, not agent tools.
+- Meeting services compose participant IDs from the persistence join records
+  and validate participant, timestamp, and optional job references.
 - Core services attach the same compact managed-document summaries to job and
   networking-contact reads for CLI, agent, and web clients.
 - Generic agent policy is separate from the user profile, which defaults to

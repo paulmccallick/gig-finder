@@ -6,6 +6,7 @@ export * from "./staged-documents";
 export * from "./context-search";
 export * from "./errors";
 export * from "./jobs";
+export * from "./meetings";
 export * from "./network";
 export * from "./tasks";
 export * from "./models";

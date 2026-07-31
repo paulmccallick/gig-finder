@@ -47,6 +47,7 @@ const entityInstructions = `Entities
 - Networking Contact: relationship and outreach state for one Person.
 - Job-Person Relationship: a connection between a Person and a Job.
 - Task: a job-search action related to a Job, Networking Contact, or the search.
+- Meeting: a scheduled or completed interaction with one or more People that may relate to a Job.
 - Document: versioned content linked to Jobs or People.`;
 
 export function buildJobSearchInstructions(

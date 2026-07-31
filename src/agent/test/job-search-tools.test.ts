@@ -5,11 +5,13 @@ import {
   contactStatuses,
   fitRatings,
   jobPersonRelationships,
+  meetingStatuses,
   pipelineStages,
   taskTypes,
   type ChangeContext,
   type Job,
   type ManagedDocumentRecord,
+  type MeetingRecord,
   type NetworkContactRecord,
   StagedDocumentService,
 } from "../../core/src";
@@ -119,6 +121,10 @@ const reader = {
       nextOffset: null,
     },
   }), read: (id) => ({ status: "not_found" as const, id }) },
+  meetings: {
+    query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
+    read: id => ({ status: "not_found" as const, id }),
+  },
   documents: {
     list: async () => [],
     get: async reference => ({ status: "not_found" as const, id: reference }),
@@ -172,6 +178,16 @@ const nullRelationshipsInput = {
   offset: null,
   limit: null,
 } as const;
+const nullMeetingsInput = {
+  personIds: null,
+  jobIds: null,
+  statuses: null,
+  startsFrom: null,
+  startsThrough: null,
+  query: null,
+  offset: null,
+  limit: null,
+} as const;
 
 describe("JobSearchAgent tools", () => {
   test("registers the approved tools with agent-facing descriptions", () => {
@@ -187,6 +203,8 @@ describe("JobSearchAgent tools", () => {
       "get_job_person_relationship",
       "list_tasks",
       "get_task",
+      "list_meetings",
+      "get_meeting",
       "get_document",
     ]);
     for (const definition of Object.values(tools)) {
@@ -213,6 +231,8 @@ describe("JobSearchAgent tools", () => {
       "get_job_person_relationship",
       "list_tasks",
       "get_task",
+      "list_meetings",
+      "get_meeting",
       "get_document",
       "update_job",
       "update_networking_contact",
@@ -322,6 +342,81 @@ describe("JobSearchAgent tools", () => {
       },
     });
     expect(relationshipQueries).toEqual([0, 1]);
+  });
+
+  test("reads meetings with participant, job, date, status, and text filters", async () => {
+    const logEntries: Array<Record<string, unknown>> = [];
+    const meetingLogger = {
+      debug: (entry: Record<string, unknown>) => logEntries.push(entry),
+      warn: (entry: Record<string, unknown>) => logEntries.push(entry),
+      error: (entry: Record<string, unknown>) => logEntries.push(entry),
+    } as unknown as Logger;
+    const record: MeetingRecord = {
+      id: "meeting-1",
+      title: "Hiring manager interview",
+      startsAt: "2026-07-30T10:00:00-07:00",
+      endsAt: "2026-07-30T11:00:00-07:00",
+      timezone: "America/Los_Angeles",
+      location: "Video",
+      description: "Platform discussion",
+      status: "completed",
+      jobId: "job-1",
+      personIds: ["person-1", "person-2"],
+      externalCalendarId: null,
+      externalEventId: null,
+      revision: 1,
+      isDeleted: false,
+      createdAt: "2026-07-29T12:00:00.000Z",
+      updatedAt: "2026-07-30T12:00:00.000Z",
+    };
+    const inputs: unknown[] = [];
+    const tools = createJobSearchTools({
+      ...reader,
+      meetings: {
+        query: input => {
+          inputs.push(input);
+          return { status: "ok" as const, items: [record], page: { offset: 0, limit: 10, returned: 1, total: 1, hasMore: false, nextOffset: null } };
+        },
+        read: id => id === record.id
+          ? { status: "ok" as const, record }
+          : { status: "not_found" as const, id },
+      },
+    }, meetingLogger);
+    const options = { toolCallId: "call-meeting", messages: [], abortSignal: undefined, context: {} };
+    const input = {
+      ...nullMeetingsInput,
+      personIds: ["person-1", "person-2"],
+      jobIds: ["job-1"],
+      statuses: ["completed"] as Array<"confirmed" | "completed">,
+      startsFrom: "2026-07-01T00:00:00-07:00",
+      startsThrough: "2026-07-31T23:59:59-07:00",
+      query: "platform",
+      offset: 0,
+      limit: 10,
+    };
+    expect(await tools.list_meetings.execute?.(input, options)).toMatchObject({
+      status: "ok",
+      items: [{ id: "meeting-1", personIds: ["person-1", "person-2"], jobId: "job-1" }],
+    });
+    expect(inputs).toEqual([input]);
+    expect(logEntries[0]).toMatchObject({
+      event: "agent.tool.started",
+      toolName: "list_meetings",
+      appliedFilters: {
+        personIds: ["person-1", "person-2"],
+        jobIds: ["job-1"],
+        statuses: ["completed"],
+        startsFrom: "2026-07-01T00:00:00-07:00",
+        startsThrough: "2026-07-31T23:59:59-07:00",
+        query: { present: true, characters: 8 },
+      },
+      pagination: { offset: 0, limit: 10 },
+    });
+    expect(JSON.stringify(logEntries)).not.toContain("Hiring manager interview");
+    expect(await tools.get_meeting.execute?.({ id: "meeting-1" }, options)).toMatchObject({
+      status: "ok",
+      record: { id: "meeting-1", personIds: ["person-1", "person-2"] },
+    });
   });
 
   test("reads staged references and persists them through generic document tools", async () => {
@@ -996,6 +1091,10 @@ describe("JobSearchAgent tools", () => {
       ...nullRelationshipsInput,
       relationships: [...jobPersonRelationships],
     }).relationships).toEqual([...jobPersonRelationships]);
+    expect(jobSearchToolSchemas.list_meetings.parse({
+      ...nullMeetingsInput,
+      statuses: [...meetingStatuses],
+    }).statuses).toEqual([...meetingStatuses]);
   });
 
   test("rejects unknown fields, invalid enums, empty arrays, and pagination outside bounds", () => {
@@ -1015,8 +1114,9 @@ describe("JobSearchAgent tools", () => {
       contacts: z.toJSONSchema(jobSearchToolSchemas.list_networking_contacts),
       tasks: z.toJSONSchema(jobSearchToolSchemas.list_tasks),
       relationships: z.toJSONSchema(jobSearchToolSchemas.list_job_person_relationships),
+      meetings: z.toJSONSchema(jobSearchToolSchemas.list_meetings),
     });
-    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes, ...jobPersonRelationships]) {
+    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes, ...jobPersonRelationships, ...meetingStatuses]) {
       expect(schemas).toContain(`"${value}"`);
     }
   });
@@ -1039,6 +1139,7 @@ describe("JobSearchAgent tools", () => {
       [jobSearchToolSchemas.list_tasks, nullTasksInput],
       [jobSearchToolSchemas.list_people, nullPeopleInput],
       [jobSearchToolSchemas.list_job_person_relationships, nullRelationshipsInput],
+      [jobSearchToolSchemas.list_meetings, nullMeetingsInput],
     ] as const) {
       const jsonSchema = z.toJSONSchema(schema);
       expect(jsonSchema.required?.sort()).toEqual(
