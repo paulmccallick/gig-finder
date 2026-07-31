@@ -7,6 +7,17 @@ documentation conflict, stop and flag it.
 The backlog is the [Job Search Agent GitHub
 Project](https://github.com/users/paulmccallick/projects/5).
 
+## GitHub workflow
+
+The GitHub Project is the workflow source of truth. Statuses are Backlog
+(unrefined), Grooming (requirements being refined), Development
+(implementation or verification underway), and Done (closed and hidden).
+Before grooming, developing, or closing an issue, ask the user whether to move
+it to the matching status. Create branches from `main` and link each pull
+request with `Closes #<issue>`. Changes to `main` must arrive through pull
+requests. Merging a linked pull request closes the issue; GitHub automation
+sets Done and the board hides it. Do not use labels as workflow statuses.
+
 ## Development rules
 
 - Use Bun for package management, scripts, and tests.
