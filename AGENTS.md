@@ -21,6 +21,8 @@ sets Done and the board hides it. Do not use labels as workflow statuses.
 ## Development rules
 
 - Use Bun for package management, scripts, and tests.
+- Use the ignored repository-local `tmp/` directory for temporary files; do
+  not use `/private/tmp`.
 - Never add real personal information, credentials, job-search records,
   documents, logs, SQLite files, or backups to this repository.
 - Use synthetic fixtures in tests and examples.
