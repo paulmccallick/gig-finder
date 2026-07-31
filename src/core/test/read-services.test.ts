@@ -15,6 +15,7 @@ import type {
   JobData,
   JobPersonData,
   MeetingData,
+  MeetingParticipantData,
   NetworkingContactData,
   PersonData,
   TaskData,
@@ -81,6 +82,7 @@ function application() {
   const jobPeople = new Repo<JobPersonData>();
   const tasks = new Repo<TaskData>();
   const meetings = new Repo<MeetingData>();
+  const meetingParticipants = new Repo<MeetingParticipantData>();
   const documents = new EmptyDocuments();
   let readChanges = 0;
   const persistence: Persistence = {
@@ -90,6 +92,7 @@ function application() {
     jobPeople,
     tasks,
     meetings,
+    meetingParticipants,
     documents,
     change: (changeContext, action) => {
       readChanges += 1;
@@ -102,6 +105,7 @@ function application() {
           jobPeople,
           tasks,
           meetings,
+          meetingParticipants,
           documents,
           recordEvent: event => event.id ?? event.type,
         } as UnitOfWork),
@@ -111,7 +115,7 @@ function application() {
   };
   return {
     app: new JobSearchApplication(persistence, audit, artifacts),
-    repos: { jobs, people, networking, jobPeople, tasks },
+    repos: { jobs, people, networking, jobPeople, tasks, meetings, meetingParticipants },
     changes: () => readChanges,
   };
 }
@@ -146,6 +150,25 @@ const job = (id: string, company: string, stage: JobData["stage"] = "applied"): 
   tagsJson: "[]",
   hasJobDescription: false,
   hasInterviewPrep: false,
+});
+
+const meeting = (
+  id: string,
+  startsAt: string,
+  overrides: Partial<MeetingData> = {},
+): MeetingData => ({
+  id,
+  title: "Interview",
+  startsAt,
+  endsAt: startsAt,
+  timezone: "America/Los_Angeles",
+  location: "Video",
+  description: "Platform conversation",
+  status: "confirmed",
+  jobId: null,
+  externalCalendarId: null,
+  externalEventId: null,
+  ...overrides,
 });
 
 describe("caller-neutral read services", () => {
@@ -258,6 +281,60 @@ describe("caller-neutral read services", () => {
       status: "consistency_error",
       id: "invalid",
       message: expect.stringContaining("unsupported relationship"),
+    });
+  });
+
+  test("meetings compose every participant and support multi-value filters", () => {
+    const { app, repos, changes } = application();
+    repos.jobs.create(job("job-1", "Alpha"));
+    repos.jobs.create(job("job-2", "Beta"));
+    repos.people.create({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null });
+    repos.people.create({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null });
+    repos.meetings.create(meeting("meeting-old", "2026-07-10T10:00:00-07:00", { jobId: "job-1" }));
+    repos.meetings.create(meeting("meeting-new", "2026-07-20T10:00:00-07:00", { title: "Coffee", status: "completed", jobId: "job-2", description: "Leadership discussion" }));
+    repos.meetingParticipants.create({ id: "meeting-old::person-1", meetingId: "meeting-old", personId: "person-1" });
+    repos.meetingParticipants.create({ id: "meeting-new::person-1", meetingId: "meeting-new", personId: "person-1" });
+    repos.meetingParticipants.create({ id: "meeting-new::person-2", meetingId: "meeting-new", personId: "person-2" });
+    const before = changes();
+
+    const all = app.meetings.query({});
+    expect(all).toMatchObject({ status: "ok", items: [{ id: "meeting-new" }, { id: "meeting-old" }] });
+    const filtered = app.meetings.query({
+      personIds: ["person-2", "person-missing"],
+      jobIds: ["job-1", "job-2"],
+      statuses: ["completed"],
+      startsFrom: "2026-07-20T10:00:00-07:00",
+      startsThrough: "2026-07-20T10:00:00-07:00",
+      query: "leadership",
+      offset: 0,
+      limit: 1,
+    });
+    expect(filtered).toMatchObject({
+      status: "ok",
+      items: [{ id: "meeting-new", jobId: "job-2", personIds: ["person-1", "person-2"] }],
+      page: { returned: 1, total: 1, hasMore: false },
+    });
+    const read = app.meetings.read("meeting-new");
+    expect(read.status).toBe("ok");
+    if (read.status !== "ok" || filtered.status !== "ok") throw new Error("Expected meeting reads to succeed");
+    expect(filtered.items[0]).toEqual(read.record);
+    expect(app.meetings.read("missing")).toEqual({ status: "not_found", id: "missing" });
+    expect(changes()).toBe(before);
+  });
+
+  test("meeting reads expose stored consistency failures", () => {
+    const { app, repos } = application();
+    repos.meetings.create(meeting("no-participants", "2026-07-20T10:00:00-07:00"));
+    expect(app.meetings.read("no-participants")).toMatchObject({
+      status: "consistency_error",
+      message: expect.stringContaining("no participants"),
+    });
+
+    repos.meetings.create(meeting("bad-status", "2026-07-21T10:00:00-07:00", { status: "tentative" }));
+    repos.meetingParticipants.create({ id: "bad-status::missing", meetingId: "bad-status", personId: "missing" });
+    expect(app.meetings.read("bad-status")).toMatchObject({
+      status: "consistency_error",
+      message: expect.stringContaining("unsupported status"),
     });
   });
 });

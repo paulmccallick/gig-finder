@@ -12,6 +12,7 @@ const entityTables=[
   {entity:"job-person",live:"job_people",history:"job_people_history"},
   {entity:"task",live:"tasks",history:"task_history"},
   {entity:"meeting",live:"meetings",history:"meeting_history"},
+  {entity:"meeting-participant",live:"meeting_participants",history:"meeting_participant_history"},
 ] as const;
 
 export interface ValidationIssue { check:string; message:string }

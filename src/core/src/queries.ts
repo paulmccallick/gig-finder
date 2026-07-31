@@ -6,6 +6,7 @@ import type {
   RelationshipStrength,
 } from "./network";
 import type { JobPersonRelationshipType } from "./people";
+import type { MeetingStatus } from "./meetings";
 import type {
   TaskPriority,
   TaskRecord,
@@ -66,6 +67,15 @@ export interface JobPersonRelationshipQueryInput extends PageInput {
   jobIds?: string[];
   personIds?: string[];
   relationships?: JobPersonRelationshipType[];
+}
+
+export interface MeetingQueryInput extends PageInput {
+  personIds?: string[];
+  jobIds?: string[];
+  statuses?: MeetingStatus[];
+  startsFrom?: string;
+  startsThrough?: string;
+  query?: string;
 }
 
 export type ReadResult<T> =

@@ -80,10 +80,18 @@ export const tasks = sqliteTable("tasks", { ...taskFields, id: text("id").primar
 export const taskHistory = sqliteTable("task_history", { ...historyMetadata, ...taskFields, ...recordMetadata }, (table) => [index("task_history_entity_idx").on(table.id, table.revision), index("task_history_change_idx").on(table.changeId), check("task_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("task_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
 const meetingFields = {
-  id: text("id").notNull(), title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at").notNull(), timezone: text("timezone").notNull(), location: text("location"), description: text("description"), status: text("status").notNull(), relatedEntityType: text("related_entity_type"), relatedEntityId: text("related_entity_id"), externalCalendarId: text("external_calendar_id"), externalEventId: text("external_event_id"),
+  id: text("id").notNull(), title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at").notNull(), timezone: text("timezone").notNull(), location: text("location"), description: text("description"), status: text("status").notNull(), jobId: text("job_id").references(() => jobs.id), externalCalendarId: text("external_calendar_id"), externalEventId: text("external_event_id"),
 };
 export const meetings = sqliteTable("meetings", { ...meetingFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("meetings_start_idx").on(table.startsAt), index("meetings_deleted_idx").on(table.isDeleted), uniqueIndex("meetings_external_event_idx").on(table.externalCalendarId, table.externalEventId), check("meetings_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
 export const meetingHistory = sqliteTable("meeting_history", { ...historyMetadata, ...meetingFields, ...recordMetadata }, (table) => [index("meeting_history_entity_idx").on(table.id, table.revision), index("meeting_history_change_idx").on(table.changeId), check("meeting_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
+
+const meetingParticipantFields = {
+  id: text("id").notNull(),
+  meetingId: text("meeting_id").notNull().references(() => meetings.id),
+  personId: text("person_id").notNull().references(() => people.id),
+};
+export const meetingParticipants = sqliteTable("meeting_participants", { ...meetingParticipantFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [uniqueIndex("meeting_participants_relation_idx").on(table.meetingId, table.personId), index("meeting_participants_meeting_idx").on(table.meetingId), index("meeting_participants_person_idx").on(table.personId), check("meeting_participants_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
+export const meetingParticipantHistory = sqliteTable("meeting_participant_history", { ...historyMetadata, ...meetingParticipantFields, ...recordMetadata }, (table) => [index("meeting_participant_history_entity_idx").on(table.id, table.revision), index("meeting_participant_history_change_idx").on(table.changeId), check("meeting_participant_history_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_participant_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
 export const businessEvents = sqliteTable("business_events", {
   id: text("id").primaryKey(), changeId: text("change_id").references(() => changes.id), type: text("type").notNull(), entityType: text("entity_type").notNull(), entityId: text("entity_id").notNull(), occurredAt: text("occurred_at").notNull(), summary: text("summary").notNull(), dataJson: text("data_json").notNull().default("{}"), supersedesEventId: text("supersedes_event_id"),

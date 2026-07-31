@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DataError, DataStore, migrateDatabase, openDatabase, RevisionConflictError } from "../src";
-import type { ChangeContext,JobData,MeetingData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
+import type { ChangeContext,JobData,MeetingData,MeetingParticipantData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
 import { JobSearchApplication } from "../../core/src/application";
 import type { ArtifactPort } from "../../core/src/ports";
 import { AuditReader } from "../src/audit";
@@ -19,7 +19,8 @@ const job: JobData = { id:"job-1",company:"Company",title:"VP Engineering",exter
 const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01"};
 const networking:NetworkingContactData={id:"person-1",personId:"person-1",relationshipType:"former_colleague",relationshipStrength:"strong",introducedBy:null,relationshipNotes:null,priority:"high",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:"Reach out",nextActionDue:"2026-07-22",whyInteresting:"Strong relationship",notesJson:"[]",tagsJson:"[]"};
 const task: TaskData = { id:"task-1",title:"Review role",type:"application",status:"open",priority:"high",dueDate:"2026-07-22",relatedEntityType:"job",relatedEntityId:"job-1",relatedEntityLabel:"Company VP Engineering",notes:"Review the JD",completedAt:null };
-const meeting: MeetingData = { id:"meeting-1",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:"Seattle",description:"Networking",status:"confirmed",relatedEntityType:"contact",relatedEntityId:"person-1",externalCalendarId:"job-search",externalEventId:"google-1" };
+const meeting: MeetingData = { id:"meeting-1",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:"Seattle",description:"Networking",status:"confirmed",jobId:null,externalCalendarId:"job-search",externalEventId:"google-1" };
+const meetingParticipant: MeetingParticipantData = { id:"meeting-1::person-1",meetingId:"meeting-1",personId:"person-1" };
 
 beforeEach(() => { database = openDatabase(":memory:"); migrateDatabase(database); store = new DataStore(database); });
 afterEach(() => database.close());
@@ -27,9 +28,39 @@ afterEach(() => database.close());
 describe("migrations", () => {
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["jobs","job_history","people","person_history","networking_contacts","networking_contact_history","job_people","job_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
   });
   test("can be applied repeatedly without duplicating migrations", () => { const before = (database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count; migrateDatabase(database); expect((database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count).toBe(before); });
+  test("migrates legacy meeting jobs and every staged participant", async () => {
+    const legacy = openDatabase(":memory:");
+    legacy.exec("PRAGMA foreign_keys = OFF");
+    try {
+      for (let index = 0; index <= 9; index += 1) {
+        const filename = `${String(index).padStart(4, "0")}_`;
+        const entry = [...new Bun.Glob(`${filename}*.sql`).scanSync(path.resolve(import.meta.dir, "../drizzle"))][0];
+        if (!entry) throw new Error(`Missing migration ${filename}`);
+        legacy.exec(await Bun.file(path.resolve(import.meta.dir, "../drizzle", entry)).text());
+      }
+      legacy.query("INSERT INTO jobs (id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES ('job-legacy','Example','Director','applied','pending','Active','2026-07-01','good','[]',0,0,1,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO people (id,name,revision,is_deleted,created_at,updated_at) VALUES ('person-a','Alex Example',1,0,?,?),('person-b','Blair Example',1,0,?,?)").run(timestamp,timestamp,timestamp,timestamp);
+      legacy.query("INSERT INTO meetings (id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','job','job-legacy',1,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO changes (id,occurred_at,actor,source,summary,status) VALUES ('change-legacy',?,'test-suite','test','Legacy meeting update','committed')").run(timestamp);
+      legacy.query("INSERT INTO meeting_history (change_id,operation,recorded_at,recorded_by,id,title,starts_at,ends_at,timezone,status,related_entity_type,related_entity_id,revision,is_deleted,created_at,updated_at) VALUES ('change-legacy','update',?,'test-suite','meeting-legacy','Panel','2026-07-02T10:00:00-07:00','2026-07-02T11:00:00-07:00','America/Los_Angeles','completed','job','job-legacy',1,0,?,?)").run(timestamp,timestamp,timestamp);
+      legacy.exec("CREATE TABLE meeting_participant_backfill (meeting_id text NOT NULL, person_id text NOT NULL, PRIMARY KEY (meeting_id, person_id))");
+      legacy.exec("INSERT INTO meeting_participant_backfill VALUES ('meeting-legacy','person-a'),('meeting-legacy','person-b')");
+      legacy.exec(await Bun.file(path.resolve(import.meta.dir, "../drizzle/0010_strange_shaman.sql")).text());
+
+      expect(legacy.query("SELECT job_id FROM meetings WHERE id = 'meeting-legacy'").get()).toEqual({ job_id: "job-legacy" });
+      expect(legacy.query("SELECT job_id FROM meeting_history WHERE id = 'meeting-legacy'").get()).toEqual({ job_id: "job-legacy" });
+      expect(legacy.query("SELECT person_id FROM meeting_participants ORDER BY person_id").all()).toEqual([{ person_id: "person-a" }, { person_id: "person-b" }]);
+      const meetingColumns = legacy.query("PRAGMA table_info(meetings)").all().map(row => (row as { name: string }).name);
+      expect(meetingColumns).toContain("job_id");
+      expect(meetingColumns).not.toContain("related_entity_type");
+      expect(meetingColumns).not.toContain("related_entity_id");
+    } finally {
+      legacy.close();
+    }
+  });
   test("enables foreign key enforcement", () => { expect((database.query("PRAGMA foreign_keys").get() as {foreign_keys:number}).foreign_keys).toBe(1); });
   test("enforces binary deletion and history operation constraints", () => {
     expect(() => database.query("INSERT INTO tasks (id,title,type,status,priority,related_entity_type,related_entity_label,revision,is_deleted,created_at,updated_at) VALUES ('bad','Bad','other','open','low','general','General',1,2,?,?)").run(timestamp,timestamp)).toThrow();
@@ -55,10 +86,11 @@ describe("typed CRUD repositories", () => {
     expect(store.jobs.list()).toHaveLength(1);
   });
   test("supports people, networking, tasks, and meetings through the same transaction library", () => {
-    store.change(context("Create records"), (tx) => ({ person:tx.people.create(person),networking:tx.networking.create(networking), task:tx.tasks.create(task), meeting:tx.meetings.create(meeting) }));
+    store.change(context("Create records"), (tx) => ({ person:tx.people.create(person),networking:tx.networking.create(networking), task:tx.tasks.create(task), meeting:tx.meetings.create(meeting), participant:tx.meetingParticipants.create(meetingParticipant) }));
     expect(store.people.get("person-1")?.title).toBe("CTO");
     expect(store.tasks.get("task-1")?.priority).toBe("high");
     expect(store.meetings.get("meeting-1")?.externalEventId).toBe("google-1");
+    expect(store.meetingParticipants.get(meetingParticipant.id)?.personId).toBe(person.id);
   });
   test("rejects duplicate IDs and rolls back the failed change record", () => {
     store.change(context("Create job"), (tx) => tx.jobs.create(job));
@@ -144,6 +176,30 @@ describe("full-row history and revisions", () => {
     expect(store.meetings.get(meeting.id)).toMatchObject({ location:"Bellevue", revision:2 });
     expect(database.query("SELECT title FROM person_history").get()).toEqual({title:"CTO"});
     expect(database.query("SELECT location FROM meeting_history").get()).toEqual({location:"Seattle"});
+  });
+  test("records participant changes in the standard full-row history", () => {
+    const secondPerson = { ...person, id: "person-2", name: "Person Two" };
+    store.change(context("Create meeting participants"), tx => {
+      tx.people.create(person);
+      tx.people.create(secondPerson);
+      tx.meetings.create(meeting);
+      tx.meetingParticipants.create(meetingParticipant);
+    });
+    const result = store.change(context("Change meeting participant"), tx => {
+      tx.meetingParticipants.delete(meetingParticipant.id, 1);
+      return tx.meetingParticipants.create({
+        id: "meeting-1::person-2",
+        meetingId: meeting.id,
+        personId: secondPerson.id,
+      });
+    });
+    expect(result.value).toMatchObject({ personId: "person-2", revision: 1 });
+    expect(database.query("SELECT person_id, revision, operation, change_id FROM meeting_participant_history").get()).toEqual({
+      person_id: "person-1",
+      revision: 1,
+      operation: "delete",
+      change_id: result.changeId,
+    });
   });
 });
 

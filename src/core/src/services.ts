@@ -1,15 +1,22 @@
-import type { AuditPort, Persistence, ReadRepository, UnitOfWork, WriteRepository } from "./ports";
-import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, JobPersonData, MeetingData, Person, PersonData } from "./models";
+import type { AuditPort, Persistence } from "./ports";
+import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, JobPersonData, MeetingData, MeetingParticipantData, Person, PersonData } from "./models";
 import {
   jobPersonRelationships,
   type JobPersonRelationship,
   type JobPersonRelationshipType,
 } from "./people";
 import {
+  meetingStatuses,
+  type Meeting,
+  type MeetingRecord,
+  type MeetingStatus,
+} from "./meetings";
+import {
   matchesQuery,
   normalizedQuery,
   page,
   type JobPersonRelationshipQueryInput,
+  type MeetingQueryInput,
   type Page,
   type PageResult,
   type PeopleQueryInput,
@@ -19,8 +26,6 @@ import type { JobRecord } from "./jobs";
 import { DomainValidationError } from "./errors";
 
 export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
-
-class EntityService<T extends{id:string}>{constructor(protected readonly persistence:Persistence,protected readonly repository:ReadRepository<T>,private readonly writable:(u:UnitOfWork)=>WriteRepository<T>){}get(id:string,options:{includeDeleted?:boolean}={}){return this.repository.get(id,options)}list(options:{includeDeleted?:boolean}={}){return this.repository.list(options)}create(context:ChangeContext,record:T){return this.persistence.change(context,u=>this.writable(u).create(record)).value}update(context:ChangeContext,id:string,revision:number,patch:Partial<Omit<T,"id">>){return this.persistence.change(context,u=>this.writable(u).update(id,revision,patch)).value}protected updateIncludingDeleted(context:ChangeContext,record:EntityRecord<T>,patch:Partial<Omit<T,"id">>){return this.persistence.change(context,u=>{const repository=this.writable(u);if(!record.isDeleted)return repository.update(record.id,record.revision,patch);const restored=repository.restore(record.id,record.revision,patch);return repository.delete(record.id,restored.revision)}).value}}
 
 export class PeopleService {
   constructor(private readonly persistence: Persistence) {}
@@ -70,7 +75,101 @@ export class PeopleService {
     ).value);
   }
 }
-export class MeetingService extends EntityService<MeetingData>{constructor(p:Persistence){super(p,p.meetings,u=>u.meetings)}}
+export class MeetingService {
+  constructor(
+    private readonly persistence: Persistence,
+    private readonly jobs: JobReadService,
+    private readonly people: PeopleService,
+  ) {}
+
+  get(id: string): MeetingRecord | null {
+    const result = this.read(id);
+    if (result.status === "not_found") return null;
+    if (result.status === "consistency_error") throw new DomainValidationError(result.message);
+    return result.record;
+  }
+
+  list(): MeetingRecord[] {
+    return this.persistence.meetings.list().map(raw => {
+      const result = this.compose(raw);
+      if (result.status === "consistency_error") throw new DomainValidationError(result.message);
+      return result.record;
+    });
+  }
+
+  read(id: string): ReadResult<MeetingRecord> {
+    const raw = this.persistence.meetings.get(id);
+    return raw ? this.compose(raw) : { status: "not_found", id };
+  }
+
+  query(input: MeetingQueryInput): PageResult<MeetingRecord> {
+    const records: MeetingRecord[] = [];
+    for (const raw of this.persistence.meetings.list()) {
+      const result = this.compose(raw);
+      if (result.status !== "ok") return result;
+      records.push(result.record);
+    }
+    const query = normalizedQuery(input.query);
+    const filtered = records
+      .filter(record => input.personIds === undefined
+        || record.personIds.some(personId => input.personIds!.includes(personId)))
+      .filter(record => input.jobIds === undefined
+        || (record.jobId !== null && input.jobIds.includes(record.jobId)))
+      .filter(record => input.statuses === undefined || input.statuses.includes(record.status))
+      .filter(record => input.startsFrom === undefined || record.startsAt >= input.startsFrom)
+      .filter(record => input.startsThrough === undefined || record.startsAt <= input.startsThrough)
+      .filter(record => matchesQuery(query, [record.title, record.location, record.description]))
+      .sort((a, b) => b.startsAt.localeCompare(a.startsAt) || a.id.localeCompare(b.id));
+    return { status: "ok", ...page(filtered, input) };
+  }
+
+  create(context: ChangeContext, meeting: Meeting): MeetingRecord {
+    validateMeeting(meeting, this.jobs, this.people);
+    const { personIds, ...data } = meeting;
+    this.persistence.change(context, transaction => {
+      transaction.meetings.create(data);
+      for (const personId of personIds) {
+        transaction.meetingParticipants.create(participantData(meeting.id, personId));
+      }
+    });
+    return this.get(meeting.id)!;
+  }
+
+  private compose(raw: EntityRecord<MeetingData>): ComposeResult<MeetingRecord> {
+    if (!isMeetingStatus(raw.status)) {
+      return consistencyFailure(raw.id, `Meeting ${raw.id} has unsupported status ${raw.status}.`);
+    }
+    if (raw.jobId !== null && this.jobs.read(raw.jobId).status !== "ok") {
+      return consistencyFailure(raw.id, `Meeting ${raw.id} references missing job ${raw.jobId}.`);
+    }
+    const participants = this.persistence.meetingParticipants.list()
+      .filter(participant => participant.meetingId === raw.id)
+      .sort((a, b) => a.personId.localeCompare(b.personId));
+    if (participants.length === 0) {
+      return consistencyFailure(raw.id, `Meeting ${raw.id} has no participants.`);
+    }
+    for (const participant of participants) {
+      if (this.people.read(participant.personId).status !== "ok") {
+        return consistencyFailure(
+          raw.id,
+          `Meeting ${raw.id} references missing person ${participant.personId}.`,
+        );
+      }
+    }
+    return {
+      status: "ok",
+      record: {
+        ...raw,
+        status: raw.status,
+        personIds: participants.map(participant => participant.personId),
+      },
+    };
+  }
+}
+
+type ComposeResult<T> =
+  | { status: "ok"; record: T }
+  | { status: "consistency_error"; id: string; message: string };
 export class EventService{constructor(private readonly persistence:Persistence){}record(context:ChangeContext,event:BusinessEventInput){return this.persistence.change(context,u=>u.recordEvent(event)).value}}
 interface JobReadService {
   read(id: string): ReadResult<JobRecord>;
@@ -228,6 +327,46 @@ const isJobPersonRelationship = (
   value: string,
 ): value is JobPersonRelationshipType =>
   jobPersonRelationships.some(relationship => relationship === value);
+
+const isMeetingStatus = (value: string): value is MeetingStatus =>
+  meetingStatuses.some(status => status === value);
+
+const participantData = (meetingId: string, personId: string): MeetingParticipantData => ({
+  id: `${meetingId}::${personId}`,
+  meetingId,
+  personId,
+});
+
+function validateMeeting(
+  meeting: Meeting,
+  jobs: JobReadService,
+  people: PeopleService,
+) {
+  if (!meeting.id.trim() || !meeting.title.trim()) {
+    throw new DomainValidationError("Meeting id and title are required.");
+  }
+  if (!isMeetingStatus(meeting.status)) {
+    throw new DomainValidationError(`Meeting ${meeting.id} has unsupported status ${meeting.status}.`);
+  }
+  if (!meeting.startsAt || !meeting.endsAt || meeting.endsAt < meeting.startsAt) {
+    throw new DomainValidationError(`Meeting ${meeting.id} must end at or after it starts.`);
+  }
+  const personIds = [...new Set(meeting.personIds)];
+  if (personIds.length === 0) {
+    throw new DomainValidationError(`Meeting ${meeting.id} requires at least one participant.`);
+  }
+  if (personIds.length !== meeting.personIds.length) {
+    throw new DomainValidationError(`Meeting ${meeting.id} contains duplicate participants.`);
+  }
+  for (const personId of personIds) {
+    if (people.read(personId).status !== "ok") {
+      throw new DomainValidationError(`Meeting ${meeting.id} references missing person ${personId}.`);
+    }
+  }
+  if (meeting.jobId !== null && jobs.read(meeting.jobId).status !== "ok") {
+    throw new DomainValidationError(`Meeting ${meeting.id} references missing job ${meeting.jobId}.`);
+  }
+}
 
 function relationshipFromData(record: JobPersonData): JobPersonRelationship {
   const relationship = parseRelationship(record);

@@ -1,4 +1,4 @@
-export type EntityName = "job" | "person" | "networking" | "task" | "meeting";
+export type EntityName = "job" | "person" | "networking" | "job-person" | "task" | "meeting" | "meeting-participant";
 export type ChangeSource = "user_request" | "agent" | "automation" | "import" | "recovery" | "test";
 
 export interface ChangeContext {
@@ -36,7 +36,10 @@ export interface TaskData {
   id: string; title: string; type: string; status: string; priority: string; dueDate: string | null; relatedEntityType: string; relatedEntityId: string | null; relatedEntityLabel: string; notes: string | null; completedAt: string | null;
 }
 export interface MeetingData {
-  id: string; title: string; startsAt: string; endsAt: string; timezone: string; location: string | null; description: string | null; status: string; relatedEntityType: string | null; relatedEntityId: string | null; externalCalendarId: string | null; externalEventId: string | null;
+  id: string; title: string; startsAt: string; endsAt: string; timezone: string; location: string | null; description: string | null; status: string; jobId: string | null; externalCalendarId: string | null; externalEventId: string | null;
+}
+export interface MeetingParticipantData {
+  id: string; meetingId: string; personId: string;
 }
 
 export interface BusinessEventInput {

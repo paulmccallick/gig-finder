@@ -1,7 +1,8 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
-import type { BusinessEventInput,JobPersonData,MeetingData,PersonData } from "../../core/src/models";
+import type { BusinessEventInput,JobPersonData,PersonData } from "../../core/src/models";
+import type { Meeting } from "../../core/src/meetings";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
 import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
 import {
@@ -225,10 +226,10 @@ export async function runCli(args: string[], runtime: CliRuntime) {
   const flags = parseFlags(rest);
   const paths = runtime;
   const dryRun = flags["dry-run"] === true;
-  let result: JobRole | NetworkContact | TaskRecord | PersonData | JobPersonData | MeetingData | BusinessEventInput;
+  let result: JobRole | NetworkContact | TaskRecord | PersonData | JobPersonData | Meeting | BusinessEventInput;
 
   if(entity==="event"&&command==="add"){const record=await patchFrom(flags) as unknown as BusinessEventInput;if(record.id!==id)throw new Error("Event id must match the command id.");result=createEvent(paths,record,{dryRun});
-  }else if(entity==="meeting"&&command==="add"){const record=await patchFrom(flags) as unknown as MeetingData;if(record.id!==id)throw new Error("Meeting id must match the command id.");result=createMeeting(paths,record,{dryRun});
+  }else if(entity==="meeting"&&command==="add"){const record=await patchFrom(flags) as unknown as Meeting;if(record.id!==id)throw new Error("Meeting id must match the command id.");result=createMeeting(paths,record,{dryRun});
   }else if(entity==="job-person"&&command==="add"){const record=await patchFrom(flags) as unknown as JobPersonData;if(record.id!==id)throw new Error("Job-person id must match the command id.");result=createJobPerson(paths,record,{dryRun});
   }else if(entity==="person"&&command==="add"){const record=await patchFrom(flags) as unknown as PersonData;if(record.id!==id)throw new Error("Person id must match the command id.");result=createPerson(paths,record,{dryRun});
   }else if(entity==="person"&&command==="update"){result=updatePerson(paths,id,await patchFrom(flags) as Partial<PersonData>,{dryRun});

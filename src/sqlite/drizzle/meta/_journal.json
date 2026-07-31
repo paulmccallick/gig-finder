@@ -71,6 +71,13 @@
       "when": 1785433687058,
       "tag": "0009_orange_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785451008621,
+      "tag": "0010_strange_shaman",
+      "breakpoints": true
     }
   ]
 }

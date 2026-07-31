@@ -6,6 +6,7 @@ import type {
   ChangeContext,
   JobRecord,
   ManagedDocumentRecord,
+  MeetingRecord,
 } from "../../core/src";
 import { StagedDocumentService } from "../../core/src";
 import { JobSearchAgent } from "../job-search-agent";
@@ -81,6 +82,10 @@ function readerWithJobs(items: JobRecord[]): JobSearchReadCapabilities {
         nextOffset: null,
       },
     }), read: id => ({ status: "not_found" as const, id }) },
+    meetings: {
+      query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
+      read: id => ({ status: "not_found" as const, id }),
+    },
     documents: {
       list: async () => [],
       get: async reference => ({ status: "not_found" as const, id: reference }),
@@ -181,6 +186,9 @@ describe("JobSearchAgent instructions", () => {
       "Job-Person Relationship: a connection between a Person and a Job",
     );
     expect(writableInstructions).toContain(
+      "Meeting: a scheduled or completed interaction with one or more People",
+    );
+    expect(writableInstructions).toContain(
       "Use the tools to find relevant information for the user request and update information when appropriate or told to do so.",
     );
     expect(writableInstructions).toContain(
@@ -270,7 +278,7 @@ describe("agent streaming", () => {
     expect(completion?.data.latencyMs).toBeNumber();
   });
 
-  test("executes a read tool and streams the model's final answer", async () => {
+  test("executes a meeting read tool and streams the model's final answer", async () => {
     const model = new MockLanguageModelV4({
       doStream: [
         {
@@ -280,14 +288,13 @@ describe("agent streaming", () => {
               {
                 type: "tool-call",
                 toolCallId: "tool-call-1",
-                toolName: "list_tasks",
+                toolName: "list_meetings",
                 input: JSON.stringify({
-                  statuses: ["open"],
-                  priorities: null,
-                  types: null,
-                  relatedEntityType: null,
-                  relatedEntityId: null,
-                  overdueOnly: null,
+                  personIds: ["person-1"],
+                  jobIds: null,
+                  statuses: null,
+                  startsFrom: null,
+                  startsThrough: null,
                   query: null,
                   offset: null,
                   limit: null,
@@ -306,7 +313,7 @@ describe("agent streaming", () => {
             chunks: [
               { type: "stream-start", warnings: [] },
               { type: "text-start", id: "text-1" },
-              { type: "text-delta", id: "text-1", delta: "You have one open task." },
+              { type: "text-delta", id: "text-1", delta: "You met with the recruiter." },
               { type: "text-end", id: "text-1" },
               {
                 type: "finish",
@@ -318,22 +325,29 @@ describe("agent streaming", () => {
         },
       ],
     });
+    const meeting: MeetingRecord = {
+      id: "meeting-1",
+      title: "Recruiter screen",
+      startsAt: "2026-07-23T10:00:00-07:00",
+      endsAt: "2026-07-23T10:30:00-07:00",
+      timezone: "America/Los_Angeles",
+      location: "Video",
+      description: null,
+      status: "completed",
+      jobId: "job-1",
+      personIds: ["person-1"],
+      externalCalendarId: null,
+      externalEventId: null,
+      revision: 1,
+      isDeleted: false,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      updatedAt: "2026-07-23T12:00:00.000Z",
+    };
     const reader = {
       ...readerWithJobs([]),
-      tasks: { query: () => ({
-        items: [{
-          id: "task-1",
-          title: "Reply to recruiter",
-          type: "application",
-          status: "open",
-          priority: "high",
-          dueDate: "2026-07-24",
-          relatedEntity: { type: "job", id: "job-1", label: "Example" },
-          notes: "Reply with availability",
-          createdAt: "2026-07-23",
-          updatedAt: "2026-07-23",
-          completedAt: null,
-        }],
+      meetings: { query: () => ({
+        status: "ok" as const,
+        items: [meeting],
         page: { offset: 0, limit: 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
       }), read: id => ({ status: "not_found" as const, id }) },
     } satisfies JobSearchReadCapabilities;
@@ -350,12 +364,12 @@ describe("agent streaming", () => {
       tools: createJobSearchTools(reader, logger),
     });
 
-    expect(await agent.respond([userMessage("What is open?")]).text).toBe(
-      "You have one open task.",
+    expect(await agent.respond([userMessage("When did I meet this person?")]).text).toBe(
+      "You met with the recruiter.",
     );
     expect(model.doStreamCalls).toHaveLength(2);
-    expect(model.doStreamCalls[0]?.tools?.map(({ name }) => name)).toContain("list_tasks");
-    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("Reply to recruiter");
+    expect(model.doStreamCalls[0]?.tools?.map(({ name }) => name)).toContain("list_meetings");
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("Recruiter screen");
   });
 
   test("creates a document when the user explicitly requests it", async () => {

@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-JobSearchAgent has twelve read tools and five mutation tools.
+JobSearchAgent has fourteen read tools and five mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -14,6 +14,8 @@ JobSearchAgent has twelve read tools and five mutation tools.
 | `get_job_person_relationship` | Returns one Job-Person Relationship by relationship ID. |
 | `list_tasks` | Lists complete tasks; filters by status, priority, type, related entity, overdue state, and text. |
 | `get_task` | Returns one complete task. |
+| `list_meetings` | Lists complete meetings; filters by multiple person IDs, job IDs, statuses, inclusive start timestamps, and text. |
+| `get_meeting` | Returns one complete meeting with every participant person ID and its optional job ID. |
 | `get_document` | Resolves an exact registered or staged document reference. |
 | `search_jobs_and_contacts` | Resolves company or person names to existing jobs and contacts, ignoring punctuation and case. |
 | `update_job` | Updates mutable fields on one existing job. |
@@ -38,7 +40,9 @@ accepted values. `overdueOnly: false` and an empty query do not broaden it.
 Text search is case-insensitive. Jobs search company, title, status summary,
 and next action; contacts search name, company, title, and why-interesting;
 people search name, company, and title; tasks search title, related-entity
-label, and notes. People and relationship lists default to all current records.
+label, and notes; meetings search title, location, and description. People,
+relationship, and meeting lists default to all current records; meetings are
+ordered by start time descending.
 
 Relationship filters use OR within job IDs, person IDs, or relationship values
 and AND across those fields. Accepted values are `interviewer`,
@@ -46,6 +50,10 @@ and AND across those fields. Accepted values are `interviewer`,
 `professional_contact`, and `personal_contact`.
 Records return relationship, job, and person IDs; the corresponding get tools
 return the complete linked entities.
+
+Meeting person-ID and job-ID filters use OR within each field and AND across
+fields. Start bounds are inclusive. Accepted statuses are `confirmed` and
+`completed`.
 
 Pagination defaults to `offset: 0` and `limit: 20`; the maximum limit is 50.
 Responses include totals and the next offset.
@@ -65,6 +73,9 @@ without leaking private record contents to logs.
 `get_networking_contact` additionally returns every related job as `jobId` and
 `relationship`; its embedded Person fields make a follow-up `get_person` call
 unnecessary.
+Meeting records expose `personIds` from the versioned participant join and a
+nullable `jobId`; missing links and meetings without participants return
+`consistency_error`.
 
 Job and contact tools use structurally strict operation lists. Field and value
 descriptions enumerate accepted domain values; the agent adapter translates

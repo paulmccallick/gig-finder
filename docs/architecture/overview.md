@@ -32,10 +32,12 @@ flowchart LR
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
 - `src/web/` owns the Bun HTTP API and React dashboard.
 
-Jobs, people, networking contacts, job-person relationships, and tasks expose
-caller-neutral query/read services from `JobSearchApplication`; agent tools
-receive only those narrow capabilities. Document lookup uses a separate shared
-document reader. There is no agent-specific domain context facade.
+Jobs, people, networking contacts, job-person relationships, tasks, and
+meetings expose caller-neutral query/read services from `JobSearchApplication`;
+agent tools receive only those narrow capabilities. Document lookup uses a
+separate shared document reader. There is no agent-specific domain context
+facade.
+
 - `src/entrypoints/` owns runtime composition. Entry points resolve local
   configuration, construct SQLite-backed application services, inject them into
   the CLI or web adapter, and close runtime resources.
@@ -49,11 +51,7 @@ document reader. There is no agent-specific domain context facade.
   prior row there with its operation and `change_id`.
 - The `changes` table groups all records written by one transaction into one
   audited change.
-- Managed document metadata lives in `managed_documents`, job/person links in
-  `managed_document_links`, and immutable content revisions in
-  `managed_document_versions`.
-- Person profiles exist only as managed documents; no profile-presence flag is
-  stored on people.
+- documents are also versioned via file archives tracked by database records
 
 ## Context Files
 
