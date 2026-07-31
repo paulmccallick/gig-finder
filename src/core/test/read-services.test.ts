@@ -322,6 +322,26 @@ describe("caller-neutral read services", () => {
     expect(changes()).toBe(before);
   });
 
+  test("meeting date filters and ordering compare absolute instants", () => {
+    const { app, repos } = application();
+    repos.people.create({ id: "person-1", name: "Alex", company: null, title: null, linkedInProfileUrl: null, connectedOn: null });
+    repos.meetings.create(meeting("chronologically-newer", "2026-07-20T10:00:00-07:00"));
+    repos.meetings.create(meeting("lexically-newer", "2026-07-20T18:00:00+02:00"));
+    repos.meetingParticipants.create({ id: "participant-1", meetingId: "chronologically-newer", personId: "person-1" });
+    repos.meetingParticipants.create({ id: "participant-2", meetingId: "lexically-newer", personId: "person-1" });
+
+    expect(app.meetings.query({})).toMatchObject({
+      status: "ok",
+      items: [{ id: "chronologically-newer" }, { id: "lexically-newer" }],
+    });
+    expect(app.meetings.query({
+      startsFrom: "2026-07-20T16:30:00Z",
+      startsThrough: "2026-07-20T17:00:00Z",
+    })).toMatchObject({ status: "ok", items: [{ id: "chronologically-newer" }] });
+    expect(() => app.meetings.query({ startsFrom: "not-a-date" }))
+      .toThrow("startsFrom must be a valid ISO 8601 timestamp");
+  });
+
   test("meeting reads expose stored consistency failures", () => {
     const { app, repos } = application();
     repos.meetings.create(meeting("no-participants", "2026-07-20T10:00:00-07:00"));

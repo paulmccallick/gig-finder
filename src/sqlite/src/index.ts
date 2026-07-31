@@ -5,5 +5,6 @@ export * from "./database";
 export * from "./document-store";
 export * from "./errors";
 export * from "./maintenance";
+export * from "./meeting-migration";
 export * from "./local-application";
 export * from "./store";

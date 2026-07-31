@@ -83,7 +83,13 @@ const meetingFields = {
   id: text("id").notNull(), title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at").notNull(), timezone: text("timezone").notNull(), location: text("location"), description: text("description"), status: text("status").notNull(), jobId: text("job_id").references(() => jobs.id), externalCalendarId: text("external_calendar_id"), externalEventId: text("external_event_id"),
 };
 export const meetings = sqliteTable("meetings", { ...meetingFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("meetings_start_idx").on(table.startsAt), index("meetings_deleted_idx").on(table.isDeleted), uniqueIndex("meetings_external_event_idx").on(table.externalCalendarId, table.externalEventId), check("meetings_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
-export const meetingHistory = sqliteTable("meeting_history", { ...historyMetadata, ...meetingFields, ...recordMetadata }, (table) => [index("meeting_history_entity_idx").on(table.id, table.revision), index("meeting_history_change_idx").on(table.changeId), check("meeting_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
+export const meetingHistory = sqliteTable("meeting_history", {
+  ...historyMetadata,
+  ...meetingFields,
+  legacyRelatedEntityType: text("legacy_related_entity_type"),
+  legacyRelatedEntityId: text("legacy_related_entity_id"),
+  ...recordMetadata,
+}, (table) => [index("meeting_history_entity_idx").on(table.id, table.revision), index("meeting_history_change_idx").on(table.changeId), check("meeting_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
 const meetingParticipantFields = {
   id: text("id").notNull(),

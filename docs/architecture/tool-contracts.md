@@ -52,8 +52,8 @@ Records return relationship, job, and person IDs; the corresponding get tools
 return the complete linked entities.
 
 Meeting person-ID and job-ID filters use OR within each field and AND across
-fields. Start bounds are inclusive. Accepted statuses are `confirmed` and
-`completed`.
+fields. Start bounds are inclusive and compare ISO timestamps as absolute
+instants. Accepted statuses are `confirmed` and `completed`.
 
 Pagination defaults to `offset: 0` and `limit: 20`; the maximum limit is 50.
 Responses include totals and the next offset.

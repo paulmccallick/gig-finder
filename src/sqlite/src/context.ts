@@ -14,6 +14,7 @@ export interface JobSearchContextPaths {
   profile: string;
   logs: string;
   backups: string;
+  meetingParticipantMigration: string;
   actor: string;
 }
 
@@ -73,6 +74,9 @@ export function resolveJobSearchContext(
       ?? path.join(root, "logs"),
     backups: optionalAbsolute(environment.JOB_SEARCH_BACKUP_ROOT)
       ?? path.join(root, "backups"),
+    meetingParticipantMigration: optionalAbsolute(
+      environment.JOB_SEARCH_MEETING_PARTICIPANT_MIGRATION,
+    ) ?? path.join(root, "data", "migration", "0010-meeting-participants.json"),
     actor: environment.JOB_SEARCH_ACTOR?.trim() || config.actor,
   };
 }

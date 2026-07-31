@@ -51,6 +51,9 @@ facade.
   prior row there with its operation and `change_id`.
 - The `changes` table groups all records written by one transaction into one
   audited change.
+- Meeting attendees use versioned participant and participant-history tables;
+  migration retains exact legacy relationship values on historical Meeting
+  snapshots rather than guessing historical attendees.
 - documents are also versioned via file archives tracked by database records
 
 ## Context Files
@@ -58,7 +61,12 @@ facade.
 Private paths default below `context/`. `JOB_SEARCH_CONTEXT_ROOT` changes that
 root; `JOB_SEARCH_PROFILE`, `JOB_SEARCH_DATABASE`, `JOB_SEARCH_ARTIFACTS`,
 `LOG_DIRECTORY`, and `JOB_SEARCH_BACKUP_ROOT` override individual paths.
+`JOB_SEARCH_MEETING_PARTICIPANT_MIGRATION` overrides the private, typed legacy
+Meeting mapping used only by migration 0010.
 `JOB_SEARCH_ACTOR` overrides the configured audit actor.
+
+`bun run db:migrate` creates a verified backup, preflights required private
+Meeting mappings, applies pending migrations, and validates the result.
 
 For local development, `bun run dev:restart` replaces any running API,
 dashboard, and AI SDK DevTools processes and supervises their replacements.

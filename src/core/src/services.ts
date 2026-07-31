@@ -7,6 +7,8 @@ import {
 } from "./people";
 import {
   meetingStatuses,
+  meetingInstant,
+  meetingParticipantId,
   type Meeting,
   type MeetingRecord,
   type MeetingStatus,
@@ -103,23 +105,33 @@ export class MeetingService {
   }
 
   query(input: MeetingQueryInput): PageResult<MeetingRecord> {
-    const records: MeetingRecord[] = [];
+    const startsFrom = queryInstant(input.startsFrom, "startsFrom");
+    const startsThrough = queryInstant(input.startsThrough, "startsThrough");
+    if (startsFrom !== undefined && startsThrough !== undefined && startsFrom > startsThrough) {
+      throw new DomainValidationError("Meeting startsFrom must not be after startsThrough.");
+    }
+    const records: Array<{ record: MeetingRecord; startsAt: number }> = [];
     for (const raw of this.persistence.meetings.list()) {
       const result = this.compose(raw);
       if (result.status !== "ok") return result;
-      records.push(result.record);
+      const startsAt = meetingInstant(result.record.startsAt);
+      if (startsAt === null) {
+        return consistencyFailure(raw.id, `Meeting ${raw.id} has an invalid startsAt timestamp.`);
+      }
+      records.push({ record: result.record, startsAt });
     }
     const query = normalizedQuery(input.query);
     const filtered = records
-      .filter(record => input.personIds === undefined
-        || record.personIds.some(personId => input.personIds!.includes(personId)))
-      .filter(record => input.jobIds === undefined
+      .filter(({ record }) => input.personIds === undefined
+        || record.personIds.some(personId => input.personIds?.includes(personId)))
+      .filter(({ record }) => input.jobIds === undefined
         || (record.jobId !== null && input.jobIds.includes(record.jobId)))
-      .filter(record => input.statuses === undefined || input.statuses.includes(record.status))
-      .filter(record => input.startsFrom === undefined || record.startsAt >= input.startsFrom)
-      .filter(record => input.startsThrough === undefined || record.startsAt <= input.startsThrough)
-      .filter(record => matchesQuery(query, [record.title, record.location, record.description]))
-      .sort((a, b) => b.startsAt.localeCompare(a.startsAt) || a.id.localeCompare(b.id));
+      .filter(({ record }) => input.statuses === undefined || input.statuses.includes(record.status))
+      .filter(({ startsAt }) => startsFrom === undefined || startsAt >= startsFrom)
+      .filter(({ startsAt }) => startsThrough === undefined || startsAt <= startsThrough)
+      .filter(({ record }) => matchesQuery(query, [record.title, record.location, record.description]))
+      .sort((a, b) => b.startsAt - a.startsAt || a.record.id.localeCompare(b.record.id))
+      .map(({ record }) => record);
     return { status: "ok", ...page(filtered, input) };
   }
 
@@ -138,6 +150,14 @@ export class MeetingService {
   private compose(raw: EntityRecord<MeetingData>): ComposeResult<MeetingRecord> {
     if (!isMeetingStatus(raw.status)) {
       return consistencyFailure(raw.id, `Meeting ${raw.id} has unsupported status ${raw.status}.`);
+    }
+    const startsAt = meetingInstant(raw.startsAt);
+    const endsAt = meetingInstant(raw.endsAt);
+    if (startsAt === null || endsAt === null) {
+      return consistencyFailure(raw.id, `Meeting ${raw.id} has an invalid timestamp.`);
+    }
+    if (endsAt < startsAt) {
+      return consistencyFailure(raw.id, `Meeting ${raw.id} ends before it starts.`);
     }
     if (raw.jobId !== null && this.jobs.read(raw.jobId).status !== "ok") {
       return consistencyFailure(raw.id, `Meeting ${raw.id} references missing job ${raw.jobId}.`);
@@ -332,7 +352,7 @@ const isMeetingStatus = (value: string): value is MeetingStatus =>
   meetingStatuses.some(status => status === value);
 
 const participantData = (meetingId: string, personId: string): MeetingParticipantData => ({
-  id: `${meetingId}::${personId}`,
+  id: meetingParticipantId(meetingId, personId),
   meetingId,
   personId,
 });
@@ -348,7 +368,12 @@ function validateMeeting(
   if (!isMeetingStatus(meeting.status)) {
     throw new DomainValidationError(`Meeting ${meeting.id} has unsupported status ${meeting.status}.`);
   }
-  if (!meeting.startsAt || !meeting.endsAt || meeting.endsAt < meeting.startsAt) {
+  const startsAt = meetingInstant(meeting.startsAt);
+  const endsAt = meetingInstant(meeting.endsAt);
+  if (startsAt === null || endsAt === null) {
+    throw new DomainValidationError(`Meeting ${meeting.id} requires valid ISO 8601 timestamps.`);
+  }
+  if (endsAt < startsAt) {
     throw new DomainValidationError(`Meeting ${meeting.id} must end at or after it starts.`);
   }
   const personIds = [...new Set(meeting.personIds)];
@@ -366,6 +391,15 @@ function validateMeeting(
   if (meeting.jobId !== null && jobs.read(meeting.jobId).status !== "ok") {
     throw new DomainValidationError(`Meeting ${meeting.id} references missing job ${meeting.jobId}.`);
   }
+}
+
+function queryInstant(value: string | undefined, field: string) {
+  if (value === undefined) return undefined;
+  const instant = meetingInstant(value);
+  if (instant === null) {
+    throw new DomainValidationError(`Meeting ${field} must be a valid ISO 8601 timestamp.`);
+  }
+  return instant;
 }
 
 function relationshipFromData(record: JobPersonData): JobPersonRelationship {
