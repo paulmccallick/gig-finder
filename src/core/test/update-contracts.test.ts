@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  jobUpdateSchema,
+  gigUpdateSchema,
   networkingContactUpdateSchema,
 } from "../src/update-contracts";
 
 describe("shared update contracts", () => {
-  test("accepts explicit partial and nested job updates", () => {
-    expect(jobUpdateSchema.parse({
+  test("accepts explicit partial and nested gig updates", () => {
+    expect(gigUpdateSchema.parse({
       stage: "applied",
       fit: { rating: "strong" },
       nextAction: { due: null },
@@ -17,18 +17,18 @@ describe("shared update contracts", () => {
     });
   });
 
-  test("rejects empty, immutable, derived, unknown, and malformed job fields", () => {
+  test("rejects empty, immutable, derived, unknown, and malformed gig fields", () => {
     for (const patch of [
       {},
       { id: "other" },
-      { roleDirectory: "private" },
+      { artifactDirectory: "private" },
       { hasJobDescription: true },
       { unexpected: true },
       { stage: "unknown" },
       { nextAction: {} },
       { lastActivity: "07/27/2026" },
     ]) {
-      expect(jobUpdateSchema.safeParse(patch).success).toBe(false);
+      expect(gigUpdateSchema.safeParse(patch).success).toBe(false);
     }
   });
 

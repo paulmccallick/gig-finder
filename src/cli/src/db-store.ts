@@ -1,29 +1,29 @@
-import type { BusinessEventInput,JobPersonData,PersonData } from "../../core/src/models";
+import type { BusinessEventInput,GigPersonData,PersonData } from "../../core/src/models";
 import type { Meeting } from "../../core/src/meetings";
 import type {
   CreateManagedDocumentInput,
   UpdateManagedDocumentInput,
 } from "../../core/src/documents";
-import type { JobRole } from "../../core/src/jobs";
+import type { GigSummary } from "../../core/src/gigs";
 import type { NetworkContact } from "../../core/src/network";
 import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../../core/src/tasks";
-import type { ContactTouchInput,JobTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
-import type { JobUpdate, NetworkingContactUpdate } from "../../core/src/update-contracts";
-import type { JobSearchApplication } from "../../core/src/application";
+import type { ContactTouchInput,GigTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
+import type { GigUpdate, NetworkingContactUpdate } from "../../core/src/update-contracts";
+import type { GigFinderApplication } from "../../core/src/application";
 
-export interface CliRuntime{application:JobSearchApplication;actor:string}
+export interface CliRuntime{application:GigFinderApplication;actor:string}
 type TrackerPaths=CliRuntime;
 export interface UpdateOptions{dryRun?:boolean;date?:string}
 export function pacificDate(now=new Date()){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(now);const get=(type:Intl.DateTimeFormatPartTypes)=>parts.find(part=>part.type===type)?.value??"";return`${get("year")}-${get("month")}-${get("day")}`}
 const timestamp=(date?:string)=>`${date??pacificDate()}T12:00:00-07:00`;
 const context=(paths:TrackerPaths,summary:string,date?:string)=>({actor:paths.actor,source:"user_request" as const,summary,occurredAt:timestamp(date)});
-function withApplication<T>(runtime:TrackerPaths,action:(app:JobSearchApplication)=>T):T{return action(runtime.application)}
+function withApplication<T>(runtime:TrackerPaths,action:(app:GigFinderApplication)=>T):T{return action(runtime.application)}
 
-export const getJob=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.jobs.get(id));
-export const listJobs=(paths:TrackerPaths)=>withApplication(paths,app=>app.jobs.list());
-export const createJob=(paths:TrackerPaths,record:JobRole,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.create(context(paths,"CLI job create",record.lastActivity),record,options));
-export const updateJob=(paths:TrackerPaths,id:string,patch:JobUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.update(context(paths,`CLI job update ${id}`,options.date),id,patch,options).record);
-export const touchJob=(paths:TrackerPaths,id:string,input:JobTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.jobs.touch(context(paths,`CLI job touch ${id}`,input.date),id,input,options));
+export const getGig=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.gigs.get(id));
+export const listGigs=(paths:TrackerPaths)=>withApplication(paths,app=>app.gigs.list());
+export const createGig=(paths:TrackerPaths,record:GigSummary,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.create(context(paths,"CLI gig create",record.lastActivity),record,options));
+export const updateGig=(paths:TrackerPaths,id:string,patch:GigUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.update(context(paths,`CLI gig update ${id}`,options.date),id,patch,options).record);
+export const touchGig=(paths:TrackerPaths,id:string,input:GigTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.touch(context(paths,`CLI gig touch ${id}`,input.date),id,input,options));
 
 export const getContact=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.networking.get(id));
 export const listContacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.networking.list());
@@ -42,7 +42,7 @@ export const getPerson=(paths:TrackerPaths,id:string)=>withApplication(paths,app
 export const listPeople=(paths:TrackerPaths)=>withApplication(paths,app=>app.people.list());
 export function createPerson(paths:TrackerPaths,record:PersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.people.create(context(paths,"CLI person create"),record));return record}
 export function updatePerson(paths:TrackerPaths,id:string,patch:Partial<PersonData>,options:UpdateOptions={}){const{id:_,...data}=patch;return withApplication(paths,app=>app.people.patch(context(paths,`CLI person update ${id}`),id,data,options))}
-export function createJobPerson(paths:TrackerPaths,record:JobPersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.jobPeople.create(context(paths,"CLI job-person create"),record));return record}
+export function createGigPerson(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.gigPeople.create(context(paths,"CLI gig-person create"),record));return record}
 export const getMeeting=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.meetings.get(id));
 export const listMeetings=(paths:TrackerPaths)=>withApplication(paths,app=>app.meetings.list());
 export function createMeeting(paths:TrackerPaths,record:Meeting,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.meetings.create(context(paths,"CLI meeting create",record.startsAt.slice(0,10)),record));return record}
@@ -51,7 +51,7 @@ export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)
 
 export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
 export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));
-export const listDocuments=(paths:TrackerPaths,entityType:"job"|"person",entityId:string)=>withApplication(paths,app=>app.documents.list(entityType,entityId));
+export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person",entityId:string)=>withApplication(paths,app=>app.documents.list(entityType,entityId));
 export const getDocument=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.get(documentId));
 export const listDocumentVersions=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.versions(documentId));
 export const createDocument=(paths:TrackerPaths,input:CreateManagedDocumentInput)=>withApplication(paths,app=>app.documents.create(context(paths,`CLI document create ${input.documentType}`),input));

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fitRatings, outcomes, pipelineStages } from "../core/src/jobs";
+import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
 import {
   contactPriorities,
   contactStatuses,
@@ -13,8 +13,8 @@ const updateValueSchema = z.union([
   z.null(),
 ]);
 
-const jobUpdateFields = [
-  "company", "title", "jobId", "stage", "outcome", "statusSummary",
+const gigUpdateFields = [
+  "company", "title", "externalJobId", "stage", "outcome", "statusSummary",
   "lastActivity", "nextAction", "nextAction.description", "nextAction.due",
   "fit.rating", "fit.summary", "payRange", "payRange.currency",
   "payRange.minimum", "payRange.maximum", "payRange.period",
@@ -34,16 +34,16 @@ const contactUpdateFields = [
 
 const list = (values: readonly string[]) => values.join(", ");
 
-const jobFieldDescription = [
-  "Exact mutable job field path; nested fields use dot notation.",
+const gigFieldDescription = [
+  "Exact mutable gig field path; nested fields use dot notation.",
   `stage values: ${list(pipelineStages)}.`,
   `outcome values: ${list(outcomes)}.`,
   `fit.rating values: ${list(fitRatings)}.`,
   "payRange.currency: USD; payRange.period: hour or year.",
 ].join(" ");
 
-const jobValueDescription = [
-  "Value appropriate to the selected job field.",
+const gigValueDescription = [
+  "Value appropriate to the selected gig field.",
   `For stage use one of: ${list(pipelineStages)}.`,
   `For outcome use one of: ${list(outcomes)}.`,
   `For fit.rating use one of: ${list(fitRatings)}.`,
@@ -132,17 +132,17 @@ function operationListSchema<T extends readonly [string, ...string[]]>(
   });
 }
 
-export const jobChangesSchema = operationListSchema(
-  jobUpdateFields,
+export const gigChangesSchema = operationListSchema(
+  gigUpdateFields,
   new Set([
-    "jobId", "nextAction", "nextAction.due", "fit.summary", "payRange",
+    "externalJobId", "nextAction", "nextAction.due", "fit.summary", "payRange",
     "payRange.minimum", "payRange.maximum", "payRange.notes", "sourceUrl",
     "location", "workArrangement", "postedDate", "businessUnitTeam",
     "recruiterSource", "bonus", "equity", "otherCompensation",
-  ] satisfies typeof jobUpdateFields[number][]),
-  new Set(["nextAction", "payRange"] satisfies typeof jobUpdateFields[number][]),
-  jobFieldDescription,
-  jobValueDescription,
+  ] satisfies typeof gigUpdateFields[number][]),
+  new Set(["nextAction", "payRange"] satisfies typeof gigUpdateFields[number][]),
+  gigFieldDescription,
+  gigValueDescription,
 );
 
 export const contactChangesSchema = operationListSchema(

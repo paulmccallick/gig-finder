@@ -6,14 +6,19 @@ import path from "node:path";
 import { openDatabase } from "./database";
 
 const entityTables=[
-  {entity:"job",live:"jobs",history:"job_history"},
+  {entity:"gig",live:"gigs",history:"gig_history"},
   {entity:"person",live:"people",history:"person_history"},
   {entity:"networking",live:"networking_contacts",history:"networking_contact_history"},
-  {entity:"job-person",live:"job_people",history:"job_people_history"},
+  {entity:"gig-person",live:"gig_people",history:"gig_people_history"},
   {entity:"task",live:"tasks",history:"task_history"},
   {entity:"meeting",live:"meetings",history:"meeting_history"},
   {entity:"meeting-participant",live:"meeting_participants",history:"meeting_participant_history"},
 ] as const;
+const legacyEntityTables=entityTables.map(item=>item.entity==="gig"
+  ? {...item,live:"jobs",history:"job_history"}
+  : item.entity==="gig-person"
+    ? {...item,live:"job_people",history:"job_people_history"}
+    : item);
 
 export interface ValidationIssue { check:string; message:string }
 export interface ValidationReport {
@@ -45,8 +50,9 @@ export function validateDatabase(database:Database):ValidationReport {
   if(foreignKeys.length)issues.push({check:"foreign_keys",message:`${foreignKeys.length} foreign-key violation(s)`});
   const counts:Record<string,number>={};
   const existingTables=new Set((database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{name:string}>).map(row=>row.name));
+  const tables=existingTables.has("jobs")&&!existingTables.has("gigs")?legacyEntityTables:entityTables;
   const legacyMeetingSchema=existingTables.has("meetings")&&(database.query("PRAGMA table_info(meetings)").all() as Array<{name:string}>).some(column=>column.name==="related_entity_type");
-  const expectedTables=["changes","business_events","event_sources",...entityTables.flatMap((item)=>[item.live,item.history])];
+  const expectedTables=["changes","business_events","event_sources",...tables.flatMap((item)=>[item.live,item.history])];
   for(const table of expectedTables){
     if(!existingTables.has(table)){
       const allowedLegacyTable=legacyMeetingSchema&&(table==="meeting_participants"||table==="meeting_participant_history");
@@ -55,7 +61,7 @@ export function validateDatabase(database:Database):ValidationReport {
     }
     counts[table]=Number((database.query(`SELECT count(*) AS count FROM ${table}`).get() as {count:number}).count);
   }
-  for(const {entity,live,history} of entityTables){
+  for(const {entity,live,history} of tables){
     if(!existingTables.has(live)||!existingTables.has(history))continue;
     const rows=database.query(`SELECT id, revision FROM ${live} ORDER BY id`).all() as {id:string;revision:number}[];
     for(const row of rows){
@@ -97,7 +103,7 @@ function validateDatabaseFile(filename:string):ValidationReport{
   try{return validateDatabase(database);}finally{database.close();}
 }
 
-const backupPattern=/^job-search-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.sqlite$/;
+const backupPattern=/^(?:gig-finder|job-search)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.sqlite$/;
 const isoFilename=(date:Date)=>date.toISOString().replaceAll(":","-").replace(".","-");
 const manifestPath=(filename:string)=>`${filename}.json`;
 
@@ -107,7 +113,7 @@ export async function createManagedBackup(
   now=new Date(),
 ):Promise<BackupReport>{
   await mkdir(backupRoot,{recursive:true});
-  const outputPath=path.join(backupRoot,`job-search-${isoFilename(now)}.sqlite`);
+  const outputPath=path.join(backupRoot,`gig-finder-${isoFilename(now)}.sqlite`);
   const backup=await createVerifiedBackup(databasePath,outputPath);
   const manifest:BackupManifest={
     version:1,

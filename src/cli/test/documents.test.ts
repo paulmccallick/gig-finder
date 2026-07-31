@@ -2,18 +2,18 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { JobData, NetworkingContactData, PersonData } from "../../core/src/models";
+import type { GigData, NetworkingContactData, PersonData } from "../../core/src/models";
 import {
   DataStore,
   migrateDatabase,
   openDatabase,
-} from "../../sqlite/src";
+} from "../../data/src";
 
 let directory = "";
-const executable = path.resolve(import.meta.dir, "../../../bin/job-search");
+const executable = path.resolve(import.meta.dir, "../../../bin/gig-finder");
 
-const job: JobData = {
-  id: "job",
+const gig: GigData = {
+  id: "gig",
   company: "Example Company",
   title: "Engineering Director",
   externalJobId: null,
@@ -68,7 +68,7 @@ describe("managed document CLI", () => {
     await Bun.write(contentFile, "# Profile");
 
     const created = await run([
-      "documents", "create", "--person", person.id, "--job", job.id,
+      "documents", "create", "--person", person.id, "--gig", gig.id,
       "--type", "profile", "--media-type", "text/markdown",
       "--content-file", contentFile,
     ], database, artifacts);
@@ -77,17 +77,17 @@ describe("managed document CLI", () => {
       title: null,
       displayName: "Profile",
       links: [
-        { entityType: "job", entityId: job.id },
+        { entityType: "gig", entityId: gig.id },
         { entityType: "person", entityId: person.id },
       ],
     });
-    expect((await run(["jobs", "get", job.id], database, artifacts)).record.documents)
+    expect((await run(["gigs", "get", gig.id], database, artifacts)).record.documents)
       .toContainEqual(expect.objectContaining({ id: created.record.id, type: "profile", displayName: "Profile" }));
     expect((await run(["networking", "get", contact.id], database, artifacts)).record)
       .toMatchObject({ hasProfile: true, documents: [{ id: created.record.id, type: "profile", displayName: "Profile" }] });
   });
 
-  test("creates, lists, and gets a job document from a content file", async () => {
+  test("creates, lists, and gets a gig document from a content file", async () => {
     const { database, artifacts } = await workspace();
     const contentFile = path.join(directory, "job-description.txt");
     await Bun.write(contentFile, "Original job description");
@@ -95,8 +95,8 @@ describe("managed document CLI", () => {
     const created = await run([
       "documents",
       "create",
-      "--job",
-      job.id,
+      "--gig",
+      gig.id,
       "--type",
       "job_description",
       "--title",
@@ -117,7 +117,7 @@ describe("managed document CLI", () => {
       changed: true,
       record: {
         id: reference,
-        links: [{ entityType: "job", entityId: job.id }],
+        links: [{ entityType: "gig", entityId: gig.id }],
         documentType: "job_description",
         sourceDescription: "Received by text message",
         currentVersion: 1,
@@ -125,11 +125,11 @@ describe("managed document CLI", () => {
       },
     });
     expect(await run(
-      ["documents", "list", "--job", job.id],
+      ["documents", "list", "--gig", gig.id],
       database,
       artifacts,
     )).toMatchObject({
-      link: { entityType: "job", entityId: job.id },
+      link: { entityType: "gig", entityId: gig.id },
       records: [{ id: reference, currentVersion: 1 }],
     });
     expect(await run(
@@ -148,8 +148,8 @@ describe("managed document CLI", () => {
     const created = await run([
       "documents",
       "create",
-      "--job",
-      job.id,
+      "--gig",
+      gig.id,
       "--type",
       "notes",
       "--title",
@@ -228,8 +228,8 @@ describe("managed document CLI", () => {
     const created = await run([
       "documents",
       "create",
-      "--job",
-      job.id,
+      "--gig",
+      gig.id,
       "--type",
       "notes",
       "--title",
@@ -288,7 +288,7 @@ describe("managed document CLI", () => {
 });
 
 async function workspace() {
-  directory = await mkdtemp(path.join(tmpdir(), "job-search-cli-documents-"));
+  directory = await mkdtemp(path.join(tmpdir(), "gig-finder-cli-documents-"));
   const database = path.join(directory, "test.sqlite");
   const artifacts = path.join(directory, "artifacts");
   await mkdir(artifacts);
@@ -297,7 +297,7 @@ async function workspace() {
   new DataStore(connection).change(
     { actor: "test", source: "test", summary: "Seed records" },
     transaction => {
-      transaction.jobs.create(job);
+      transaction.gigs.create(gig);
       transaction.people.create(person);
       transaction.networking.create(contact);
     },
@@ -310,9 +310,9 @@ async function invoke(args: string[], database: string, artifacts: string) {
   const child = Bun.spawn([executable, ...args], {
     env: {
       ...process.env,
-      JOB_SEARCH_DATABASE: database,
-      JOB_SEARCH_ARTIFACTS: artifacts,
-      JOB_SEARCH_ACTOR: "cli-test",
+      GIG_FINDER_DATABASE: database,
+      GIG_FINDER_ARTIFACTS: artifacts,
+      GIG_FINDER_ACTOR: "cli-test",
     },
     stdout: "pipe",
     stderr: "pipe",

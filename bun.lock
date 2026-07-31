@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "job-search-dashboard",
+      "name": "gig-finder",
       "dependencies": {
         "@ai-sdk/openai": "4.0.18",
         "@ai-sdk/react": "4.0.38",

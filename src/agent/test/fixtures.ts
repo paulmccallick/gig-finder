@@ -1,6 +1,6 @@
-import type { JobSearchProfile } from "../types";
+import type { CandidateProfile } from "../types";
 
-export const testJobSearchProfile: JobSearchProfile = {
+export const testCandidateProfile: CandidateProfile = {
   version: "1",
   candidate: {
     displayName: "Jordan",
@@ -9,7 +9,7 @@ export const testJobSearchProfile: JobSearchProfile = {
     experienceLevel: "Experienced people leader",
     yearsOfExperience: "More than ten years",
     industryExperience: ["Consumer services", "Business software"],
-    currentSituation: "Conducting an active job search.",
+    currentSituation: "Conducting an active gig search.",
     careerHorizon: "Long term.",
   },
   targets: {

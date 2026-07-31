@@ -1,7 +1,7 @@
-import type { JobRecord } from "./jobs";
+import type { GigRecord } from "./gigs";
 import type { NetworkContactRecord } from "./network";
 import type {
-  JobQueryInput,
+  GigQueryInput,
   NetworkingContactQueryInput,
   Page,
 } from "./queries";
@@ -12,8 +12,8 @@ export interface SearchContextInput {
 }
 
 export interface SearchContextResult {
-  jobs: Array<Pick<
-    JobRecord,
+  gigs: Array<Pick<
+    GigRecord,
     "id" | "company" | "title" | "stage" | "outcome"
   > & {
     matchedCompanyNames: string[];
@@ -29,7 +29,7 @@ export interface SearchContextResult {
 }
 
 interface ContextSearchSources {
-  jobs: { query(input: JobQueryInput): Page<JobRecord> };
+  gigs: { query(input: GigQueryInput): Page<GigRecord> };
   networking: {
     query(input: NetworkingContactQueryInput): Page<NetworkContactRecord>;
   };
@@ -70,15 +70,15 @@ export class SearchContextService {
   search(input: SearchContextInput): SearchContextResult {
     const companyNames = uniqueQueries(input.companyNames);
     const personNames = uniqueQueries(input.personNames);
-    const jobCandidates = new Map<string, JobRecord>();
+    const gigCandidates = new Map<string, GigRecord>();
     const contactCandidates = new Map<string, NetworkContactRecord>();
     let truncated = false;
 
     for (const query of companyNames) {
       for (const term of searchTerms(query)) {
-        const jobs = this.sources.jobs.query({ query: term, offset: 0, limit: 50 });
-        truncated ||= jobs.page.hasMore;
-        for (const job of jobs.items) jobCandidates.set(job.id, job);
+        const gigs = this.sources.gigs.query({ query: term, offset: 0, limit: 50 });
+        truncated ||= gigs.page.hasMore;
+        for (const gig of gigs.items) gigCandidates.set(gig.id, gig);
 
         const contacts = this.sources.networking.query({
           query: term,
@@ -101,14 +101,14 @@ export class SearchContextService {
       }
     }
 
-    const allJobs = [...jobCandidates.values()].flatMap(job => {
-      const matchedCompanyNames = companyNames.filter(query => matches(job.company, query));
+    const allGigs = [...gigCandidates.values()].flatMap(gig => {
+      const matchedCompanyNames = companyNames.filter(query => matches(gig.company, query));
       return matchedCompanyNames.length > 0 ? [{
-        id: job.id,
-        company: job.company,
-        title: job.title,
-        stage: job.stage,
-        outcome: job.outcome,
+        id: gig.id,
+        company: gig.company,
+        title: gig.title,
+        stage: gig.stage,
+        outcome: gig.outcome,
         matchedCompanyNames,
       }] : [];
     });
@@ -126,9 +126,9 @@ export class SearchContextService {
       }] : [];
     });
     return {
-      jobs: allJobs.slice(0, 20),
+      gigs: allGigs.slice(0, 20),
       networkingContacts: allContacts.slice(0, 20),
-      truncated: truncated || allJobs.length > 20 || allContacts.length > 20,
+      truncated: truncated || allGigs.length > 20 || allContacts.length > 20,
     };
   }
 }

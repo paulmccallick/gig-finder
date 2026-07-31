@@ -1,49 +1,49 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createContact, createDocument, createEvent, createJob, createJobPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getJob, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listJobs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchJob, updateContact, updateDocument, updateJob, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
-import type { BusinessEventInput,JobPersonData,PersonData } from "../../core/src/models";
+import { completeTask, createContact, createDocument, createEvent, createGig, createGigPerson, createMeeting, createPerson, createTaskFromInput, getContact, getDocument, getGig, getMeeting, getPerson, getTask, listContacts, listDocuments, listDocumentVersions, listEvents, listGigs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchContact, touchGig, updateContact, updateDocument, updateGig, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
+import type { BusinessEventInput,GigPersonData,PersonData } from "../../core/src/models";
 import type { Meeting } from "../../core/src/meetings";
 import type { ContactStatus, NetworkContact } from "../../core/src/network";
-import type { JobRole, Outcome, PipelineStage } from "../../core/src/jobs";
+import type { GigSummary, Outcome, PipelineStage } from "../../core/src/gigs";
 import {
   documentMediaTypes,
   managedDocumentTypes,
 } from "../../core/src/documents";
 import {
-  jobUpdateSchema,
+  gigUpdateSchema,
   networkingContactUpdateSchema,
 } from "../../core/src/update-contracts";
 
-export const cliUsage = `job-search — job-search application CLI
+export const cliUsage = `gig-finder — GigFinder CLI
 
 Usage:
-  job-search jobs get <id>
-  job-search jobs list
-  job-search people get <id>
-  job-search people list
-  job-search networking get <id>
-  job-search networking list
-  job-search jobs add <id> --patch '<json>' [--dry-run]
-  job-search jobs update <id> --patch-file <path> [--dry-run]
-  job-search jobs touch <id> --date YYYY-MM-DD --stage <stage> --summary <text> [--outcome <outcome>] [--next-action <text>] [--due YYYY-MM-DD|none]
-  job-search networking add <id> --patch-file <path> [--dry-run]
-  job-search networking update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
-  job-search networking touch <id> --date YYYY-MM-DD --status <status> --method <method> --summary <text> [--next-action <text>] [--due YYYY-MM-DD|none]
-  job-search tasks add <id> --title <text> --type <type> --due <YYYY-MM-DD|none> --related-type <contact|job|general> --related-label <text> [--related-id <id>] [--priority <priority>] [--notes <text>] [--date YYYY-MM-DD] [--dry-run]
-  job-search tasks update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
-  job-search tasks complete <id> --date YYYY-MM-DD [--dry-run]
-  job-search meetings get <id>
-  job-search meetings list
-  job-search meetings add <id> --patch-file <path> [--dry-run]
-  job-search events list [--entity-type <type>] [--entity-id <id>]
-  job-search events add <id> --patch-file <path> [--dry-run]
-  job-search artifacts verify
-  job-search artifacts sync
-  job-search documents list (--job <job-id> | --person <person-id>)
-  job-search documents get <document-id>
-  job-search documents create [--jobs <id,...>] [--people <id,...>] --type <type> --media-type <type> --content-file <path> [--title <text>] [--source-description <text>]
-  job-search documents update <document-id> --expected-version <number> --change-summary <text> --content-file <path>
-  job-search documents versions <document-id>
+  gig-finder gigs get <id>
+  gig-finder gigs list
+  gig-finder people get <id>
+  gig-finder people list
+  gig-finder networking get <id>
+  gig-finder networking list
+  gig-finder gigs add <id> --patch '<json>' [--dry-run]
+  gig-finder gigs update <id> --patch-file <path> [--dry-run]
+  gig-finder gigs touch <id> --date YYYY-MM-DD --stage <stage> --summary <text> [--outcome <outcome>] [--next-action <text>] [--due YYYY-MM-DD|none]
+  gig-finder networking add <id> --patch-file <path> [--dry-run]
+  gig-finder networking update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
+  gig-finder networking touch <id> --date YYYY-MM-DD --status <status> --method <method> --summary <text> [--next-action <text>] [--due YYYY-MM-DD|none]
+  gig-finder tasks add <id> --title <text> --type <type> --due <YYYY-MM-DD|none> --related-type <contact|gig|general> --related-label <text> [--related-id <id>] [--priority <priority>] [--notes <text>] [--date YYYY-MM-DD] [--dry-run]
+  gig-finder tasks update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
+  gig-finder tasks complete <id> --date YYYY-MM-DD [--dry-run]
+  gig-finder meetings get <id>
+  gig-finder meetings list
+  gig-finder meetings add <id> --patch-file <path> [--dry-run]
+  gig-finder events list [--entity-type <type>] [--entity-id <id>]
+  gig-finder events add <id> --patch-file <path> [--dry-run]
+  gig-finder artifacts verify
+  gig-finder artifacts sync
+  gig-finder documents list (--gig <gig-id> | --person <person-id>)
+  gig-finder documents get <document-id>
+  gig-finder documents create [--gigs <id,...>] [--people <id,...>] --type <type> --media-type <type> --content-file <path> [--title <text>] [--source-description <text>]
+  gig-finder documents update <document-id> --expected-version <number> --change-summary <text> --content-file <path>
+  gig-finder documents versions <document-id>
 
 Patch files are recommended for long or sensitive text. Arrays are replaced;
 objects are deep-merged; null explicitly clears a value. All writes are atomic.`;
@@ -109,11 +109,11 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
 
   if (command === "list") {
     const flags = parseFlags(args.slice(2));
-    const jobId = optional(flags, "job");
+    const gigId = optional(flags, "gig");
     const personId = optional(flags, "person");
-    if (Boolean(jobId) === Boolean(personId)) throw new Error("Provide exactly one of --job or --person.");
-    const entityType = jobId ? "job" as const : "person" as const;
-    const entityId = jobId ?? personId!;
+    if (Boolean(gigId) === Boolean(personId)) throw new Error("Provide exactly one of --gig or --person.");
+    const entityType = gigId ? "gig" as const : "person" as const;
+    const entityId = gigId ?? personId!;
     console.log(JSON.stringify({
       ok: true,
       entity: "document",
@@ -148,9 +148,9 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
     );
     const result = createDocument(paths, {
       links: [
-        ...(optional(flags, "job") ? [{ entityType: "job" as const, entityId: optional(flags, "job")! }] : []),
+        ...(optional(flags, "gig") ? [{ entityType: "gig" as const, entityId: optional(flags, "gig")! }] : []),
         ...(optional(flags, "person") ? [{ entityType: "person" as const, entityId: optional(flags, "person")! }] : []),
-        ...commaList(flags, "jobs").map(entityId => ({ entityType: "job" as const, entityId })),
+        ...commaList(flags, "gigs").map(entityId => ({ entityType: "gig" as const, entityId })),
         ...commaList(flags, "people").map(entityId => ({ entityType: "person" as const, entityId })),
       ],
       documentType: acceptedValue(flags, "type", managedDocumentTypes),
@@ -204,9 +204,9 @@ export async function runCli(args: string[], runtime: CliRuntime) {
   if (await handleDocuments(args, runtime)) return;
   if(args[0]==="artifacts"&&args[1]==="verify"){const result=await verifyArtifacts(runtime);console.log(JSON.stringify({ok:result.ok,result},null,2));if(!result.ok)process.exitCode=1;return}
   if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(runtime);console.log(JSON.stringify({ok:true,result},null,2));return}
-  const aliases:Record<string,string>={jobs:"job",networking:"contact",contacts:"contact",tasks:"task",people:"person","job-people":"job-person",meetings:"meeting",events:"event"};
+  const aliases:Record<string,string>={gigs:"gig",networking:"contact",contacts:"contact",tasks:"task",people:"person","gig-people":"gig-person",meetings:"meeting",events:"event"};
   const [rawEntity, command, id, ...rest] = args;const entity=aliases[rawEntity??""]??rawEntity;
-  if (!["job", "contact", "person", "job-person", "task", "meeting", "event"].includes(entity ?? "") || !["get", "list", "update", "touch", "add", "complete"].includes(command ?? "")) throw new Error(usage);
+  if (!["gig", "contact", "person", "gig-person", "task", "meeting", "event"].includes(entity ?? "") || !["get", "list", "update", "touch", "add", "complete"].includes(command ?? "")) throw new Error(usage);
   if (entity === "event" && command === "list") {
     const flags = parseFlags(args.slice(2));
     console.log(JSON.stringify({ok:true,entity,command,records:listEvents(runtime,optional(flags,"entity-type"),optional(flags,"entity-id"))},null,2));
@@ -216,8 +216,8 @@ export async function runCli(args: string[], runtime: CliRuntime) {
     if ((command === "get" && !id) || (command === "list" && id)) throw new Error(usage);
     const paths = runtime;
     const result = command === "list"
-      ? entity === "job" ? listJobs(paths) : entity === "contact" ? listContacts(paths) : entity === "person" ? listPeople(paths) : entity === "meeting" ? listMeetings(paths) : listTasks(paths)
-      : entity === "job" ? getJob(paths, id!) : entity === "contact" ? getContact(paths, id!) : entity === "person" ? getPerson(paths,id!) : entity === "meeting" ? getMeeting(paths,id!) : getTask(paths, id!);
+      ? entity === "gig" ? listGigs(paths) : entity === "contact" ? listContacts(paths) : entity === "person" ? listPeople(paths) : entity === "meeting" ? listMeetings(paths) : listTasks(paths)
+      : entity === "gig" ? getGig(paths, id!) : entity === "contact" ? getContact(paths, id!) : entity === "person" ? getPerson(paths,id!) : entity === "meeting" ? getMeeting(paths,id!) : getTask(paths, id!);
     if (command === "get" && result === null) throw new Error(`${entity[0]!.toUpperCase()}${entity.slice(1)} not found: ${id}`);
     console.log(JSON.stringify({ ok: true, entity, command, ...(id ? { id } : {}), [command === "list" ? "records" : "record"]: result }, null, 2));
     return;
@@ -226,17 +226,17 @@ export async function runCli(args: string[], runtime: CliRuntime) {
   const flags = parseFlags(rest);
   const paths = runtime;
   const dryRun = flags["dry-run"] === true;
-  let result: JobRole | NetworkContact | TaskRecord | PersonData | JobPersonData | Meeting | BusinessEventInput;
+  let result: GigSummary | NetworkContact | TaskRecord | PersonData | GigPersonData | Meeting | BusinessEventInput;
 
   if(entity==="event"&&command==="add"){const record=await patchFrom(flags) as unknown as BusinessEventInput;if(record.id!==id)throw new Error("Event id must match the command id.");result=createEvent(paths,record,{dryRun});
   }else if(entity==="meeting"&&command==="add"){const record=await patchFrom(flags) as unknown as Meeting;if(record.id!==id)throw new Error("Meeting id must match the command id.");result=createMeeting(paths,record,{dryRun});
-  }else if(entity==="job-person"&&command==="add"){const record=await patchFrom(flags) as unknown as JobPersonData;if(record.id!==id)throw new Error("Job-person id must match the command id.");result=createJobPerson(paths,record,{dryRun});
+  }else if(entity==="gig-person"&&command==="add"){const record=await patchFrom(flags) as unknown as GigPersonData;if(record.id!==id)throw new Error("Gig-person id must match the command id.");result=createGigPerson(paths,record,{dryRun});
   }else if(entity==="person"&&command==="add"){const record=await patchFrom(flags) as unknown as PersonData;if(record.id!==id)throw new Error("Person id must match the command id.");result=createPerson(paths,record,{dryRun});
   }else if(entity==="person"&&command==="update"){result=updatePerson(paths,id,await patchFrom(flags) as Partial<PersonData>,{dryRun});
-  }else if (entity === "job" && command === "add") {
-    const record = await patchFrom(flags) as unknown as JobRole;
-    if (record.id !== id) throw new Error("Job id must match the command id.");
-    result = await createJob(paths, record, { dryRun });
+  }else if (entity === "gig" && command === "add") {
+    const record = await patchFrom(flags) as unknown as GigSummary;
+    if (record.id !== id) throw new Error("Gig id must match the command id.");
+    result = await createGig(paths, record, { dryRun });
   } else if (entity === "task" && command === "add") {
     const date = optional(flags, "date") ?? pacificDate();
     const relatedType = required(flags, "related-type") as TaskRecord["relatedEntity"]["type"];
@@ -259,16 +259,16 @@ export async function runCli(args: string[], runtime: CliRuntime) {
     const record = await patchFrom(flags) as unknown as NetworkContact;
     if (record.id !== id) throw new Error("Contact id must match the command id.");
     result = await createContact(paths, record, { dryRun });
-  } else if (entity === "job" && command === "update") {
-    result = await updateJob(paths, id, jobUpdateSchema.parse(await patchFrom(flags)), { dryRun });
+  } else if (entity === "gig" && command === "update") {
+    result = await updateGig(paths, id, gigUpdateSchema.parse(await patchFrom(flags)), { dryRun });
   } else if (entity === "contact" && command === "update") {
     result = await updateContact(paths, id, networkingContactUpdateSchema.parse(await patchFrom(flags)), { dryRun, date: optional(flags, "date") });
-  } else if (entity === "job") {
+  } else if (entity === "gig") {
     const outcome = optional(flags, "outcome");
     const action = optional(flags, "next-action");
     const due = nullable(optional(flags, "due"));
     const date=required(flags,"date"),stage=required(flags,"stage") as PipelineStage;
-    result = await touchJob(paths,id,{date,stage,summary:required(flags,"summary"),...(outcome!==undefined?{outcome:outcome as Outcome}:{}),...(action!==undefined?{nextAction:action}:{}),...(due!==undefined?{due}: {})},{dryRun,date});
+    result = await touchGig(paths,id,{date,stage,summary:required(flags,"summary"),...(outcome!==undefined?{outcome:outcome as Outcome}:{}),...(action!==undefined?{nextAction:action}:{}),...(due!==undefined?{due}: {})},{dryRun,date});
   } else if (entity === "contact") {
     const action = optional(flags, "next-action");
     const due = nullable(optional(flags, "due"));

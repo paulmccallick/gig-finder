@@ -5,12 +5,12 @@ import { compareTasks, taskIsDueToday, taskIsOverdue, taskPriorities, taskStatus
 function TaskDrawer({ task, onClose }: { task: TaskRecord; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeRef.current?.focus(); const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key); }, [onClose]);
-  return <div className="drawer-layer"><button className="drawer-scrim" aria-label="Close task details" onClick={onClose} /><aside className="role-drawer task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-drawer-title">
+  return <div className="drawer-layer"><button className="drawer-scrim" aria-label="Close task details" onClick={onClose} /><aside className="record-drawer task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-drawer-title">
     <header className="drawer-header task-drawer-header"><div><span className="eyebrow">Task brief</span><h2 id="task-drawer-title">{task.title}</h2><p>{task.relatedEntity.label}</p></div><button ref={closeRef} className="icon-button" aria-label="Close task details" onClick={onClose}>×</button></header>
     <div className="drawer-body"><div className="drawer-badges"><span className="task-priority" data-priority={task.priority}>{task.priority} priority</span><span className="stage-chip">{taskStatusLabels[task.status]}</span><span className="stage-chip">{taskTypeLabels[task.type]}</span></div>
       <dl className="detail-grid"><div className="detail-item"><dt>Due date</dt><dd>{task.dueDate ?? "No deadline"}</dd></div><div className="detail-item"><dt>Related to</dt><dd>{task.relatedEntity.type} · {task.relatedEntity.label}</dd></div><div className="detail-item"><dt>Created</dt><dd>{task.createdAt}</dd></div><div className="detail-item"><dt>Last updated</dt><dd>{task.updatedAt}</dd></div>{task.completedAt && <div className="detail-item"><dt>Completed</dt><dd>{task.completedAt}</dd></div>}</dl>
       <section><h3>Context and instructions</h3><p className="status-narrative">{task.notes ?? "No additional notes captured."}</p></section>
-      <p className="read-only-note">Read-only view · update tasks through the job-search CLI</p>
+      <p className="read-only-note">Read-only view · update tasks through the gig-finder CLI</p>
     </div>
   </aside></div>;
 }

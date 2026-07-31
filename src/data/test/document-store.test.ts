@@ -5,7 +5,7 @@ import {
   type ManagedDocumentData,
 } from "../../core/src/documents";
 import { MutationError } from "../../core/src/errors";
-import type { ChangeContext, JobData, PersonData } from "../../core/src/models";
+import type { ChangeContext, GigData, PersonData } from "../../core/src/models";
 import {
   DataStore,
   migrateDatabase,
@@ -24,8 +24,8 @@ const context = (summary: string): ChangeContext => ({
   occurredAt: timestamp,
 });
 
-const job: JobData = {
-  id: "job-1",
+const gig: GigData = {
+  id: "gig-1",
   company: "Example Company",
   title: "Engineering Director",
   externalJobId: null,
@@ -58,7 +58,7 @@ const job: JobData = {
 
 const document: ManagedDocumentData = {
   id: "doc_00000000-0000-4000-8000-000000000001",
-  links: [{ entityType: "job", entityId: job.id }],
+  links: [{ entityType: "gig", entityId: gig.id }],
   documentType: "job_description",
   title: "Job description",
   mediaType: "text/plain",
@@ -80,7 +80,7 @@ beforeEach(() => {
   migrateDatabase(database);
   store = new DataStore(database);
   store.change(context("Create records"), transaction => {
-    transaction.jobs.create(job);
+    transaction.gigs.create(gig);
     transaction.people.create(person);
   });
 });
@@ -88,7 +88,7 @@ beforeEach(() => {
 afterEach(() => database.close());
 
 describe("managed document persistence", () => {
-  test("migration preserves legacy job-owned documents and versions as links", async () => {
+  test("migration preserves legacy gig-owned documents and versions as links", async () => {
     const legacy = openDatabase(":memory:");
     try {
       legacy.exec(`
@@ -109,10 +109,10 @@ describe("managed document persistence", () => {
           FOREIGN KEY(document_id) REFERENCES managed_documents(id),
           FOREIGN KEY(change_id) REFERENCES changes(id)
         );
-        INSERT INTO jobs VALUES ('legacy-job');
+        INSERT INTO jobs VALUES ('legacy-gig');
         INSERT INTO changes VALUES ('legacy-change');
         INSERT INTO managed_documents VALUES (
-          'doc_00000000-0000-4000-8000-000000000099', 'job', 'legacy-job',
+          'doc_00000000-0000-4000-8000-000000000099', 'job', 'legacy-gig',
           'notes', 'Legacy notes', 'text/markdown', NULL, NULL, 1,
           '${timestamp}', '${timestamp}'
         );
@@ -135,7 +135,7 @@ describe("managed document persistence", () => {
         "SELECT document_id, job_id, person_id FROM managed_document_links",
       ).get()).toEqual({
         document_id: "doc_00000000-0000-4000-8000-000000000099",
-        job_id: "legacy-job",
+        job_id: "legacy-gig",
         person_id: null,
       });
       expect(legacy.query(
@@ -147,7 +147,7 @@ describe("managed document persistence", () => {
     }
   });
 
-  test("indexes one document through job and person links", () => {
+  test("indexes one document through gig and person links", () => {
     const linked = store.change(
       context("Create linked profile"),
       transaction => transaction.documents.create({
@@ -157,7 +157,7 @@ describe("managed document persistence", () => {
           title: null,
           links: [
             { entityType: "person", entityId: person.id },
-            { entityType: "job", entityId: job.id },
+            { entityType: "gig", entityId: gig.id },
           ],
         },
         content: "Profile",
@@ -166,7 +166,7 @@ describe("managed document persistence", () => {
     ).value;
 
     expect(store.documents.list("person", person.id)).toEqual([linked]);
-    expect(store.documents.list("job", job.id)).toEqual([linked]);
+    expect(store.documents.list("gig", gig.id)).toEqual([linked]);
     expect(linked).toMatchObject({ title: null, displayName: "Profile" });
   });
 
@@ -190,8 +190,8 @@ describe("managed document persistence", () => {
       updatedAt: timestamp,
     });
     expect(store.documents.get(document.id)).toEqual(created.value);
-    expect(store.documents.list("job", job.id)).toEqual([created.value]);
-    expect(store.documents.list("job", "another-job")).toEqual([]);
+    expect(store.documents.list("gig", gig.id)).toEqual([created.value]);
+    expect(store.documents.list("gig", "another-gig")).toEqual([]);
   });
 
   test("round-trips uploaded source provenance", () => {
@@ -343,7 +343,7 @@ describe("managed document persistence", () => {
     const created = documents.create(
       { ...context("Create managed document"), changeId: "document-create" },
       {
-        links: [{ entityType: "job", entityId: job.id }],
+        links: [{ entityType: "gig", entityId: gig.id }],
         documentType: "notes",
         title: "Role notes",
         mediaType: "text/markdown",
@@ -355,7 +355,7 @@ describe("managed document persistence", () => {
     expect(() => documents.create(
       { ...context("Create managed document"), changeId: "document-create" },
       {
-        links: [{ entityType: "job", entityId: job.id }],
+        links: [{ entityType: "gig", entityId: gig.id }],
         documentType: "notes",
         title: "Role notes",
         mediaType: "text/markdown",
@@ -389,7 +389,7 @@ describe("managed document persistence", () => {
       "Change has already been applied: document-update",
     ));
 
-    expect(documents.list("job", job.id)).toHaveLength(1);
+    expect(documents.list("gig", gig.id)).toHaveLength(1);
     expect(documents.versions(created.document.id)).toHaveLength(2);
   });
 });

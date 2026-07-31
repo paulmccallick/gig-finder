@@ -160,13 +160,13 @@ export function AgentPanel({
       }
       if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
         setInteractionFailure(
-          "JobSearchAgent's response was interrupted before it completed. Please retry.",
+          "GigFinderAgent's response was interrupted before it completed. Please retry.",
         );
       }
     },
     onError: () => {
       setInteractionFailure(
-        "JobSearchAgent's response was interrupted before it completed. Please retry.",
+        "GigFinderAgent's response was interrupted before it completed. Please retry.",
       );
     },
   });
@@ -181,7 +181,7 @@ export function AgentPanel({
     const diagnostic = diagnosticRef.current;
     if (!diagnostic || previousStatus === status) return;
     const elapsedMs = Math.round(performance.now() - diagnostic.startedAt);
-    console.debug("[JobSearchAgent]", {
+    console.debug("[GigFinderAgent]", {
       event: "agent.ui.status.changed",
       interactionSequence: diagnostic.sequence,
       previousStatus,
@@ -203,12 +203,12 @@ export function AgentPanel({
         messageCount: messages.length,
       };
       if (deliveredTextCharacters === 0) {
-        console.warn("[JobSearchAgent]", {
+        console.warn("[GigFinderAgent]", {
           ...completion,
           diagnostic: "completed_without_assistant_text",
         });
       } else {
-        console.info("[JobSearchAgent]", completion);
+        console.info("[GigFinderAgent]", completion);
       }
       diagnosticRef.current = null;
     }
@@ -217,7 +217,7 @@ export function AgentPanel({
   useEffect(() => {
     if (!error) return;
     const diagnostic = diagnosticRef.current;
-    console.error("[JobSearchAgent]", {
+    console.error("[GigFinderAgent]", {
       event: "agent.ui.error",
       interactionSequence: diagnostic?.sequence,
       elapsedMs: diagnostic
@@ -268,7 +268,7 @@ export function AgentPanel({
         .filter(message => message.role === "assistant")
         .reduce((total, message) => total + messageText(message.parts).length, 0),
     };
-    console.debug("[JobSearchAgent]", {
+    console.debug("[GigFinderAgent]", {
       event: "agent.ui.request.submitted",
       interactionSequence: sequence,
       promptCharacters: outgoingText.length,
@@ -352,21 +352,21 @@ export function AgentPanel({
   };
 
   return (
-    <aside className={`agent-panel ${open ? "is-open" : ""}`} aria-label="Job Search Agent" aria-hidden={!open}>
+    <aside className={`agent-panel ${open ? "is-open" : ""}`} aria-label="GigFinder" aria-hidden={!open}>
       <header className="agent-panel-header">
         <div className="agent-identity">
           <span className="agent-orbit" aria-hidden="true"><i /><i /><i /></span>
           <div>
             <span className="eyebrow">Guidance channel / session only</span>
-            <h2>JobSearchAgent</h2>
+            <h2>GigFinderAgent</h2>
           </div>
         </div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Close Job Search Agent">×</button>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close GigFinder">×</button>
       </header>
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents; update existing jobs and contacts; and create or revise linked documents when asked.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents; update existing gigs and contacts; and create or revise linked documents when asked.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
@@ -399,7 +399,7 @@ export function AgentPanel({
       {(error || interactionFailure) && (
         <div className="agent-error" role="alert">
           <span>RESPONSE INTERRUPTED</span>
-          <p>{interactionFailure || error?.message || "The JobSearchAgent could not complete that response."}</p>
+          <p>{interactionFailure || error?.message || "The GigFinderAgent could not complete that response."}</p>
           <button type="button" onClick={retry}>Retry response</button>
           <button type="button" onClick={() => {
             clearError();
@@ -453,7 +453,7 @@ export function AgentPanel({
             <button type="button" onClick={() => setUploadFailure(null)}>Dismiss</button>
           </div>
         )}
-        <label htmlFor="agent-message">Message JobSearchAgent</label>
+        <label htmlFor="agent-message">Message GigFinderAgent</label>
         <textarea
           id="agent-message"
           ref={inputRef}
@@ -475,7 +475,7 @@ export function AgentPanel({
           {active
             ? <button className="agent-stop" type="button" onClick={() => {
                 const diagnostic = diagnosticRef.current;
-                console.warn("[JobSearchAgent]", {
+                console.warn("[GigFinderAgent]", {
                   event: "agent.ui.stop.requested",
                   interactionSequence: diagnostic?.sequence,
                   elapsedMs: diagnostic
@@ -494,9 +494,9 @@ export function AgentPanel({
 
 export function AgentLauncher({ open, onClick }: { open: boolean; onClick: () => void }) {
   return (
-    <button className={`agent-launcher ${open ? "is-active" : ""}`} type="button" onClick={onClick} aria-expanded={open} aria-controls="job-search-agent">
+    <button className={`agent-launcher ${open ? "is-active" : ""}`} type="button" onClick={onClick} aria-expanded={open} aria-controls="gig-finder-agent">
       <span className="agent-launcher-signal"><i /></span>
-      <span><small>ADVISORY CHANNEL</small>Ask JobSearchAgent</span>
+      <span><small>ADVISORY CHANNEL</small>Ask GigFinderAgent</span>
       <b>{open ? "×" : "↗"}</b>
     </button>
   );

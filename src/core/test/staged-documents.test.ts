@@ -26,7 +26,7 @@ describe("staged documents", () => {
       changeId: "change-1",
       document: {
         id: "doc_11111111-1111-4111-8111-111111111111",
-        links: [{ entityType: "job" as const, entityId: "job-1" }],
+        links: [{ entityType: "gig" as const, entityId: "gig-1" }],
         documentType: "job_description" as const,
         title: "Role",
         displayName: "Role",

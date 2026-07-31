@@ -26,7 +26,7 @@ export const changes = sqliteTable("changes", {
   status: text("status", { enum: ["committed"] }).notNull().default("committed"),
 });
 
-const jobFields = {
+const gigFields = {
   id: text("id").notNull(),
   company: text("company").notNull(),
   title: text("title").notNull(),
@@ -58,8 +58,8 @@ const jobFields = {
   hasInterviewPrep: integer("has_interview_prep", { mode:"boolean" }).notNull().default(false),
 };
 
-export const jobs = sqliteTable("jobs", { ...jobFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("jobs_stage_idx").on(table.stage), index("jobs_due_idx").on(table.nextActionDue), index("jobs_deleted_idx").on(table.isDeleted), check("jobs_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
-export const jobHistory = sqliteTable("job_history", { ...historyMetadata, ...jobFields, ...recordMetadata }, (table) => [index("job_history_entity_idx").on(table.id, table.revision), index("job_history_change_idx").on(table.changeId), check("job_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("job_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
+export const gigs = sqliteTable("gigs", { ...gigFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("gigs_stage_idx").on(table.stage), index("gigs_due_idx").on(table.nextActionDue), index("gigs_deleted_idx").on(table.isDeleted), check("gigs_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
+export const gigHistory = sqliteTable("gig_history", { ...historyMetadata, ...gigFields, ...recordMetadata }, (table) => [index("gig_history_entity_idx").on(table.id, table.revision), index("gig_history_change_idx").on(table.changeId), check("gig_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("gig_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
 const personFields={id:text("id").notNull(),name:text("name").notNull(),company:text("company"),title:text("title"),linkedInProfileUrl:text("linkedin_profile_url"),connectedOn:text("connected_on")};
 export const people=sqliteTable("people",{...personFields,id:text("id").primaryKey(),...recordMetadata},table=>[index("people_name_idx").on(table.name),check("people_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
@@ -69,9 +69,9 @@ const networkingFields={id:text("id").notNull(),personId:text("person_id").notNu
 export const networkingContacts=sqliteTable("networking_contacts",{...networkingFields,id:text("id").primaryKey(),...recordMetadata},table=>[uniqueIndex("networking_person_idx").on(table.personId),index("networking_priority_idx").on(table.priority),index("networking_due_idx").on(table.nextActionDue),check("networking_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
 export const networkingContactHistory=sqliteTable("networking_contact_history",{...historyMetadata,...networkingFields,...recordMetadata},table=>[index("networking_history_entity_idx").on(table.id,table.revision),check("networking_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("networking_history_operation_check",sql`${table.operation} in ('update','delete')`)]);
 
-const jobPersonFields={id:text("id").notNull(),jobId:text("job_id").notNull().references(()=>jobs.id),personId:text("person_id").notNull().references(()=>people.id),relationship:text("relationship").notNull(),notes:text("notes")};
-export const jobPeople=sqliteTable("job_people",{...jobPersonFields,id:text("id").primaryKey(),...recordMetadata},table=>[uniqueIndex("job_people_relation_idx").on(table.jobId,table.personId,table.relationship),check("job_people_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
-export const jobPeopleHistory=sqliteTable("job_people_history",{...historyMetadata,...jobPersonFields,...recordMetadata},table=>[index("job_people_history_entity_idx").on(table.id,table.revision),check("job_people_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("job_people_history_operation_check",sql`${table.operation} in ('update','delete')`)]);
+const gigPersonFields={id:text("id").notNull(),gigId:text("gig_id").notNull().references(()=>gigs.id),personId:text("person_id").notNull().references(()=>people.id),relationship:text("relationship").notNull(),notes:text("notes")};
+export const gigPeople=sqliteTable("gig_people",{...gigPersonFields,id:text("id").primaryKey(),...recordMetadata},table=>[uniqueIndex("gig_people_relation_idx").on(table.gigId,table.personId,table.relationship),check("gig_people_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
+export const gigPeopleHistory=sqliteTable("gig_people_history",{...historyMetadata,...gigPersonFields,...recordMetadata},table=>[index("gig_people_history_entity_idx").on(table.id,table.revision),check("gig_people_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("gig_people_history_operation_check",sql`${table.operation} in ('update','delete')`)]);
 
 const taskFields = {
   id: text("id").notNull(), title: text("title").notNull(), type: text("type").notNull(), status: text("status").notNull(), priority: text("priority").notNull(), dueDate: text("due_date"), relatedEntityType: text("related_entity_type").notNull(), relatedEntityId: text("related_entity_id"), relatedEntityLabel: text("related_entity_label").notNull(), notes: text("notes"), completedAt: text("completed_at"),
@@ -80,7 +80,7 @@ export const tasks = sqliteTable("tasks", { ...taskFields, id: text("id").primar
 export const taskHistory = sqliteTable("task_history", { ...historyMetadata, ...taskFields, ...recordMetadata }, (table) => [index("task_history_entity_idx").on(table.id, table.revision), index("task_history_change_idx").on(table.changeId), check("task_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("task_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
 const meetingFields = {
-  id: text("id").notNull(), title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at").notNull(), timezone: text("timezone").notNull(), location: text("location"), description: text("description"), status: text("status").notNull(), jobId: text("job_id").references(() => jobs.id), externalCalendarId: text("external_calendar_id"), externalEventId: text("external_event_id"),
+  id: text("id").notNull(), title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at").notNull(), timezone: text("timezone").notNull(), location: text("location"), description: text("description"), status: text("status").notNull(), gigId: text("gig_id").references(() => gigs.id), externalCalendarId: text("external_calendar_id"), externalEventId: text("external_event_id"),
 };
 export const meetings = sqliteTable("meetings", { ...meetingFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("meetings_start_idx").on(table.startsAt), index("meetings_deleted_idx").on(table.isDeleted), uniqueIndex("meetings_external_event_idx").on(table.externalCalendarId, table.externalEventId), check("meetings_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
 export const meetingHistory = sqliteTable("meeting_history", {
@@ -137,17 +137,17 @@ export const managedDocumentLinks = sqliteTable("managed_document_links", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   documentId: text("document_id").notNull()
     .references(() => managedDocuments.id),
-  jobId: text("job_id").references(() => jobs.id),
+  gigId: text("gig_id").references(() => gigs.id),
   personId: text("person_id").references(() => people.id),
 }, (table) => [
   index("managed_document_links_document_idx").on(table.documentId),
-  index("managed_document_links_job_idx").on(table.jobId),
+  index("managed_document_links_gig_idx").on(table.gigId),
   index("managed_document_links_person_idx").on(table.personId),
-  uniqueIndex("managed_document_links_job_unique").on(table.documentId, table.jobId),
+  uniqueIndex("managed_document_links_gig_unique").on(table.documentId, table.gigId),
   uniqueIndex("managed_document_links_person_unique").on(table.documentId, table.personId),
   check(
     "managed_document_links_target_check",
-    sql`(${table.jobId} is not null and ${table.personId} is null) or (${table.jobId} is null and ${table.personId} is not null)`,
+    sql`(${table.gigId} is not null and ${table.personId} is null) or (${table.gigId} is null and ${table.personId} is not null)`,
   ),
 ]);
 

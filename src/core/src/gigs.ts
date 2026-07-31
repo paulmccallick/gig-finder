@@ -59,12 +59,12 @@ export interface PayRange {
   notes: string | null;
 }
 
-export interface JobRole {
+export interface GigSummary {
   id: string;
   company: string;
   title: string;
-  jobId: string | null;
-  roleDirectory: string | null;
+  externalJobId: string | null;
+  artifactDirectory: string | null;
   stage: PipelineStage;
   outcome: Outcome;
   statusSummary: string;
@@ -86,7 +86,7 @@ export interface JobRole {
   otherCompensation?: string | null;
 }
 
-export interface Job extends JobRole {
+export interface Gig extends GigSummary {
   location: string | null;
   workArrangement: string | null;
   postedDate: string | null;
@@ -97,7 +97,7 @@ export interface Job extends JobRole {
   otherCompensation: string | null;
 }
 
-export interface JobRecord extends Job {
+export interface GigRecord extends Gig {
   documents: DocumentSummary[];
 }
 import type { DocumentSummary } from "./documents";

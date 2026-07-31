@@ -1,4 +1,4 @@
-export const jobPersonRelationships = [
+export const gigPersonRelationships = [
   "interviewer",
   "hiring_manager",
   "recruiter",
@@ -9,12 +9,12 @@ export const jobPersonRelationships = [
   "personal_contact",
 ] as const;
 
-export type JobPersonRelationshipType = typeof jobPersonRelationships[number];
+export type GigPersonRelationshipType = typeof gigPersonRelationships[number];
 
-export interface JobPersonRelationship {
+export interface GigPersonRelationship {
   id: string;
-  jobId: string;
+  gigId: string;
   personId: string;
-  relationship: JobPersonRelationshipType;
+  relationship: GigPersonRelationshipType;
   notes: string | null;
 }

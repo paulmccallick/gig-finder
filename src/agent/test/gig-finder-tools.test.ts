@@ -4,12 +4,12 @@ import type { Logger } from "pino";
 import {
   contactStatuses,
   fitRatings,
-  jobPersonRelationships,
+  gigPersonRelationships,
   meetingStatuses,
   pipelineStages,
   taskTypes,
   type ChangeContext,
-  type Job,
+  type Gig,
   type ManagedDocumentRecord,
   type MeetingRecord,
   type NetworkContactRecord,
@@ -17,11 +17,11 @@ import {
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
 import {
-  createJobSearchTools,
-  jobSearchToolSchemas,
-  type JobSearchReadCapabilities,
-  type JobSearchMutationCapabilities,
-} from "../job-search-tools";
+  createGigFinderTools,
+  gigFinderToolSchemas,
+  type GigFinderReadCapabilities,
+  type GigFinderMutationCapabilities,
+} from "../gig-finder-tools";
 
 const logger = {
   debug: () => undefined,
@@ -36,7 +36,7 @@ const documentMutations = {
 
 const managedDocument: ManagedDocumentRecord = {
   id: "doc_11111111-1111-4111-8111-111111111111",
-  links: [{ entityType: "job", entityId: "job-1" }],
+  links: [{ entityType: "gig", entityId: "gig-1" }],
   documentType: "job_description",
   title: "Job description",
   displayName: "Job description",
@@ -80,7 +80,7 @@ const contactRecord: NetworkContactRecord = {
 };
 
 const reader = {
-  jobs: { query: (input) => ({
+  gigs: { query: (input) => ({
     items: [],
     page: {
       offset: input.offset ?? 0,
@@ -106,7 +106,7 @@ const reader = {
     query: input => ({ items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
     read: id => ({ status: "not_found" as const, id }),
   },
-  jobPeople: {
+  gigPeople: {
     query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
     read: id => ({ status: "not_found" as const, id }),
   },
@@ -129,16 +129,16 @@ const reader = {
     list: async () => [],
     get: async reference => ({ status: "not_found" as const, id: reference }),
   },
-} satisfies JobSearchReadCapabilities;
+} satisfies GigFinderReadCapabilities;
 
-const mutations: JobSearchMutationCapabilities = {
-  jobs: { update: () => { throw new Error("not executed"); } },
+const mutations: GigFinderMutationCapabilities = {
+  gigs: { update: () => { throw new Error("not executed"); } },
   networking: { update: () => { throw new Error("not executed"); } },
   changes: { revert: () => { throw new Error("not executed"); } },
   documents: documentMutations,
 };
 
-const nullJobsInput = {
+const nullGigsInput = {
   stages: null,
   outcomes: null,
   fitRatings: null,
@@ -172,7 +172,7 @@ const nullTasksInput = {
 
 const nullPeopleInput = { query: null, offset: null, limit: null } as const;
 const nullRelationshipsInput = {
-  jobIds: null,
+  gigIds: null,
   personIds: null,
   relationships: null,
   offset: null,
@@ -180,7 +180,7 @@ const nullRelationshipsInput = {
 } as const;
 const nullMeetingsInput = {
   personIds: null,
-  jobIds: null,
+  gigIds: null,
   statuses: null,
   startsFrom: null,
   startsThrough: null,
@@ -189,18 +189,18 @@ const nullMeetingsInput = {
   limit: null,
 } as const;
 
-describe("JobSearchAgent tools", () => {
+describe("GigFinderAgent tools", () => {
   test("registers the approved tools with agent-facing descriptions", () => {
-    const tools = createJobSearchTools(reader, logger);
+    const tools = createGigFinderTools(reader, logger);
     expect(Object.keys(tools)).toEqual([
-      "list_jobs",
-      "get_job",
+      "list_gigs",
+      "get_gig",
       "list_networking_contacts",
       "get_networking_contact",
       "list_people",
       "get_person",
-      "list_job_person_relationships",
-      "get_job_person_relationship",
+      "list_gig_person_relationships",
+      "get_gig_person_relationship",
       "list_tasks",
       "get_task",
       "list_meetings",
@@ -214,42 +214,42 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("registers mutation tools only when the update boundary is supplied", () => {
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       mutations,
       { actor: "Candidate", requestId: "request-1" },
     );
     expect(Object.keys(tools)).toEqual([
-      "list_jobs",
-      "get_job",
+      "list_gigs",
+      "get_gig",
       "list_networking_contacts",
       "get_networking_contact",
       "list_people",
       "get_person",
-      "list_job_person_relationships",
-      "get_job_person_relationship",
+      "list_gig_person_relationships",
+      "get_gig_person_relationship",
       "list_tasks",
       "get_task",
       "list_meetings",
       "get_meeting",
       "get_document",
-      "update_job",
+      "update_gig",
       "update_networking_contact",
       "create_document",
       "update_document",
       "revert_change",
     ]);
-    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
-    expect(tools.update_job.strict).toBe(true);
+    if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
+    expect(tools.update_gig.strict).toBe(true);
     expect(tools.update_networking_contact.strict).toBe(true);
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
   });
 
-  test("reads standalone people and traversable job-person relationships", async () => {
-    const tools = createJobSearchTools({
+  test("reads standalone people and traversable gig-person relationships", async () => {
+    const tools = createGigFinderTools({
       ...reader,
       people: {
         query: input => ({
@@ -265,10 +265,10 @@ describe("JobSearchAgent tools", () => {
         }),
         read: id => ({ status: "not_found" as const, id }),
       },
-      jobPeople: {
+      gigPeople: {
         query: input => ({
           status: "ok" as const,
-          items: [{ id: "relation-1", jobId: input.jobIds?.[0] ?? "job-1", personId: "person-1", relationship: "hiring_manager" as const, notes: null }],
+          items: [{ id: "relation-1", gigId: input.gigIds?.[0] ?? "gig-1", personId: "person-1", relationship: "hiring_manager" as const, notes: null }],
           page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
         }),
         read: id => ({ status: "not_found" as const, id }),
@@ -278,19 +278,19 @@ describe("JobSearchAgent tools", () => {
     expect(await tools.list_people.execute?.(nullPeopleInput, options)).toMatchObject({
       items: [{ id: "person-1", name: "Standalone Person" }],
     });
-    expect(await tools.list_job_person_relationships.execute?.({
+    expect(await tools.list_gig_person_relationships.execute?.({
       ...nullRelationshipsInput,
-      jobIds: ["job-1"],
+      gigIds: ["gig-1"],
       relationships: ["hiring_manager"],
     }, options)).toMatchObject({
       status: "ok",
-      items: [{ id: "relation-1", jobId: "job-1", personId: "person-1" }],
+      items: [{ id: "relation-1", gigId: "gig-1", personId: "person-1" }],
     });
   });
 
-  test("includes every related job reference when getting a networking contact", async () => {
+  test("includes every related gig reference when getting a networking contact", async () => {
     const relationshipQueries: number[] = [];
-    const tools = createJobSearchTools({
+    const tools = createGigFinderTools({
       ...reader,
       networking: {
         ...reader.networking,
@@ -298,8 +298,8 @@ describe("JobSearchAgent tools", () => {
           ? { status: "ok" as const, record: contactRecord }
           : { status: "not_found" as const, id },
       },
-      jobPeople: {
-        ...reader.jobPeople,
+      gigPeople: {
+        ...reader.gigPeople,
         query: input => {
           relationshipQueries.push(input.offset ?? 0);
           const secondPage = input.offset === 1;
@@ -307,7 +307,7 @@ describe("JobSearchAgent tools", () => {
             status: "ok" as const,
             items: [{
               id: secondPage ? "relationship-2" : "relationship-1",
-              jobId: secondPage ? "job-2" : "job-1",
+              gigId: secondPage ? "gig-2" : "gig-1",
               personId: "person-1",
               relationship: secondPage ? "former_peer" as const : "hiring_manager" as const,
               notes: null,
@@ -335,16 +335,16 @@ describe("JobSearchAgent tools", () => {
       record: {
         id: "contact-1",
         personId: "person-1",
-        jobs: [
-          { jobId: "job-1", relationship: "hiring_manager" },
-          { jobId: "job-2", relationship: "former_peer" },
+        gigs: [
+          { gigId: "gig-1", relationship: "hiring_manager" },
+          { gigId: "gig-2", relationship: "former_peer" },
         ],
       },
     });
     expect(relationshipQueries).toEqual([0, 1]);
   });
 
-  test("reads meetings with participant, job, date, status, and text filters", async () => {
+  test("reads meetings with participant, gig, date, status, and text filters", async () => {
     const logEntries: Array<Record<string, unknown>> = [];
     const meetingLogger = {
       debug: (entry: Record<string, unknown>) => logEntries.push(entry),
@@ -360,7 +360,7 @@ describe("JobSearchAgent tools", () => {
       location: "Video",
       description: "Platform discussion",
       status: "completed",
-      jobId: "job-1",
+      gigId: "gig-1",
       personIds: ["person-1", "person-2"],
       externalCalendarId: null,
       externalEventId: null,
@@ -370,7 +370,7 @@ describe("JobSearchAgent tools", () => {
       updatedAt: "2026-07-30T12:00:00.000Z",
     };
     const inputs: unknown[] = [];
-    const tools = createJobSearchTools({
+    const tools = createGigFinderTools({
       ...reader,
       meetings: {
         query: input => {
@@ -386,7 +386,7 @@ describe("JobSearchAgent tools", () => {
     const input = {
       ...nullMeetingsInput,
       personIds: ["person-1", "person-2"],
-      jobIds: ["job-1"],
+      gigIds: ["gig-1"],
       statuses: ["completed"] as Array<"confirmed" | "completed">,
       startsFrom: "2026-07-01T00:00:00-07:00",
       startsThrough: "2026-07-31T23:59:59-07:00",
@@ -396,7 +396,7 @@ describe("JobSearchAgent tools", () => {
     };
     expect(await tools.list_meetings.execute?.(input, options)).toMatchObject({
       status: "ok",
-      items: [{ id: "meeting-1", personIds: ["person-1", "person-2"], jobId: "job-1" }],
+      items: [{ id: "meeting-1", personIds: ["person-1", "person-2"], gigId: "gig-1" }],
     });
     expect(inputs).toEqual([input]);
     expect(logEntries[0]).toMatchObject({
@@ -404,7 +404,7 @@ describe("JobSearchAgent tools", () => {
       toolName: "list_meetings",
       appliedFilters: {
         personIds: ["person-1", "person-2"],
-        jobIds: ["job-1"],
+        gigIds: ["gig-1"],
         statuses: ["completed"],
         startsFrom: "2026-07-01T00:00:00-07:00",
         startsThrough: "2026-07-31T23:59:59-07:00",
@@ -435,7 +435,7 @@ describe("JobSearchAgent tools", () => {
     });
     let createdInput: unknown;
     let createCalls = 0;
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       {
@@ -462,7 +462,7 @@ describe("JobSearchAgent tools", () => {
       {
         contextSearch: {
           search: () => ({
-            jobs: [],
+            gigs: [],
             networkingContacts: [],
             truncated: false,
           }),
@@ -470,7 +470,7 @@ describe("JobSearchAgent tools", () => {
         stagedDocuments,
       },
     );
-    expect(Object.keys(tools)).toContain("search_jobs_and_contacts");
+    expect(Object.keys(tools)).toContain("search_gigs_and_contacts");
     expect(Object.keys(tools)).not.toContain("get_staged_document");
     expect(Object.keys(tools)).not.toContain("create_uploaded_document");
     const stagedRead = await tools.get_document.execute?.({
@@ -493,8 +493,8 @@ describe("JobSearchAgent tools", () => {
     const createDocument = tools.create_document;
     if (!createDocument) throw new Error("Document tool missing.");
 
-    const stagedToolInput: z.infer<typeof jobSearchToolSchemas.create_document> = {
-      links: [{ entityType: "job", entityId: "job-1" }],
+    const stagedToolInput: z.infer<typeof gigFinderToolSchemas.create_document> = {
+      links: [{ entityType: "gig", entityId: "gig-1" }],
       documentType: "job_description",
       title: "Director role",
       sourceKind: "staged_document",
@@ -531,30 +531,30 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("accepts explicit mutation operations and rejects invalid fields", () => {
-    expect(jobSearchToolSchemas.update_job.safeParse({
-      id: "job-1",
+    expect(gigFinderToolSchemas.update_gig.safeParse({
+      id: "gig-1",
       changes: [
         { operation: "set", field: "stage", value: "applied" },
         { operation: "set", field: "fit.rating", value: "strong" },
       ],
     }).success).toBe(true);
-    expect(jobSearchToolSchemas.update_job.safeParse({
-      id: "job-1",
+    expect(gigFinderToolSchemas.update_gig.safeParse({
+      id: "gig-1",
       changes: [{ operation: "set", field: "id", value: "different" }],
     }).success).toBe(false);
-    expect(jobSearchToolSchemas.update_networking_contact.safeParse({
+    expect(gigFinderToolSchemas.update_networking_contact.safeParse({
       id: "person-1",
       changes: [{ operation: "set", field: "status", value: "awaiting_response" }],
     }).success).toBe(true);
-    expect(jobSearchToolSchemas.update_networking_contact.safeParse({
+    expect(gigFinderToolSchemas.update_networking_contact.safeParse({
       id: "person-1",
       changes: [{ operation: "set", field: "updatedAt", value: "2026-07-27" }],
     }).success).toBe(false);
   });
 
   test("uses strict document schemas with domain enum values", () => {
-    expect(jobSearchToolSchemas.create_document.parse({
-      links: [{ entityType: "job", entityId: "job-1" }],
+    expect(gigFinderToolSchemas.create_document.parse({
+      links: [{ entityType: "gig", entityId: "gig-1" }],
       documentType: "job_description",
       title: "Job description",
       sourceKind: "inline_content",
@@ -563,12 +563,12 @@ describe("JobSearchAgent tools", () => {
       mediaType: "text/plain",
       sourceDescription: null,
     })).toMatchObject({
-      links: [{ entityType: "job", entityId: "job-1" }],
+      links: [{ entityType: "gig", entityId: "gig-1" }],
       documentType: "job_description",
       sourceKind: "inline_content",
       mediaType: "text/plain",
     });
-    expect(jobSearchToolSchemas.create_document.safeParse({
+    expect(gigFinderToolSchemas.create_document.safeParse({
       links: [{ entityType: "contact", entityId: "contact-1" }],
       documentType: "job_description",
       title: "Job description",
@@ -578,8 +578,8 @@ describe("JobSearchAgent tools", () => {
       mediaType: "text/plain",
       sourceDescription: null,
     }).success).toBe(false);
-    expect(jobSearchToolSchemas.create_document.safeParse({
-      links: [{ entityType: "job", entityId: "job-1" }],
+    expect(gigFinderToolSchemas.create_document.safeParse({
+      links: [{ entityType: "gig", entityId: "gig-1" }],
       documentType: "job_description",
       title: "Job description",
       sourceKind: "staged_document",
@@ -588,7 +588,7 @@ describe("JobSearchAgent tools", () => {
       mediaType: "text/markdown",
       sourceDescription: null,
     }).success).toBe(false);
-    expect(jobSearchToolSchemas.update_document.safeParse({
+    expect(gigFinderToolSchemas.update_document.safeParse({
       documentId: managedDocument.id,
       expectedVersion: 0,
       content: "Replacement text",
@@ -600,11 +600,11 @@ describe("JobSearchAgent tools", () => {
     let received:
       | { context: ChangeContext; input: unknown }
       | undefined;
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       {
-        jobs: { update: () => { throw new Error("not executed"); } },
+        gigs: { update: () => { throw new Error("not executed"); } },
         networking: { update: () => { throw new Error("not executed"); } },
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
@@ -627,7 +627,7 @@ describe("JobSearchAgent tools", () => {
 
     const result = await tools.create_document.execute?.(
       {
-        links: [{ entityType: "job", entityId: "job-1" }],
+        links: [{ entityType: "gig", entityId: "gig-1" }],
         documentType: "job_description",
         title: "Job description",
         sourceKind: "inline_content",
@@ -652,7 +652,7 @@ describe("JobSearchAgent tools", () => {
         changeId: "agent-tool:call-document",
       },
       input: {
-        links: [{ entityType: "job", entityId: "job-1" }],
+        links: [{ entityType: "gig", entityId: "gig-1" }],
         documentType: "job_description",
         title: "Job description",
         mediaType: "text/plain",
@@ -676,11 +676,11 @@ describe("JobSearchAgent tools", () => {
     let received:
       | { context: ChangeContext; input: unknown }
       | undefined;
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       {
-        jobs: { update: () => { throw new Error("not executed"); } },
+        gigs: { update: () => { throw new Error("not executed"); } },
         networking: { update: () => { throw new Error("not executed"); } },
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
@@ -745,11 +745,11 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("describes accepted update values using domain enums", () => {
-    const jobSchema = z.toJSONSchema(jobSearchToolSchemas.update_job);
+    const gigSchema = z.toJSONSchema(gigFinderToolSchemas.update_gig);
     const contactSchema = z.toJSONSchema(
-      jobSearchToolSchemas.update_networking_contact,
+      gigFinderToolSchemas.update_networking_contact,
     );
-    const descriptions = JSON.stringify({ jobSchema, contactSchema });
+    const descriptions = JSON.stringify({ gigSchema, contactSchema });
     for (const value of [
       ...pipelineStages,
       ...fitRatings,
@@ -761,11 +761,11 @@ describe("JobSearchAgent tools", () => {
 
   test("leaves field-value compatibility to the core update contract", async () => {
     let called = false;
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       {
-        jobs: { update: () => {
+        gigs: { update: () => {
           called = true;
           throw new Error("not expected");
         } },
@@ -775,11 +775,11 @@ describe("JobSearchAgent tools", () => {
       },
       { actor: "Candidate", requestId: "request-1" },
     );
-    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+    if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
 
-    expect(await tools.update_job.execute?.(
+    expect(await tools.update_gig.execute?.(
       {
-        id: "job-1",
+        id: "gig-1",
         changes: [{ operation: "set", field: "stage", value: 123 }],
       },
       { toolCallId: "call-invalid", messages: [], abortSignal: undefined, context: {} },
@@ -791,20 +791,20 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("requires explicit valid clear operations", () => {
-    expect(jobSearchToolSchemas.update_job.safeParse({
-      id: "job-1",
+    expect(gigFinderToolSchemas.update_gig.safeParse({
+      id: "gig-1",
       changes: [{ operation: "clear", field: "nextAction", value: null }],
     }).success).toBe(true);
-    expect(jobSearchToolSchemas.update_job.safeParse({
-      id: "job-1",
+    expect(gigFinderToolSchemas.update_gig.safeParse({
+      id: "gig-1",
       changes: [{ operation: "clear", field: "stage", value: null }],
     }).success).toBe(false);
-    expect(jobSearchToolSchemas.update_job.safeParse({
-      id: "job-1",
+    expect(gigFinderToolSchemas.update_gig.safeParse({
+      id: "gig-1",
       changes: [{ operation: "clear", field: "sourceUrl", value: "wrong" }],
     }).success).toBe(false);
-    expect(jobSearchToolSchemas.update_job.safeParse({
-      id: "job-1",
+    expect(gigFinderToolSchemas.update_gig.safeParse({
+      id: "gig-1",
       changes: [
         { operation: "clear", field: "nextAction", value: null },
         { operation: "set", field: "nextAction.description", value: "Follow up" },
@@ -818,12 +818,12 @@ describe("JobSearchAgent tools", () => {
       id: string;
       patch: unknown;
     } | undefined;
-    const record: Job = {
-      id: "job-1",
+    const record: Gig = {
+      id: "gig-1",
       company: "Company",
       title: "Director",
-      jobId: null,
-      roleDirectory: null,
+      externalJobId: null,
+      artifactDirectory: null,
       stage: "applied",
       outcome: "pending",
       statusSummary: "Applied",
@@ -844,8 +844,8 @@ describe("JobSearchAgent tools", () => {
       equity: null,
       otherCompensation: null,
     };
-    const capturingMutations: JobSearchMutationCapabilities = {
-      jobs: { update: (context, id, patch) => {
+    const capturingMutations: GigFinderMutationCapabilities = {
+      gigs: { update: (context, id, patch) => {
         received = { context, id, patch };
         return {
           changeId: context.changeId ?? null,
@@ -856,17 +856,17 @@ describe("JobSearchAgent tools", () => {
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       capturingMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
-    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+    if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
 
-    const result = await tools.update_job.execute?.(
+    const result = await tools.update_gig.execute?.(
       {
-        id: "job-1",
+        id: "gig-1",
         changes: [
           { operation: "set", field: "stage", value: "applied" },
           { operation: "set", field: "fit.rating", value: "strong" },
@@ -880,10 +880,10 @@ describe("JobSearchAgent tools", () => {
       context: {
         actor: "Candidate",
         source: "agent",
-        summary: "Agent updated job job-1 (request request-1, tool call-9)",
+        summary: "Agent updated gig gig-1 (request request-1, tool call-9)",
         changeId: "agent-tool:call-9",
       },
-      id: "job-1",
+      id: "gig-1",
       patch: {
         stage: "applied",
         fit: { rating: "strong" },
@@ -897,25 +897,25 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("returns a structured duplicate result", async () => {
-    const duplicateMutations: JobSearchMutationCapabilities = {
-      jobs: { update: () => {
+    const duplicateMutations: GigFinderMutationCapabilities = {
+      gigs: { update: () => {
         throw new MutationError("duplicate_change", "Already applied");
       } },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       duplicateMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
-    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+    if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
 
-    expect(await tools.update_job.execute?.(
+    expect(await tools.update_gig.execute?.(
       {
-        id: "job-1",
+        id: "gig-1",
         changes: [{ operation: "set", field: "stage", value: "applied" }],
       },
       { toolCallId: "call-9", messages: [], abortSignal: undefined, context: {} },
@@ -927,54 +927,54 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("returns a structured revision-conflict result", async () => {
-    const conflictingMutations: JobSearchMutationCapabilities = {
-      jobs: { update: () => {
+    const conflictingMutations: GigFinderMutationCapabilities = {
+      gigs: { update: () => {
         throw new MutationError(
           "revision_conflict",
-          "Job job-1 was updated concurrently.",
+          "Gig gig-1 was updated concurrently.",
         );
       } },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       conflictingMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
-    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+    if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
 
-    expect(await tools.update_job.execute?.(
+    expect(await tools.update_gig.execute?.(
       {
-        id: "job-1",
+        id: "gig-1",
         changes: [{ operation: "set", field: "stage", value: "applied" }],
       },
       { toolCallId: "call-9", messages: [], abortSignal: undefined, context: {} },
     )).toEqual({
       status: "error",
       error: "revision_conflict",
-      message: "Job job-1 was updated concurrently.",
+      message: "Gig gig-1 was updated concurrently.",
     });
   });
 
   test("passes any exact change ID through the generic revert tool", async () => {
     let received: { context: ChangeContext; targetChangeId: string } | undefined;
-    const capturingMutations: JobSearchMutationCapabilities = {
-      jobs: { update: () => { throw new Error("not executed"); } },
+    const capturingMutations: GigFinderMutationCapabilities = {
+      gigs: { update: () => { throw new Error("not executed"); } },
       networking: { update: () => { throw new Error("not executed"); } },
       changes: { revert: (context, targetChangeId) => {
         received = { context, targetChangeId };
         return {
           changeId: context.changeId ?? "generated",
           revertedChangeId: targetChangeId,
-          affected: [{ entity: "job", id: "job-1" }],
+          affected: [{ entity: "gig", id: "gig-1" }],
         };
       } },
       documents: documentMutations,
     };
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       logger,
       capturingMutations,
@@ -1011,11 +1011,11 @@ describe("JobSearchAgent tools", () => {
       error: () => undefined,
     } as unknown as Logger;
     const record = {
-      id: "job-1",
+      id: "gig-1",
       company: "Company",
       title: "Director",
-      jobId: null,
-      roleDirectory: null,
+      externalJobId: null,
+      artifactDirectory: null,
       stage: "applied",
       outcome: "pending",
       statusSummary: "Applied",
@@ -1033,9 +1033,9 @@ describe("JobSearchAgent tools", () => {
       bonus: null,
       equity: null,
       otherCompensation: null,
-    } satisfies Job;
-    const loggingMutations: JobSearchMutationCapabilities = {
-      jobs: { update: context => ({
+    } satisfies Gig;
+    const loggingMutations: GigFinderMutationCapabilities = {
+      gigs: { update: context => ({
         changeId: context.changeId ?? null,
         record,
       }) },
@@ -1043,17 +1043,17 @@ describe("JobSearchAgent tools", () => {
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
-    const tools = createJobSearchTools(
+    const tools = createGigFinderTools(
       reader,
       capturingLogger,
       loggingMutations,
       { actor: "Candidate", requestId: "request-1" },
     );
-    if (!("update_job" in tools)) throw new Error("Mutation tools were not registered.");
+    if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
 
-    await tools.update_job.execute?.(
+    await tools.update_gig.execute?.(
       {
-        id: "job-1",
+        id: "gig-1",
         changes: [{ operation: "set", field: "stage", value: "applied" }],
       },
       { toolCallId: "call-log", messages: [], abortSignal: undefined, context: {} },
@@ -1061,7 +1061,7 @@ describe("JobSearchAgent tools", () => {
 
     expect(entries[0]).toMatchObject({
       event: "agent.tool.started",
-      recordId: "job-1",
+      recordId: "gig-1",
       updateFields: ["stage"],
       appliedFilters: {},
     });
@@ -1074,35 +1074,35 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("validates inclusion values from entity enums", () => {
-    expect(jobSearchToolSchemas.list_jobs.parse({
-      ...nullJobsInput,
+    expect(gigFinderToolSchemas.list_gigs.parse({
+      ...nullGigsInput,
       stages: [...pipelineStages],
       fitRatings: [...fitRatings],
     })).toMatchObject({ stages: [...pipelineStages], fitRatings: [...fitRatings] });
-    expect(jobSearchToolSchemas.list_networking_contacts.parse({
+    expect(gigFinderToolSchemas.list_networking_contacts.parse({
       ...nullContactsInput,
       statuses: [...contactStatuses],
     }).statuses).toEqual([...contactStatuses]);
-    expect(jobSearchToolSchemas.list_tasks.parse({
+    expect(gigFinderToolSchemas.list_tasks.parse({
       ...nullTasksInput,
       types: [...taskTypes],
     }).types).toEqual([...taskTypes]);
-    expect(jobSearchToolSchemas.list_job_person_relationships.parse({
+    expect(gigFinderToolSchemas.list_gig_person_relationships.parse({
       ...nullRelationshipsInput,
-      relationships: [...jobPersonRelationships],
-    }).relationships).toEqual([...jobPersonRelationships]);
-    expect(jobSearchToolSchemas.list_meetings.parse({
+      relationships: [...gigPersonRelationships],
+    }).relationships).toEqual([...gigPersonRelationships]);
+    expect(gigFinderToolSchemas.list_meetings.parse({
       ...nullMeetingsInput,
       statuses: [...meetingStatuses],
     }).statuses).toEqual([...meetingStatuses]);
   });
 
   test("rejects unknown fields, invalid enums, empty arrays, and pagination outside bounds", () => {
-    expect(jobSearchToolSchemas.list_jobs.safeParse({ ...nullJobsInput, stages: [] }).success).toBe(false);
-    expect(jobSearchToolSchemas.list_jobs.safeParse({ ...nullJobsInput, stages: ["invalid"] }).success).toBe(false);
-    expect(jobSearchToolSchemas.list_jobs.safeParse({ ...nullJobsInput, limit: 51 }).success).toBe(false);
-    expect(jobSearchToolSchemas.list_tasks.safeParse({ ...nullTasksInput, offset: -1 }).success).toBe(false);
-    expect(jobSearchToolSchemas.list_networking_contacts.safeParse({
+    expect(gigFinderToolSchemas.list_gigs.safeParse({ ...nullGigsInput, stages: [] }).success).toBe(false);
+    expect(gigFinderToolSchemas.list_gigs.safeParse({ ...nullGigsInput, stages: ["invalid"] }).success).toBe(false);
+    expect(gigFinderToolSchemas.list_gigs.safeParse({ ...nullGigsInput, limit: 51 }).success).toBe(false);
+    expect(gigFinderToolSchemas.list_tasks.safeParse({ ...nullTasksInput, offset: -1 }).success).toBe(false);
+    expect(gigFinderToolSchemas.list_networking_contacts.safeParse({
       ...nullContactsInput,
       unexpected: true,
     }).success).toBe(false);
@@ -1110,19 +1110,19 @@ describe("JobSearchAgent tools", () => {
 
   test("communicates all enum values in model-facing JSON Schema", () => {
     const schemas = JSON.stringify({
-      jobs: z.toJSONSchema(jobSearchToolSchemas.list_jobs),
-      contacts: z.toJSONSchema(jobSearchToolSchemas.list_networking_contacts),
-      tasks: z.toJSONSchema(jobSearchToolSchemas.list_tasks),
-      relationships: z.toJSONSchema(jobSearchToolSchemas.list_job_person_relationships),
-      meetings: z.toJSONSchema(jobSearchToolSchemas.list_meetings),
+      gigs: z.toJSONSchema(gigFinderToolSchemas.list_gigs),
+      contacts: z.toJSONSchema(gigFinderToolSchemas.list_networking_contacts),
+      tasks: z.toJSONSchema(gigFinderToolSchemas.list_tasks),
+      relationships: z.toJSONSchema(gigFinderToolSchemas.list_gig_person_relationships),
+      meetings: z.toJSONSchema(gigFinderToolSchemas.list_meetings),
     });
-    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes, ...jobPersonRelationships, ...meetingStatuses]) {
+    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes, ...gigPersonRelationships, ...meetingStatuses]) {
       expect(schemas).toContain(`"${value}"`);
     }
   });
 
   test("describes every parameter in model-facing JSON Schema", () => {
-    for (const schema of Object.values(jobSearchToolSchemas)) {
+    for (const schema of Object.values(gigFinderToolSchemas)) {
       const jsonSchema = z.toJSONSchema(schema);
       for (const property of Object.values(jsonSchema.properties ?? {})) {
         expect(property).toHaveProperty("description");
@@ -1134,12 +1134,12 @@ describe("JobSearchAgent tools", () => {
 
   test("makes every list argument required and nullable for strict mode", () => {
     for (const [schema, nullInput] of [
-      [jobSearchToolSchemas.list_jobs, nullJobsInput],
-      [jobSearchToolSchemas.list_networking_contacts, nullContactsInput],
-      [jobSearchToolSchemas.list_tasks, nullTasksInput],
-      [jobSearchToolSchemas.list_people, nullPeopleInput],
-      [jobSearchToolSchemas.list_job_person_relationships, nullRelationshipsInput],
-      [jobSearchToolSchemas.list_meetings, nullMeetingsInput],
+      [gigFinderToolSchemas.list_gigs, nullGigsInput],
+      [gigFinderToolSchemas.list_networking_contacts, nullContactsInput],
+      [gigFinderToolSchemas.list_tasks, nullTasksInput],
+      [gigFinderToolSchemas.list_people, nullPeopleInput],
+      [gigFinderToolSchemas.list_gig_person_relationships, nullRelationshipsInput],
+      [gigFinderToolSchemas.list_meetings, nullMeetingsInput],
     ] as const) {
       const jsonSchema = z.toJSONSchema(schema);
       expect(jsonSchema.required?.sort()).toEqual(
@@ -1168,10 +1168,10 @@ describe("JobSearchAgent tools", () => {
       }
     };
     for (const schema of [
-      jobSearchToolSchemas.update_job,
-      jobSearchToolSchemas.update_networking_contact,
-      jobSearchToolSchemas.create_document,
-      jobSearchToolSchemas.update_document,
+      gigFinderToolSchemas.update_gig,
+      gigFinderToolSchemas.update_networking_contact,
+      gigFinderToolSchemas.create_document,
+      gigFinderToolSchemas.update_document,
     ]) {
       const jsonSchema = z.toJSONSchema(schema);
       assertStrictObjects(jsonSchema);
@@ -1179,7 +1179,7 @@ describe("JobSearchAgent tools", () => {
   });
 
   test("generates a Codex-compatible flat document source schema", () => {
-    const jsonSchema = z.toJSONSchema(jobSearchToolSchemas.create_document);
+    const jsonSchema = z.toJSONSchema(gigFinderToolSchemas.create_document);
     expect(jsonSchema.properties).toHaveProperty("sourceKind");
     expect(jsonSchema.properties).toHaveProperty("content");
     expect(jsonSchema.properties).toHaveProperty("reference");
@@ -1194,11 +1194,11 @@ describe("JobSearchAgent tools", () => {
       warn: (entry: Record<string, unknown>) => entries.push(entry),
       error: () => undefined,
     } as unknown as Logger;
-    const tools = createJobSearchTools(reader, capturingLogger);
+    const tools = createGigFinderTools(reader, capturingLogger);
 
-    await tools.list_jobs.execute?.(
+    await tools.list_gigs.execute?.(
       {
-        ...nullJobsInput,
+        ...nullGigsInput,
         stages: ["technical_interview"],
         outcomes: ["pending"],
         overdueOnly: false,
@@ -1227,10 +1227,10 @@ describe("JobSearchAgent tools", () => {
       warn: (entry: Record<string, unknown>) => entries.push(entry),
       error: () => undefined,
     } as unknown as Logger;
-    const tools = createJobSearchTools(reader, capturingLogger);
+    const tools = createGigFinderTools(reader, capturingLogger);
 
-    await tools.list_jobs.execute?.(
-      { ...nullJobsInput, overdueOnly: false, offset: 0, limit: 20 },
+    await tools.list_gigs.execute?.(
+      { ...nullGigsInput, overdueOnly: false, offset: 0, limit: 20 },
       { toolCallId: "call-2", messages: [], abortSignal: undefined, context: {} },
     );
 
@@ -1250,10 +1250,10 @@ describe("JobSearchAgent tools", () => {
       warn: (entry: Record<string, unknown>) => warningEntries.push(entry),
       error: () => undefined,
     } as unknown as Logger;
-    const tools = createJobSearchTools(reader, capturingLogger);
+    const tools = createGigFinderTools(reader, capturingLogger);
 
-    await tools.get_job.execute?.(
-      { id: "missing-job" },
+    await tools.get_gig.execute?.(
+      { id: "missing-gig" },
       { toolCallId: "call-3", messages: [], abortSignal: undefined, context: {} },
     );
 
@@ -1261,9 +1261,9 @@ describe("JobSearchAgent tools", () => {
     expect(warningEntries).toHaveLength(1);
     expect(warningEntries[0]).toMatchObject({
       event: "agent.tool.completed",
-      toolName: "get_job",
+      toolName: "get_gig",
       toolCallId: "call-3",
-      recordId: "missing-job",
+      recordId: "missing-gig",
       outcome: "not_found",
     });
   });

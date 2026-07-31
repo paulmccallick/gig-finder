@@ -5,16 +5,16 @@
 - Uploaded binaries and format conversion remain in `src/web`; core receives
   only Markdown and validated provenance.
 - SQL, migrations, repositories, and filesystem artifacts belong in
-  `src/sqlite`.
+  `src/data`.
 - CLI and browser dashboard code depend only on core application contracts;
-  they do not construct or import SQLite adapters.
+  they do not construct or import data adapters.
 - Agent tools and the CLI use the same domain services; caller-specific
   metadata stays in their adapters.
 - Filtering, joins, traversal, ordering, pagination, and consistency checks
   belong to caller-neutral core read services, not agent tools.
 - Meeting services compose participant IDs from the persistence join records
-  and validate participant, timestamp, and optional job references.
-- Core services attach the same compact managed-document summaries to job and
+  and validate participant, timestamp, and optional gig references.
+- Core services attach the same compact managed-document summaries to gig and
   networking-contact reads for CLI, agent, and web clients.
 - Generic agent policy is separate from the user profile, which defaults to
   `context/`.

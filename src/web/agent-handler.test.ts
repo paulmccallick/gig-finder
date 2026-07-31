@@ -7,7 +7,7 @@ import {
   validateAgentMessages,
   WebRequestError,
 } from "./agent-handler";
-import { testJobSearchProfile } from "../agent/test/fixtures";
+import { testCandidateProfile } from "../agent/test/fixtures";
 import { DomainValidationError } from "../core/src";
 import { toWebError } from "./error-response";
 
@@ -43,11 +43,11 @@ function mockModel(answer = "Prioritize roles with matching leadership scope.") 
 describe("agent web adapter", () => {
   test("maps domain validation failures to an actionable 422 response", () => {
     expect(toWebError(new DomainValidationError(
-      "Job role-1 cannot be closed while its outcome is pending.",
+      "Gig role-1 cannot be closed while its outcome is pending.",
     ))).toEqual({
       status: 422,
       body: {
-        error: "Job role-1 cannot be closed while its outcome is pending.",
+        error: "Gig role-1 cannot be closed while its outcome is pending.",
         code: "domain_validation_failed",
       },
     });
@@ -118,7 +118,7 @@ describe("agent web adapter", () => {
 
   test("serves the POST contract through an injected model", async () => {
     const handler = createAgentHandler(
-      testJobSearchProfile,
+      testCandidateProfile,
       async () => mockModel("This is a deterministic response."),
     );
     const response = await handler(new Request("http://localhost/api/agent/messages", {
@@ -133,7 +133,7 @@ describe("agent web adapter", () => {
 
   test("throws validation errors for the server boundary to log and map", async () => {
     let modelCreated = false;
-    const handler = createAgentHandler(testJobSearchProfile, async () => {
+    const handler = createAgentHandler(testCandidateProfile, async () => {
       modelCreated = true;
       return mockModel();
     });

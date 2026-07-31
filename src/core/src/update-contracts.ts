@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fitRatings, outcomes, pipelineStages } from "./jobs";
+import { fitRatings, outcomes, pipelineStages } from "./gigs";
 import {
   contactPriorities,
   contactStatuses,
@@ -42,17 +42,17 @@ const payRangeUpdateSchema = nonEmptyPatch({
     .describe("Additional compensation notes, or null to clear them."),
 }, "Pay-range update must contain at least one field.");
 
-export const jobUpdateSchema = nonEmptyPatch({
+export const gigUpdateSchema = nonEmptyPatch({
   company: z.string().trim().min(1).optional()
     .describe("Company offering the role."),
   title: z.string().trim().min(1).optional()
     .describe("Role title."),
-  jobId: nullableText.optional()
-    .describe("Company or recruiting-system job identifier, or null to clear it."),
+  externalJobId: nullableText.optional()
+    .describe("Company or recruiting-system gig identifier, or null to clear it."),
   stage: z.enum(pipelineStages).optional()
-    .describe("Current job-search pipeline stage."),
+    .describe("Current gig-finder pipeline stage."),
   outcome: z.enum(outcomes).optional()
-    .describe("Current outcome; non-closed jobs must remain pending."),
+    .describe("Current outcome; non-closed gigs must remain pending."),
   statusSummary: z.string().trim().min(1).optional()
     .describe("Concise summary of the current status."),
   lastActivity: date.optional()
@@ -66,7 +66,7 @@ export const jobUpdateSchema = nonEmptyPatch({
   sourceUrl: z.string().url().nullable().optional()
     .describe("Canonical source URL, or null to clear it."),
   tags: z.array(z.string().trim().min(1)).optional()
-    .describe("Complete replacement list of job tags."),
+    .describe("Complete replacement list of gig tags."),
   location: nullableText.optional()
     .describe("Role location, or null to clear it."),
   workArrangement: nullableText.optional()
@@ -83,7 +83,7 @@ export const jobUpdateSchema = nonEmptyPatch({
     .describe("Equity information, or null to clear it."),
   otherCompensation: nullableText.optional()
     .describe("Other compensation information, or null to clear it."),
-}, "Job update must contain at least one field.");
+}, "Gig update must contain at least one field.");
 
 const relationshipUpdateSchema = nonEmptyPatch({
   type: z.string().trim().min(1).optional()
@@ -136,5 +136,5 @@ export const networkingContactUpdateSchema = nonEmptyPatch({
     .describe("Complete replacement list of contact tags."),
 }, "Networking-contact update must contain at least one field.");
 
-export type JobUpdate = z.infer<typeof jobUpdateSchema>;
+export type GigUpdate = z.infer<typeof gigUpdateSchema>;
 export type NetworkingContactUpdate = z.infer<typeof networkingContactUpdateSchema>;

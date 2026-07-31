@@ -4,12 +4,12 @@ import {
   loadLegacyMeetingParticipants,
   migrateDatabase,
   openDatabase,
-  resolveJobSearchContext,
+  resolveGigFinderContext,
   validateDatabase,
-} from "../sqlite/src";
+} from "../data/src";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
-const context = resolveJobSearchContext(repoRoot);
+const context = resolveGigFinderContext(repoRoot);
 const backup = await createManagedBackup(context.database, context.backups);
 const database = openDatabase(context.database, { create: false });
 

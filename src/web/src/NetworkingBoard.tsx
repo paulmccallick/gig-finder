@@ -11,7 +11,7 @@ const lanes = [
 
 function ContactCard({ contact, onSelect, today }: { contact: NetworkContact; onSelect: (contact: NetworkContact) => void; today: string }) {
   const overdue = contactIsOverdue(contact, today);
-  return <button className="role-card contact-card" onClick={() => onSelect(contact)} type="button">
+  return <button className="record-card contact-card" onClick={() => onSelect(contact)} type="button">
     <span className="card-signal" data-priority={contact.priority} />
     <span className="contact-topline"><span className="priority-chip" data-priority={contact.priority}>{priorityLabels[contact.priority]}</span>{contact.tags.includes("profile-enrichment-batch-1") && <span className="tranche-chip">TRANCHE 01</span>}</span>
     <span className="card-company">{contact.company ?? "Company not captured"}</span>
@@ -25,7 +25,7 @@ function ContactCard({ contact, onSelect, today }: { contact: NetworkContact; on
 function ContactDrawer({ contact, onClose }: { contact: NetworkContact; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeRef.current?.focus(); const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key); }, [onClose]);
-  return <div className="drawer-layer"><button className="drawer-scrim" aria-label="Close contact details" onClick={onClose} /><aside className="role-drawer" role="dialog" aria-modal="true" aria-labelledby="contact-drawer-title">
+  return <div className="drawer-layer"><button className="drawer-scrim" aria-label="Close contact details" onClick={onClose} /><aside className="record-drawer" role="dialog" aria-modal="true" aria-labelledby="contact-drawer-title">
     <header className="drawer-header contact-drawer-header"><div><span className="eyebrow">Relationship dossier</span><h2 id="contact-drawer-title">{contact.name}</h2><p>{contact.title ?? "Title not captured"}{contact.company ? ` · ${contact.company}` : ""}</p></div><button ref={closeRef} className="icon-button" aria-label="Close contact details" onClick={onClose}>×</button></header>
     <div className="drawer-body">
       <div className="drawer-badges"><span className="priority-chip" data-priority={contact.priority}>{priorityLabels[contact.priority]} priority</span><span className="stage-chip">{statusLabels[contact.status]}</span><span className="stage-chip">{contact.relationship.strength} relationship</span></div>
