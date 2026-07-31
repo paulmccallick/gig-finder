@@ -14,7 +14,9 @@
   belong to caller-neutral core read services, not agent tools.
 - Meeting services compose participant IDs from the persistence join records;
   validate participant, timestamp, and optional gig references; and update the
-  Meeting and its participant rows in one change transaction.
+  Meeting and its participant rows in one change transaction. Participant-only
+  changes advance the Meeting revision and remain reversible through generic
+  history.
 - Core services attach the same compact managed-document summaries to gig and
   networking-contact reads for CLI, agent, and web clients.
 - Generic agent policy is separate from the user profile, which defaults to

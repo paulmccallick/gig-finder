@@ -16,6 +16,15 @@ export const meetingParticipantId = (meetingId: string, personId: string) =>
 
 const meetingTimestampSchema = z.string().datetime({ offset: true });
 
+export const meetingTimezoneSchema = z.string().trim().min(1).refine(value => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}, "Must be a valid IANA timezone.");
+
 export function meetingInstant(value: string): number | null {
   if (!meetingTimestampSchema.safeParse(value).success) return null;
   const instant = Date.parse(value);

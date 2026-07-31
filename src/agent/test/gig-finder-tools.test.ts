@@ -591,6 +591,10 @@ describe("GigFinderAgent tools", () => {
       ...input,
       personIds: ["person-1", "person-1"],
     }).success).toBe(false);
+    expect(gigFinderToolSchemas.create_meeting.safeParse({
+      ...input,
+      timezone: "Mars/Olympus",
+    }).success).toBe(false);
     const jsonSchema = z.toJSONSchema(gigFinderToolSchemas.create_meeting);
     expect(jsonSchema.required?.sort()).toEqual(
       Object.keys(jsonSchema.properties ?? {}).sort(),

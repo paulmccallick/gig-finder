@@ -46,7 +46,7 @@ import {
 } from "../core/src/documents";
 import { stagedDocumentReferencePattern } from "../core/src/staged-documents";
 import { gigPersonRelationships } from "../core/src/people";
-import { meetingStatuses } from "../core/src/meetings";
+import { meetingStatuses, meetingTimezoneSchema } from "../core/src/meetings";
 import {
   contactChangesSchema,
   gigChangesSchema,
@@ -186,7 +186,7 @@ const createMeetingInputSchema = z.object({
     .describe("Meeting start as an ISO 8601 timestamp with an offset."),
   endsAt: z.string().datetime({ offset: true })
     .describe("Meeting end as an ISO 8601 timestamp with an offset."),
-  timezone: z.string().trim().min(1)
+  timezone: meetingTimezoneSchema
     .describe("IANA timezone used to present the meeting time."),
   status: z.enum(meetingStatuses)
     .describe("Meeting status: confirmed or completed."),

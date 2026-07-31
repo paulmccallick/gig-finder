@@ -335,6 +335,67 @@ describe("full-row history and revisions", () => {
     })).toThrow("references missing person missing-person");
     expect(app.meetings.get(meeting.id)?.personIds).toEqual([person.id]);
   });
+
+  test("meeting participant additions, removals, and replacements are reversible", () => {
+    const secondPerson = { ...person, id: "person-2", name: "Person Two" };
+    const artifacts = {
+      jobDescription: async () => "",
+      interviewPrep: async () => [],
+      jobDescriptionExists: async () => false,
+      interviewPrepExists: async () => false,
+      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+    } satisfies ArtifactPort;
+    const app = new GigFinderApplication(store, new AuditReader(database), artifacts);
+    app.people.create(context("Create first person"), person);
+    app.people.create(context("Create second person"), secondPerson);
+    app.meetings.create(context("Create meeting"), {
+      ...meeting,
+      personIds: [person.id],
+      status: "confirmed",
+    });
+
+    const addition = app.meetings.update({
+      ...context("Add participant"),
+      changeId: "meeting-add-participant",
+    }, meeting.id, { personIds: [person.id, secondPerson.id] });
+    expect(addition.record).toMatchObject({
+      revision: 2,
+      personIds: [person.id, secondPerson.id],
+    });
+    app.changes.revert({
+      ...context("Revert participant addition"),
+      changeId: "meeting-revert-addition",
+    }, "meeting-add-participant");
+    expect(app.meetings.get(meeting.id)).toMatchObject({
+      revision: 3,
+      personIds: [person.id],
+    });
+
+    app.meetings.update({
+      ...context("Add participant again"),
+      changeId: "meeting-add-participant-again",
+    }, meeting.id, { personIds: [person.id, secondPerson.id] });
+    app.meetings.update({
+      ...context("Remove participant"),
+      changeId: "meeting-remove-participant",
+    }, meeting.id, { personIds: [person.id] });
+    app.changes.revert({
+      ...context("Revert participant removal"),
+      changeId: "meeting-revert-removal",
+    }, "meeting-remove-participant");
+    expect(app.meetings.get(meeting.id)?.personIds).toEqual([person.id, secondPerson.id]);
+
+    app.meetings.update({
+      ...context("Replace participant"),
+      changeId: "meeting-replace-participant",
+    }, meeting.id, { personIds: [secondPerson.id] });
+    app.changes.revert({
+      ...context("Revert participant replacement"),
+      changeId: "meeting-revert-replacement",
+    }, "meeting-replace-participant");
+    expect(app.meetings.get(meeting.id)?.personIds).toEqual([person.id, secondPerson.id]);
+    expect(validateDatabase(database)).toMatchObject({ ok: true, issues: [] });
+  });
 });
 
 describe("binary deletion", () => {
@@ -544,7 +605,7 @@ describe("change idempotency and reversal", () => {
       source: "user_request",
       summary: "Unsafe revert",
       changeId: "change:revert-conflict",
-    }, "change:update-conflict")).toThrow("immediately preceding active revision");
+    }, "change:update-conflict")).toThrow("immediately preceding revision");
     expect(store.gigs.get(gig.id)).toMatchObject({
       revision: 3,
       statusSummary: "Later edit",

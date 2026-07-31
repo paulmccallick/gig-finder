@@ -5,7 +5,7 @@ import {
   contactStatuses,
   relationshipStrengths,
 } from "./network";
-import { meetingStatuses } from "./meetings";
+import { meetingStatuses, meetingTimezoneSchema } from "./meetings";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must use YYYY-MM-DD.");
 const nullableText = z.string().trim().nullable();
@@ -144,7 +144,7 @@ export const meetingUpdateSchema = nonEmptyPatch({
     .describe("Meeting start as an ISO 8601 timestamp with an offset."),
   endsAt: z.string().datetime({ offset: true }).optional()
     .describe("Meeting end as an ISO 8601 timestamp with an offset."),
-  timezone: z.string().trim().min(1).optional()
+  timezone: meetingTimezoneSchema.optional()
     .describe("IANA timezone used to present the meeting time."),
   status: z.enum(meetingStatuses).optional()
     .describe("Current meeting status."),

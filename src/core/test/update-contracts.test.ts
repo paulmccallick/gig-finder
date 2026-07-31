@@ -82,6 +82,7 @@ describe("shared update contracts", () => {
       { revision: 2 },
       { status: "tentative" },
       { startsAt: "tomorrow" },
+      { timezone: "Mars/Olympus" },
       { personIds: [] },
     ]) {
       expect(meetingUpdateSchema.safeParse(patch).success).toBe(false);

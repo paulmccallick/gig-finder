@@ -9,6 +9,7 @@ import {
   meetingStatuses,
   meetingInstant,
   meetingParticipantId,
+  meetingTimezoneSchema,
   type Meeting,
   type MeetingRecord,
   type MeetingStatus,
@@ -181,7 +182,7 @@ export class MeetingService {
     return this.changes.execute(context, candidate, options, transaction => {
       const persisted = Object.keys(meetingPatch).length > 0
         ? transaction.meetings.update(id, raw.revision, meetingPatch)
-        : raw;
+        : transaction.meetings.touch(id, raw.revision);
       for (const participant of participants) {
         if (!candidateParticipantIds.has(participant.personId)) {
           transaction.meetingParticipants.delete(participant.id, participant.revision);
@@ -201,7 +202,7 @@ export class MeetingService {
               { meetingId: id, personId },
             );
           } else {
-            transaction.meetingParticipants.create(participant);
+            transaction.meetingParticipants.create(participant, { reversible: true });
           }
         }
       }
@@ -428,8 +429,11 @@ function validateMeeting(
   gigs: GigReadService,
   people: PeopleService,
 ) {
-  if (!meeting.id.trim() || !meeting.title.trim() || !meeting.timezone.trim()) {
-    throw new DomainValidationError("Meeting id, title, and timezone are required.");
+  if (!meeting.id.trim() || !meeting.title.trim()) {
+    throw new DomainValidationError("Meeting id and title are required.");
+  }
+  if (!meetingTimezoneSchema.safeParse(meeting.timezone).success) {
+    throw new DomainValidationError(`Meeting ${meeting.id} timezone must be a valid IANA timezone.`);
   }
   if (!isMeetingStatus(meeting.status)) {
     throw new DomainValidationError(`Meeting ${meeting.id} has unsupported status ${meeting.status}.`);
