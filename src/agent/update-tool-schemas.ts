@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
 import {
-  contactPriorities,
-  contactStatuses,
+  personPriorities,
+  personStatuses,
   relationshipStrengths,
-} from "../core/src/network";
+} from "../core/src/people";
 
 const updateValueSchema = z.union([
   z.string(),
@@ -23,7 +23,7 @@ const gigUpdateFields = [
   "otherCompensation",
 ] as const;
 
-const contactUpdateFields = [
+const personUpdateFields = [
   "name", "company", "title", "linkedInProfileUrl", "connectedOn",
   "relationship.type", "relationship.strength", "relationship.introducedBy",
   "relationship.notes", "priority", "status", "outreach.lastContacted",
@@ -53,17 +53,17 @@ const gigValueDescription = [
   "For clear operations use null; only nullable fields can be cleared.",
 ].join(" ");
 
-const contactFieldDescription = [
-  "Exact mutable networking-contact field path; nested fields use dot notation.",
-  `status values: ${list(contactStatuses)}.`,
-  `priority values: ${list(contactPriorities)}.`,
+const personFieldDescription = [
+  "Exact mutable person field path; nested fields use dot notation.",
+  `status values: ${list(personStatuses)}.`,
+  `priority values: ${list(personPriorities)}.`,
   `relationship.strength values: ${list(relationshipStrengths)}.`,
 ].join(" ");
 
-const contactValueDescription = [
-  "Value appropriate to the selected networking-contact field.",
-  `For status use one of: ${list(contactStatuses)}.`,
-  `For priority use one of: ${list(contactPriorities)}.`,
+const personValueDescription = [
+  "Value appropriate to the selected person field.",
+  `For status use one of: ${list(personStatuses)}.`,
+  `For priority use one of: ${list(personPriorities)}.`,
   `For relationship.strength use one of: ${list(relationshipStrengths)}.`,
   "Use YYYY-MM-DD for date fields, a valid URL for linkedInProfileUrl,",
   "and a string array for notes or tags.",
@@ -145,16 +145,16 @@ export const gigChangesSchema = operationListSchema(
   gigValueDescription,
 );
 
-export const contactChangesSchema = operationListSchema(
-  contactUpdateFields,
+export const personChangesSchema = operationListSchema(
+  personUpdateFields,
   new Set([
     "company", "title", "linkedInProfileUrl", "connectedOn",
     "relationship.introducedBy", "relationship.notes",
     "outreach.lastContacted", "outreach.lastContactMethod",
     "outreach.lastContactSummary", "outreach.nextAction",
     "outreach.nextActionDue", "whyInteresting",
-  ] satisfies typeof contactUpdateFields[number][]),
+  ] satisfies typeof personUpdateFields[number][]),
   new Set(),
-  contactFieldDescription,
-  contactValueDescription,
+  personFieldDescription,
+  personValueDescription,
 );

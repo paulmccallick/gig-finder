@@ -67,8 +67,8 @@ export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardSt
         response = json({ error: "Read-only API" }, 405);
       } else if (url.pathname === "/api/gigs") {
         response = json(gigFinder.gigs.list());
-      } else if (url.pathname === "/api/network") {
-        response = json(gigFinder.networking.list());
+      } else if (url.pathname === "/api/people") {
+        response = json(gigFinder.people.list());
       } else if (url.pathname === "/api/tasks") {
         response = json(gigFinder.tasks.list());
       } else {

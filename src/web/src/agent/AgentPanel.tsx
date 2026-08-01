@@ -366,7 +366,7 @@ export function AgentPanel({
 
       <div className="agent-boundary" role="note">
         <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, contacts, tasks, and registered documents; update existing gigs and contacts; and create or revise linked documents when asked.</p>
+        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, people, tasks, and registered documents; update existing gigs and people; and create or revise linked documents when asked.</p>
       </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>

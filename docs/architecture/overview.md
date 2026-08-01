@@ -32,7 +32,7 @@ flowchart LR
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
 - `src/web/` owns the Bun HTTP API and React dashboard.
 
-Gigs, people, networking contacts, gig-person relationships, tasks, and
+Gigs, people, gig-person relationships, tasks, and
 meetings expose caller-neutral query/read services from `GigFinderApplication`;
 agent tools receive only those narrow capabilities. Document lookup uses a
 separate shared document reader. There is no agent-specific domain context
@@ -56,6 +56,9 @@ facade.
   snapshots rather than guessing historical attendees.
 - Managed documents and their immutable versions live in the document tables;
   legacy job-description and interview-prep files remain filesystem artifacts.
+- Person identity, relationship, and outreach share `people` and
+  `person_history`; migration 0012 coalesces legacy snapshots by Person ID and
+  change ID before removing the separate networking tables.
 
 ## Context Files
 

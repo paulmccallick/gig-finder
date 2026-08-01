@@ -1,14 +1,14 @@
-import type { BusinessEventInput,GigPersonData,PersonData } from "../../core/src/models";
+import type { BusinessEventInput,GigPersonData } from "../../core/src/models";
 import type { Meeting } from "../../core/src/meetings";
 import type {
   CreateManagedDocumentInput,
   UpdateManagedDocumentInput,
 } from "../../core/src/documents";
 import type { GigSummary } from "../../core/src/gigs";
-import type { NetworkContact } from "../../core/src/network";
+import type { PersonCreateInput, PersonTouchInput } from "../../core/src/services";
 import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../../core/src/tasks";
-import type { ContactTouchInput,GigTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
-import type { GigUpdate, NetworkingContactUpdate } from "../../core/src/update-contracts";
+import type { GigTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
+import type { GigUpdate, PersonUpdate } from "../../core/src/update-contracts";
 import type { GigFinderApplication } from "../../core/src/application";
 
 export interface CliRuntime{application:GigFinderApplication;actor:string}
@@ -25,12 +25,6 @@ export const createGig=(paths:TrackerPaths,record:GigSummary,options:UpdateOptio
 export const updateGig=(paths:TrackerPaths,id:string,patch:GigUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.update(context(paths,`CLI gig update ${id}`,options.date),id,patch,options).record);
 export const touchGig=(paths:TrackerPaths,id:string,input:GigTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.touch(context(paths,`CLI gig touch ${id}`,input.date),id,input,options));
 
-export const getContact=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.networking.get(id));
-export const listContacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.networking.list());
-export const createContact=(paths:TrackerPaths,record:NetworkContact,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.create(context(paths,"CLI networking create",record.createdAt),record,options));
-export const updateContact=(paths:TrackerPaths,id:string,patch:NetworkingContactUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.update(context(paths,`CLI networking update ${id}`,options.date),id,patch,options).record);
-export const touchContact=(paths:TrackerPaths,id:string,input:ContactTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.networking.touch(context(paths,`CLI networking touch ${id}`,input.date),id,input,options));
-
 export const getTask=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.tasks.get(id));
 export const listTasks=(paths:TrackerPaths)=>withApplication(paths,app=>app.tasks.list());
 export const createTask=(paths:TrackerPaths,record:TaskRecord,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.create(context(paths,"CLI task create",record.createdAt),record,options));
@@ -40,8 +34,9 @@ export const completeTask=(paths:TrackerPaths,id:string,date:string,options:Upda
 
 export const getPerson=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.people.get(id));
 export const listPeople=(paths:TrackerPaths)=>withApplication(paths,app=>app.people.list());
-export function createPerson(paths:TrackerPaths,record:PersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.people.create(context(paths,"CLI person create"),record));return record}
-export function updatePerson(paths:TrackerPaths,id:string,patch:Partial<PersonData>,options:UpdateOptions={}){const{id:_,...data}=patch;return withApplication(paths,app=>app.people.patch(context(paths,`CLI person update ${id}`),id,data,options))}
+export const createPerson=(paths:TrackerPaths,record:PersonCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.create(context(paths,"CLI person create",options.date),record,options));
+export const updatePerson=(paths:TrackerPaths,id:string,patch:PersonUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.people.update(context(paths,`CLI person update ${id}`,options.date),id,patch,options).record);
+export const touchPerson=(paths:TrackerPaths,id:string,input:PersonTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.touch(context(paths,`CLI person touch ${id}`,input.date),id,input,options));
 export function createGigPerson(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.gigPeople.create(context(paths,"CLI gig-person create"),record));return record}
 export const getMeeting=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.meetings.get(id));
 export const listMeetings=(paths:TrackerPaths)=>withApplication(paths,app=>app.meetings.list());

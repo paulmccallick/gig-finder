@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { fitRatings, outcomes, pipelineStages } from "./gigs";
 import {
-  contactPriorities,
-  contactStatuses,
+  personPriorities,
+  personStatuses,
   relationshipStrengths,
-} from "./network";
+} from "./people";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must use YYYY-MM-DD.");
 const nullableText = z.string().trim().nullable();
@@ -104,37 +104,37 @@ const outreachUpdateSchema = nonEmptyPatch({
   lastContactSummary: nullableText.optional()
     .describe("Summary of the latest contact, or null to clear it."),
   nextAction: nullableText.optional()
-    .describe("Next networking action, or null to clear it."),
+    .describe("Next outreach action, or null to clear it."),
   nextActionDue: date.nullable().optional()
     .describe("Due date for the next action, or null to clear it."),
 }, "Outreach update must contain at least one field.");
 
-export const networkingContactUpdateSchema = nonEmptyPatch({
+export const personUpdateSchema = nonEmptyPatch({
   name: z.string().trim().min(1).optional()
-    .describe("Contact's name."),
+    .describe("Person's name."),
   company: nullableText.optional()
-    .describe("Contact's company, or null to clear it."),
+    .describe("Person's company, or null to clear it."),
   title: nullableText.optional()
-    .describe("Contact's title, or null to clear it."),
+    .describe("Person's title, or null to clear it."),
   linkedInProfileUrl: z.string().url().nullable().optional()
     .describe("LinkedIn profile URL, or null to clear it."),
   connectedOn: date.nullable().optional()
     .describe("Date the connection was established, or null to clear it."),
   relationship: relationshipUpdateSchema.optional()
     .describe("Relationship fields to update."),
-  priority: z.enum(contactPriorities).optional()
-    .describe("Networking priority."),
-  status: z.enum(contactStatuses).optional()
-    .describe("Current networking status."),
+  priority: z.enum(personPriorities).optional()
+    .describe("Relationship priority."),
+  status: z.enum(personStatuses).optional()
+    .describe("Current relationship or outreach status."),
   outreach: outreachUpdateSchema.optional()
     .describe("Outreach fields to update."),
   whyInteresting: nullableText.optional()
-    .describe("Why this contact matters to the search, or null to clear it."),
+    .describe("Why this person matters to the search, or null to clear it."),
   notes: z.array(z.string()).optional()
-    .describe("Complete replacement list of contact notes."),
+    .describe("Complete replacement list of person notes."),
   tags: z.array(z.string().trim().min(1)).optional()
-    .describe("Complete replacement list of contact tags."),
-}, "Networking-contact update must contain at least one field.");
+    .describe("Complete replacement list of person tags."),
+}, "Person update must contain at least one field.");
 
 export type GigUpdate = z.infer<typeof gigUpdateSchema>;
-export type NetworkingContactUpdate = z.infer<typeof networkingContactUpdateSchema>;
+export type PersonUpdate = z.infer<typeof personUpdateSchema>;

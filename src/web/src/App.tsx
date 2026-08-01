@@ -16,7 +16,7 @@ import {
 } from "./domain/board";
 import { fitRatings, type Gig, type GigSummary } from "../../core/src/gigs";
 import { loadGigs, type GigsResult } from "./data/gigs";
-import { loadContacts, type ContactsResult } from "./data/contacts";
+import { loadPeople, type PeopleResult } from "./data/people";
 import { NetworkingBoard } from "./NetworkingBoard";
 import { loadTasks, type TasksResult } from "./data/tasks";
 import { TaskBoard } from "./TaskBoard";
@@ -286,25 +286,25 @@ export function App() {
   const [view, setView] = useState<WorkspaceView>("gigs");
   const [agentOpen, setAgentOpen] = useState(true);
   const [result, setResult] = useState<GigsResult | null>(null);
-  const [networkResult, setNetworkResult] = useState<ContactsResult | null>(null);
+  const [peopleResult, setPeopleResult] = useState<PeopleResult | null>(null);
   const [taskResult, setTaskResult] = useState<TasksResult | null>(null);
   const refreshDashboard = () => {
     void Promise.all([
       loadGigs().then(setResult),
-      loadContacts().then(setNetworkResult),
+      loadPeople().then(setPeopleResult),
       loadTasks().then(setTaskResult),
     ]);
   };
   useEffect(refreshDashboard, []);
   useEffect(() => { window.scrollTo({ top: 0, left: 0 }); }, [view]);
-  if (!result || !networkResult || !taskResult) return <main className="loading-screen"><span /><p>Loading search operations…</p></main>;
+  if (!result || !peopleResult || !taskResult) return <main className="loading-screen"><span /><p>Loading search operations…</p></main>;
   if (!result.ok) return <AppError error={result.error} />;
-  if (!networkResult.ok) return <AppError error={networkResult.error} />;
+  if (!peopleResult.ok) return <AppError error={peopleResult.error} />;
   if (!taskResult.ok) return <AppError error={taskResult.error} />;
   const dashboard = view === "gigs"
     ? <GigBoard gigs={result.data} onNavigate={setView} />
     : view === "network"
-      ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard contacts={networkResult.data} /></main>
+      ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard people={peopleResult.data} /></main>
       : <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>;
   return (
     <>

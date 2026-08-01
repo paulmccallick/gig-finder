@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DataError, DataStore, loadLegacyMeetingParticipants, migrateDatabase, openDatabase, RevisionConflictError, validateDatabase } from "../src";
-import type { ChangeContext,GigData,MeetingData,MeetingParticipantData,NetworkingContactData,PersonData,TaskData } from "../../core/src/models";
+import type { ChangeContext,GigData,MeetingData,MeetingParticipantData,PersonData,TaskData } from "../../core/src/models";
 import { GigFinderApplication } from "../../core/src/application";
 import type { ArtifactPort } from "../../core/src/ports";
 import { AuditReader } from "../src/audit";
@@ -16,8 +16,7 @@ const timestamp = "2026-07-21T12:00:00.000Z";
 const context = (summary = "Test change"): ChangeContext => ({ actor: "test-suite", source: "test", summary, occurredAt: timestamp });
 
 const gig: GigData = { id:"gig-1",company:"Company",title:"VP Engineering",externalJobId:"123",stage:"identified",outcome:"pending",statusSummary:"Identified",lastActivity:"2026-07-21",nextActionDescription:"Review",nextActionDue:"2026-07-22",fitRating:"good",fitSummary:"Good role shape",payCurrency:"USD",payMinimum:200000,payMaximum:250000,payPeriod:"year",payNotes:null,sourceUrl:"https://example.com/gigs/123",location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"Annual bonus",equity:null,otherCompensation:null,tagsJson:'["platform"]',hasJobDescription:false,hasInterviewPrep:false };
-const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01"};
-const networking:NetworkingContactData={id:"person-1",personId:"person-1",relationshipType:"former_colleague",relationshipStrength:"strong",introducedBy:null,relationshipNotes:null,priority:"high",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:"Reach out",nextActionDue:"2026-07-22",whyInteresting:"Strong relationship",notesJson:"[]",tagsJson:"[]"};
+const person:PersonData={id:"person-1",name:"Person One",company:"Company",title:"CTO",linkedInProfileUrl:"https://www.linkedin.com/in/person-one",connectedOn:"2020-01-01",relationshipType:"former_colleague",relationshipStrength:"strong",introducedBy:null,relationshipNotes:null,priority:"high",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:"Reach out",nextActionDue:"2026-07-22",whyInteresting:"Strong relationship",notesJson:"[]",tagsJson:"[]"};
 const task: TaskData = { id:"task-1",title:"Review role",type:"application",status:"open",priority:"high",dueDate:"2026-07-22",relatedEntityType:"gig",relatedEntityId:"gig-1",relatedEntityLabel:"Company VP Engineering",notes:"Review the JD",completedAt:null };
 const meeting: MeetingData = { id:"meeting-1",title:"Coffee",startsAt:"2026-07-22T12:00:00-07:00",endsAt:"2026-07-22T13:00:00-07:00",timezone:"America/Los_Angeles",location:"Seattle",description:"Networking",status:"confirmed",gigId:null,externalCalendarId:"gig-finder",externalEventId:"google-1" };
 const meetingParticipant: MeetingParticipantData = { id:"meeting-1::person-1",meetingId:"meeting-1",personId:"person-1" };
@@ -49,7 +48,9 @@ describe("migrations", () => {
   });
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["gigs","gig_history","people","person_history","networking_contacts","networking_contact_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["gigs","gig_history","people","person_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    expect(names).not.toContain("networking_contacts");
+    expect(names).not.toContain("networking_contact_history");
   });
   test("can be applied repeatedly without duplicating migrations", () => { const before = (database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count; migrateDatabase(database); expect((database.query("SELECT count(*) count FROM __drizzle_migrations").get() as {count:number}).count).toBe(before); });
   test("migrates legacy meeting gigs and every staged participant", async () => {
@@ -123,6 +124,56 @@ describe("migrations", () => {
       legacy.close();
     }
   });
+  test("coalesces person and networking history into one ordered person stream", async () => {
+    const legacy = openDatabase(":memory:");
+    legacy.exec("PRAGMA foreign_keys = OFF");
+    try {
+      let latestMigration = "";
+      for (let index = 0; index <= 11; index += 1) {
+        const prefix = `${String(index).padStart(4, "0")}_`;
+        const entry = [...new Bun.Glob(`${prefix}*.sql`).scanSync(path.resolve(import.meta.dir, "../drizzle"))][0];
+        if (!entry) throw new Error(`Missing migration ${prefix}`);
+        latestMigration = await Bun.file(path.resolve(import.meta.dir, "../drizzle", entry)).text();
+        legacy.exec(latestMigration);
+      }
+      legacy.exec("CREATE TABLE __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)");
+      legacy.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
+        new Bun.CryptoHasher("sha256").update(latestMigration).digest("hex"),
+        1785513321577,
+      );
+      legacy.query("INSERT INTO changes (id,occurred_at,actor,source,summary,status) VALUES ('change-both','2026-07-01T12:00:00.000Z','candidate','user_request','Update identity and outreach','committed'),('change-outreach','2026-07-02T12:00:00.000Z','agent','agent','Clear next action','committed'),('change-identity','2026-07-03T12:00:00.000Z','candidate','user_request','Clear company','committed')").run();
+      legacy.query("INSERT INTO people (id,name,company,title,revision,is_deleted,created_at,updated_at) VALUES ('person-history','Taylor New',NULL,'Director',3,0,'2026-06-01T12:00:00.000Z','2026-07-03T12:00:00.000Z'),('person-standalone','Morgan Example','Example Co','Advisor',1,0,'2026-06-05T12:00:00.000Z','2026-06-05T12:00:00.000Z')").run();
+      legacy.query("INSERT INTO networking_contacts (id,person_id,relationship_type,relationship_strength,priority,status,next_action,notes_json,tags_json,revision,is_deleted,created_at,updated_at) VALUES ('contact-history','person-history','former_peer','strong','high','active_relationship',NULL,'[]','[]',3,0,'2026-06-02T12:00:00.000Z','2026-07-02T12:00:00.000Z')").run();
+      legacy.query("INSERT INTO person_history (change_id,operation,recorded_at,recorded_by,id,name,company,title,revision,is_deleted,created_at,updated_at) VALUES ('change-both','update','2026-07-01T12:00:00.000Z','candidate','person-history','Taylor Old','Company','Manager',1,0,'2026-06-01T12:00:00.000Z','2026-06-01T12:00:00.000Z'),('change-identity','update','2026-07-03T12:00:00.000Z','candidate','person-history','Taylor New','Company','Director',2,0,'2026-06-01T12:00:00.000Z','2026-07-01T12:00:00.000Z')").run();
+      legacy.query("INSERT INTO networking_contact_history (change_id,operation,recorded_at,recorded_by,id,person_id,relationship_type,relationship_strength,priority,status,next_action,notes_json,tags_json,revision,is_deleted,created_at,updated_at) VALUES ('change-both','update','2026-07-01T12:00:00.000Z','candidate','contact-history','person-history','former_peer','strong','high','not_contacted','Reach out','[]','[]',1,0,'2026-06-02T12:00:00.000Z','2026-06-02T12:00:00.000Z'),('change-outreach','update','2026-07-02T12:00:00.000Z','agent','contact-history','person-history','former_peer','strong','high','active_relationship','Reach out','[]','[]',2,0,'2026-06-02T12:00:00.000Z','2026-07-01T12:00:00.000Z')").run();
+      legacy.query("INSERT INTO tasks (id,title,type,status,priority,related_entity_type,related_entity_id,related_entity_label,revision,is_deleted,created_at,updated_at) VALUES ('task-contact','Follow up','networking_follow_up','open','high','contact','contact-history','Taylor',1,0,?,?)").run(timestamp,timestamp);
+      legacy.query("INSERT INTO business_events (id,type,entity_type,entity_id,occurred_at,summary) VALUES ('event-contact','message_received','contact','contact-history',?,'Reply')").run(timestamp);
+
+      migrateDatabase(legacy);
+
+      expect(legacy.query("SELECT name FROM sqlite_master WHERE name LIKE 'networking_%'").all()).toEqual([]);
+      expect(legacy.query("SELECT id,name,company,status,next_action,revision,created_at,updated_at FROM people WHERE id = 'person-history'").get()).toEqual({
+        id: "person-history", name: "Taylor New", company: null, status: "active_relationship",
+        next_action: null, revision: 4, created_at: "2026-06-01T12:00:00.000Z",
+        updated_at: "2026-07-03T12:00:00.000Z",
+      });
+      expect(legacy.query("SELECT relationship_type,relationship_strength,priority,status,last_contacted,next_action,notes_json,tags_json,revision FROM people WHERE id = 'person-standalone'").get()).toEqual({
+        relationship_type: "professional_contact", relationship_strength: "unknown",
+        priority: "unranked", status: "not_contacted", last_contacted: null,
+        next_action: null, notes_json: "[]", tags_json: "[]", revision: 1,
+      });
+      expect(legacy.query("SELECT change_id,operation,recorded_at,revision,name,company,status,next_action,recorded_by FROM person_history WHERE id = 'person-history' ORDER BY revision").all()).toEqual([
+        { change_id: "change-both", operation: "update", recorded_at: "2026-07-01T12:00:00.000Z", revision: 1, name: "Taylor Old", company: "Company", status: "not_contacted", next_action: "Reach out", recorded_by: "candidate" },
+        { change_id: "change-outreach", operation: "update", recorded_at: "2026-07-02T12:00:00.000Z", revision: 2, name: "Taylor New", company: "Company", status: "active_relationship", next_action: "Reach out", recorded_by: "agent" },
+        { change_id: "change-identity", operation: "update", recorded_at: "2026-07-03T12:00:00.000Z", revision: 3, name: "Taylor New", company: "Company", status: "active_relationship", next_action: null, recorded_by: "candidate" },
+      ]);
+      expect(legacy.query("SELECT related_entity_type,related_entity_id FROM tasks WHERE id = 'task-contact'").get()).toEqual({ related_entity_type: "person", related_entity_id: "person-history" });
+      expect(legacy.query("SELECT entity_type,entity_id FROM business_events WHERE id = 'event-contact'").get()).toEqual({ entity_type: "person", entity_id: "person-history" });
+      expect(validateDatabase(legacy)).toMatchObject({ ok: true, foreignKeyViolations: 0 });
+    } finally {
+      legacy.close();
+    }
+  });
   test("enables foreign key enforcement", () => { expect((database.query("PRAGMA foreign_keys").get() as {foreign_keys:number}).foreign_keys).toBe(1); });
   test("enforces binary deletion and history operation constraints", () => {
     expect(() => database.query("INSERT INTO tasks (id,title,type,status,priority,related_entity_type,related_entity_label,revision,is_deleted,created_at,updated_at) VALUES ('bad','Bad','other','open','low','general','General',1,2,?,?)").run(timestamp,timestamp)).toThrow();
@@ -147,8 +198,8 @@ describe("typed CRUD repositories", () => {
     expect(store.gigs.get("gig-1")?.company).toBe("Company");
     expect(store.gigs.list()).toHaveLength(1);
   });
-  test("supports people, networking, tasks, and meetings through the same transaction library", () => {
-    store.change(context("Create records"), (tx) => ({ person:tx.people.create(person),networking:tx.networking.create(networking), task:tx.tasks.create(task), meeting:tx.meetings.create(meeting), participant:tx.meetingParticipants.create(meetingParticipant) }));
+  test("supports people, tasks, and meetings through the same transaction library", () => {
+    store.change(context("Create records"), (tx) => ({ person:tx.people.create(person), task:tx.tasks.create(task), meeting:tx.meetings.create(meeting), participant:tx.meetingParticipants.create(meetingParticipant) }));
     expect(store.people.get("person-1")?.title).toBe("CTO");
     expect(store.tasks.get("task-1")?.priority).toBe("high");
     expect(store.meetings.get("meeting-1")?.externalEventId).toBe("google-1");
@@ -167,7 +218,6 @@ describe("typed CRUD repositories", () => {
     store.change(context("Create records"), (tx) => {
       tx.gigs.create(gig);
       tx.people.create(person);
-      tx.networking.create(networking);
       tx.gigPeople.create({ id: "relationship-1", gigId: gig.id, personId: person.id, relationship: "hiring_manager", notes: null });
       tx.tasks.create(task);
     });
@@ -183,8 +233,7 @@ describe("typed CRUD repositories", () => {
 
     app.gigs.query({ stages: ["applied"], limit: 10 });
     app.gigs.read(gig.id);
-    app.networking.query({ statuses: ["not_contacted"] });
-    app.networking.read(networking.id);
+    app.people.query({ statuses: ["not_contacted"] });
     app.people.query({ query: "CTO" });
     app.people.read(person.id);
     expect(app.gigPeople.query({ gigIds: [gig.id], personIds: [person.id] }))
@@ -400,19 +449,15 @@ describe("change idempotency and reversal", () => {
     }, "change:update-gig")).toThrow("already been applied");
   });
 
-  test("reverts person and networking rows atomically", () => {
-    store.change(context("Create contact"), tx => {
-      tx.people.create(person);
-      tx.networking.create(networking);
-    });
+  test("reverts identity and outreach fields in one person revision", () => {
+    store.change(context("Create person"), tx => tx.people.create(person));
     store.change({
       actor: "Candidate",
       source: "user_request",
       summary: "Update contact",
       changeId: "change:update-contact",
     }, tx => {
-      tx.people.update(person.id, 1, { title: "Chief Product Officer" });
-      tx.networking.update(networking.id, 1, { status: "active_relationship" });
+      tx.people.update(person.id, 1, { title: "Chief Product Officer", status: "active_relationship" });
     });
 
     store.revertChange({
@@ -422,11 +467,7 @@ describe("change idempotency and reversal", () => {
       changeId: "change:revert-contact",
     }, "change:update-contact");
 
-    expect(store.people.get(person.id)).toMatchObject({ title: "CTO", revision: 3 });
-    expect(store.networking.get(networking.id)).toMatchObject({
-      status: "not_contacted",
-      revision: 3,
-    });
+    expect(store.people.get(person.id)).toMatchObject({ title: "CTO", status: "not_contacted", revision: 3 });
   });
 
   test("uses the same reversal mechanism for another repository", () => {

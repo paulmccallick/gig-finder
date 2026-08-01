@@ -2,11 +2,11 @@ import type { ManagedDocumentService, ManagedDocumentType } from "./documents";
 import type { GigRecord } from "./gigs";
 import type { ReadResult } from "./queries";
 
-export type ReadableDocumentType = ManagedDocumentType | "contact_profile";
+export type ReadableDocumentType = ManagedDocumentType;
 
 interface DocumentReferenceBase {
   reference: string;
-  entityType: "gig" | "contact";
+  entityType: "gig" | "person";
   entityId: string;
   documentType: ReadableDocumentType;
   title: string | null;
@@ -27,7 +27,7 @@ export type ReadableDocument = DocumentReference & {
 export const readableDocumentContentLimit = 50_000;
 
 export interface DocumentReader {
-  list(entityType: "gig" | "contact", entityId: string): Promise<DocumentReference[]>;
+  list(entityType: "gig" | "person", entityId: string): Promise<DocumentReference[]>;
   get(reference: string): Promise<ReadResult<ReadableDocument>>;
 }
 
@@ -37,7 +37,7 @@ export interface DocumentReaderServices {
     description(id: string): Promise<string | null>;
     prep(id: string): Promise<Array<{ name: string; content: string }>>;
   };
-  contacts: { personId(id: string): string | null };
+  people: { get(id: string): unknown | null };
   managed?: Pick<ManagedDocumentService, "get" | "list">;
 }
 
@@ -54,12 +54,11 @@ export class ApplicationDocumentReader implements DocumentReader {
   constructor(private readonly services: DocumentReaderServices) {}
 
   async list(
-    entityType: "gig" | "contact",
+    entityType: "gig" | "person",
     entityId: string,
   ): Promise<DocumentReference[]> {
-    if (entityType === "contact") {
-      const personId = this.services.contacts.personId(entityId);
-      return (personId ? this.services.managed?.list("person", personId) ?? [] : [])
+    if (entityType === "person") {
+      return (this.services.people.get(entityId) ? this.services.managed?.list("person", entityId) ?? [] : [])
         .map(document => ({
           reference: document.id,
           entityType,
@@ -125,7 +124,7 @@ export class ApplicationDocumentReader implements DocumentReader {
             status: "ok",
             record: documentRecord({
               reference: managed.id,
-              entityType: primaryLink.entityType === "gig" ? "gig" : "contact",
+              entityType: primaryLink.entityType,
               entityId: primaryLink.entityId,
               documentType: managed.documentType,
               title: managed.title,
@@ -141,7 +140,7 @@ export class ApplicationDocumentReader implements DocumentReader {
     const entityType = parts[0];
     const entityId = parts[1] ? decoded(parts[1]) : null;
     const documentType = parts[2];
-    if (!entityId || (entityType !== "gig" && entityType !== "contact")) {
+    if (!entityId || (entityType !== "gig" && entityType !== "person")) {
       return { status: "not_found", id: reference };
     }
     const match = (await this.list(entityType, entityId))

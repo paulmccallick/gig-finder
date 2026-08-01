@@ -117,7 +117,7 @@ test("session-only GigFinderAgent streams guidance and remains available across 
   await page.goto("/");
   const panel = page.getByRole("complementary", { name: "GigFinder" });
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText("I can read your applications, contacts, tasks, and registered documents; update existing gigs and contacts; and create or revise linked documents when asked.");
+  await expect(panel).toContainText("I can read your applications, people, tasks, and registered documents; update existing gigs and people; and create or revise linked documents when asked.");
   await panel.getByRole("button", { name: "What kinds of roles should I prioritize?" }).click();
   await expect(panel).toContainText("Prioritize Senior Director and VP engineering roles");
   expect(diagnostics.some(message => message.includes("agent.ui.request.submitted"))).toBe(true);

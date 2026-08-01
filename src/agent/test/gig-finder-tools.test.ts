@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import type { Logger } from "pino";
 import {
-  contactStatuses,
+  personStatuses,
   fitRatings,
   gigPersonRelationships,
   meetingStatuses,
@@ -12,7 +12,7 @@ import {
   type Gig,
   type ManagedDocumentRecord,
   type MeetingRecord,
-  type NetworkContactRecord,
+  type PersonRecord,
   StagedDocumentService,
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
@@ -50,9 +50,8 @@ const managedDocument: ManagedDocumentRecord = {
   updatedAt: "2026-07-27T12:00:00.000Z",
 };
 
-const contactRecord: NetworkContactRecord = {
-  id: "contact-1",
-  personId: "person-1",
+const personRecord: PersonRecord = {
+  id: "person-1",
   name: "Contact Person",
   company: "Example Company",
   title: "VP Engineering",
@@ -72,7 +71,6 @@ const contactRecord: NetworkContactRecord = {
   whyInteresting: null,
   notes: [],
   tags: [],
-  source: { files: [] },
   createdAt: "2026-07-01",
   updatedAt: "2026-07-01",
   hasProfile: false,
@@ -81,17 +79,6 @@ const contactRecord: NetworkContactRecord = {
 
 const reader = {
   gigs: { query: (input) => ({
-    items: [],
-    page: {
-      offset: input.offset ?? 0,
-      limit: input.limit ?? 20,
-      returned: 0,
-      total: 0,
-      hasMore: false,
-      nextOffset: null,
-    },
-  }), read: (id) => ({ status: "not_found" as const, id }) },
-  networking: { query: (input) => ({
     items: [],
     page: {
       offset: input.offset ?? 0,
@@ -133,7 +120,7 @@ const reader = {
 
 const mutations: GigFinderMutationCapabilities = {
   gigs: { update: () => { throw new Error("not executed"); } },
-  networking: { update: () => { throw new Error("not executed"); } },
+  people: { update: () => { throw new Error("not executed"); } },
   changes: { revert: () => { throw new Error("not executed"); } },
   documents: documentMutations,
 };
@@ -148,7 +135,7 @@ const nullGigsInput = {
   limit: null,
 } as const;
 
-const nullContactsInput = {
+const nullPeopleInput = {
   statuses: null,
   priorities: null,
   relationshipStrengths: null,
@@ -170,7 +157,6 @@ const nullTasksInput = {
   limit: null,
 } as const;
 
-const nullPeopleInput = { query: null, offset: null, limit: null } as const;
 const nullRelationshipsInput = {
   gigIds: null,
   personIds: null,
@@ -195,8 +181,6 @@ describe("GigFinderAgent tools", () => {
     expect(Object.keys(tools)).toEqual([
       "list_gigs",
       "get_gig",
-      "list_networking_contacts",
-      "get_networking_contact",
       "list_people",
       "get_person",
       "list_gig_person_relationships",
@@ -223,8 +207,6 @@ describe("GigFinderAgent tools", () => {
     expect(Object.keys(tools)).toEqual([
       "list_gigs",
       "get_gig",
-      "list_networking_contacts",
-      "get_networking_contact",
       "list_people",
       "get_person",
       "list_gig_person_relationships",
@@ -235,14 +217,14 @@ describe("GigFinderAgent tools", () => {
       "get_meeting",
       "get_document",
       "update_gig",
-      "update_networking_contact",
+      "update_person",
       "create_document",
       "update_document",
       "revert_change",
     ]);
     if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
     expect(tools.update_gig.strict).toBe(true);
-    expect(tools.update_networking_contact.strict).toBe(true);
+    expect(tools.update_person.strict).toBe(true);
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
@@ -254,12 +236,10 @@ describe("GigFinderAgent tools", () => {
       people: {
         query: input => ({
           items: [{
-            id: "person-1",
+            ...personRecord,
             name: "Standalone Person",
             company: "Example",
             title: "VP Engineering",
-            linkedInProfileUrl: null,
-            connectedOn: null,
           }],
           page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
         }),
@@ -288,14 +268,14 @@ describe("GigFinderAgent tools", () => {
     });
   });
 
-  test("includes every related gig reference when getting a networking contact", async () => {
+  test("includes every related gig reference when getting a person", async () => {
     const relationshipQueries: number[] = [];
     const tools = createGigFinderTools({
       ...reader,
-      networking: {
-        ...reader.networking,
-        read: id => id === contactRecord.id
-          ? { status: "ok" as const, record: contactRecord }
+      people: {
+        ...reader.people,
+        read: id => id === personRecord.id
+          ? { status: "ok" as const, record: personRecord }
           : { status: "not_found" as const, id },
       },
       gigPeople: {
@@ -325,16 +305,15 @@ describe("GigFinderAgent tools", () => {
       },
     }, logger);
 
-    const result = await tools.get_networking_contact.execute?.(
-      { id: "contact-1" },
-      { toolCallId: "call-contact", messages: [], abortSignal: undefined, context: {} },
+    const result = await tools.get_person.execute?.(
+      { id: "person-1" },
+      { toolCallId: "call-person", messages: [], abortSignal: undefined, context: {} },
     );
 
     expect(result).toMatchObject({
       status: "ok",
       record: {
-        id: "contact-1",
-        personId: "person-1",
+        id: "person-1",
         gigs: [
           { gigId: "gig-1", relationship: "hiring_manager" },
           { gigId: "gig-2", relationship: "former_peer" },
@@ -463,14 +442,14 @@ describe("GigFinderAgent tools", () => {
         contextSearch: {
           search: () => ({
             gigs: [],
-            networkingContacts: [],
+            people: [],
             truncated: false,
           }),
         },
         stagedDocuments,
       },
     );
-    expect(Object.keys(tools)).toContain("search_gigs_and_contacts");
+    expect(Object.keys(tools)).toContain("search_gigs_and_people");
     expect(Object.keys(tools)).not.toContain("get_staged_document");
     expect(Object.keys(tools)).not.toContain("create_uploaded_document");
     const stagedRead = await tools.get_document.execute?.({
@@ -542,11 +521,11 @@ describe("GigFinderAgent tools", () => {
       id: "gig-1",
       changes: [{ operation: "set", field: "id", value: "different" }],
     }).success).toBe(false);
-    expect(gigFinderToolSchemas.update_networking_contact.safeParse({
+    expect(gigFinderToolSchemas.update_person.safeParse({
       id: "person-1",
       changes: [{ operation: "set", field: "status", value: "awaiting_response" }],
     }).success).toBe(true);
-    expect(gigFinderToolSchemas.update_networking_contact.safeParse({
+    expect(gigFinderToolSchemas.update_person.safeParse({
       id: "person-1",
       changes: [{ operation: "set", field: "updatedAt", value: "2026-07-27" }],
     }).success).toBe(false);
@@ -569,7 +548,7 @@ describe("GigFinderAgent tools", () => {
       mediaType: "text/plain",
     });
     expect(gigFinderToolSchemas.create_document.safeParse({
-      links: [{ entityType: "contact", entityId: "contact-1" }],
+      links: [{ entityType: "company", entityId: "company-1" }],
       documentType: "job_description",
       title: "Job description",
       sourceKind: "inline_content",
@@ -605,7 +584,7 @@ describe("GigFinderAgent tools", () => {
       logger,
       {
         gigs: { update: () => { throw new Error("not executed"); } },
-        networking: { update: () => { throw new Error("not executed"); } },
+        people: { update: () => { throw new Error("not executed"); } },
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
           create: (context, input) => {
@@ -681,7 +660,7 @@ describe("GigFinderAgent tools", () => {
       logger,
       {
         gigs: { update: () => { throw new Error("not executed"); } },
-        networking: { update: () => { throw new Error("not executed"); } },
+        people: { update: () => { throw new Error("not executed"); } },
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
           create: () => { throw new Error("not executed"); },
@@ -747,13 +726,13 @@ describe("GigFinderAgent tools", () => {
   test("describes accepted update values using domain enums", () => {
     const gigSchema = z.toJSONSchema(gigFinderToolSchemas.update_gig);
     const contactSchema = z.toJSONSchema(
-      gigFinderToolSchemas.update_networking_contact,
+      gigFinderToolSchemas.update_person,
     );
     const descriptions = JSON.stringify({ gigSchema, contactSchema });
     for (const value of [
       ...pipelineStages,
       ...fitRatings,
-      ...contactStatuses,
+      ...personStatuses,
     ]) {
       expect(descriptions).toContain(value);
     }
@@ -769,7 +748,7 @@ describe("GigFinderAgent tools", () => {
           called = true;
           throw new Error("not expected");
         } },
-        networking: { update: () => { throw new Error("not executed"); } },
+        people: { update: () => { throw new Error("not executed"); } },
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: documentMutations,
       },
@@ -852,7 +831,7 @@ describe("GigFinderAgent tools", () => {
           record,
         };
       } },
-      networking: { update: () => { throw new Error("not executed"); } },
+      people: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -901,7 +880,7 @@ describe("GigFinderAgent tools", () => {
       gigs: { update: () => {
         throw new MutationError("duplicate_change", "Already applied");
       } },
-      networking: { update: () => { throw new Error("not executed"); } },
+      people: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -934,7 +913,7 @@ describe("GigFinderAgent tools", () => {
           "Gig gig-1 was updated concurrently.",
         );
       } },
-      networking: { update: () => { throw new Error("not executed"); } },
+      people: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -963,7 +942,7 @@ describe("GigFinderAgent tools", () => {
     let received: { context: ChangeContext; targetChangeId: string } | undefined;
     const capturingMutations: GigFinderMutationCapabilities = {
       gigs: { update: () => { throw new Error("not executed"); } },
-      networking: { update: () => { throw new Error("not executed"); } },
+      people: { update: () => { throw new Error("not executed"); } },
       changes: { revert: (context, targetChangeId) => {
         received = { context, targetChangeId };
         return {
@@ -1039,7 +1018,7 @@ describe("GigFinderAgent tools", () => {
         changeId: context.changeId ?? null,
         record,
       }) },
-      networking: { update: () => { throw new Error("not executed"); } },
+      people: { update: () => { throw new Error("not executed"); } },
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -1079,10 +1058,10 @@ describe("GigFinderAgent tools", () => {
       stages: [...pipelineStages],
       fitRatings: [...fitRatings],
     })).toMatchObject({ stages: [...pipelineStages], fitRatings: [...fitRatings] });
-    expect(gigFinderToolSchemas.list_networking_contacts.parse({
-      ...nullContactsInput,
-      statuses: [...contactStatuses],
-    }).statuses).toEqual([...contactStatuses]);
+    expect(gigFinderToolSchemas.list_people.parse({
+      ...nullPeopleInput,
+      statuses: [...personStatuses],
+    }).statuses).toEqual([...personStatuses]);
     expect(gigFinderToolSchemas.list_tasks.parse({
       ...nullTasksInput,
       types: [...taskTypes],
@@ -1102,8 +1081,8 @@ describe("GigFinderAgent tools", () => {
     expect(gigFinderToolSchemas.list_gigs.safeParse({ ...nullGigsInput, stages: ["invalid"] }).success).toBe(false);
     expect(gigFinderToolSchemas.list_gigs.safeParse({ ...nullGigsInput, limit: 51 }).success).toBe(false);
     expect(gigFinderToolSchemas.list_tasks.safeParse({ ...nullTasksInput, offset: -1 }).success).toBe(false);
-    expect(gigFinderToolSchemas.list_networking_contacts.safeParse({
-      ...nullContactsInput,
+    expect(gigFinderToolSchemas.list_people.safeParse({
+      ...nullPeopleInput,
       unexpected: true,
     }).success).toBe(false);
   });
@@ -1111,12 +1090,12 @@ describe("GigFinderAgent tools", () => {
   test("communicates all enum values in model-facing JSON Schema", () => {
     const schemas = JSON.stringify({
       gigs: z.toJSONSchema(gigFinderToolSchemas.list_gigs),
-      contacts: z.toJSONSchema(gigFinderToolSchemas.list_networking_contacts),
+      people: z.toJSONSchema(gigFinderToolSchemas.list_people),
       tasks: z.toJSONSchema(gigFinderToolSchemas.list_tasks),
       relationships: z.toJSONSchema(gigFinderToolSchemas.list_gig_person_relationships),
       meetings: z.toJSONSchema(gigFinderToolSchemas.list_meetings),
     });
-    for (const value of [...pipelineStages, ...fitRatings, ...contactStatuses, ...taskTypes, ...gigPersonRelationships, ...meetingStatuses]) {
+    for (const value of [...pipelineStages, ...fitRatings, ...personStatuses, ...taskTypes, ...gigPersonRelationships, ...meetingStatuses]) {
       expect(schemas).toContain(`"${value}"`);
     }
   });
@@ -1135,9 +1114,8 @@ describe("GigFinderAgent tools", () => {
   test("makes every list argument required and nullable for strict mode", () => {
     for (const [schema, nullInput] of [
       [gigFinderToolSchemas.list_gigs, nullGigsInput],
-      [gigFinderToolSchemas.list_networking_contacts, nullContactsInput],
-      [gigFinderToolSchemas.list_tasks, nullTasksInput],
       [gigFinderToolSchemas.list_people, nullPeopleInput],
+      [gigFinderToolSchemas.list_tasks, nullTasksInput],
       [gigFinderToolSchemas.list_gig_person_relationships, nullRelationshipsInput],
       [gigFinderToolSchemas.list_meetings, nullMeetingsInput],
     ] as const) {
@@ -1169,7 +1147,7 @@ describe("GigFinderAgent tools", () => {
     };
     for (const schema of [
       gigFinderToolSchemas.update_gig,
-      gigFinderToolSchemas.update_networking_contact,
+      gigFinderToolSchemas.update_person,
       gigFinderToolSchemas.create_document,
       gigFinderToolSchemas.update_document,
     ]) {

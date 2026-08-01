@@ -16,7 +16,6 @@ import type {
   GigPersonData,
   MeetingData,
   MeetingParticipantData,
-  NetworkingContactData,
   PersonData,
   TaskData,
 } from "../src/models";
@@ -74,11 +73,28 @@ const artifacts: ArtifactPort = {
 };
 const audit: AuditPort = { query: () => null };
 const context: ChangeContext = { actor: "test", source: "test", summary: "seed" };
+const personData = (identity: Pick<PersonData, "id" | "name" | "company" | "title" | "linkedInProfileUrl" | "connectedOn">, overrides: Partial<PersonData> = {}): PersonData => ({
+  ...identity,
+  relationshipType: "professional_contact",
+  relationshipStrength: "unknown",
+  introducedBy: null,
+  relationshipNotes: null,
+  priority: "unranked",
+  status: "not_contacted",
+  lastContacted: null,
+  lastContactMethod: null,
+  lastContactSummary: null,
+  nextAction: null,
+  nextActionDue: null,
+  whyInteresting: null,
+  notesJson: "[]",
+  tagsJson: "[]",
+  ...overrides,
+});
 
 function application() {
   const gigs = new Repo<GigData>();
   const people = new Repo<PersonData>();
-  const networking = new Repo<NetworkingContactData>();
   const gigPeople = new Repo<GigPersonData>();
   const tasks = new Repo<TaskData>();
   const meetings = new Repo<MeetingData>();
@@ -88,7 +104,6 @@ function application() {
   const persistence: Persistence = {
     gigs,
     people,
-    networking,
     gigPeople,
     tasks,
     meetings,
@@ -101,7 +116,6 @@ function application() {
         value: action({
           gigs,
           people,
-          networking,
           gigPeople,
           tasks,
           meetings,
@@ -115,7 +129,7 @@ function application() {
   };
   return {
     app: new GigFinderApplication(persistence, audit, artifacts),
-    repos: { gigs, people, networking, gigPeople, tasks, meetings, meetingParticipants },
+    repos: { gigs, people, gigPeople, tasks, meetings, meetingParticipants },
     changes: () => readChanges,
   };
 }
@@ -207,35 +221,31 @@ describe("caller-neutral read services", () => {
     expect(changes()).toBe(before);
   });
 
-  test("people search includes standalone people and contact IDs remain distinct", () => {
+  test("people search and updates use one unified record", () => {
     const { app, repos } = application();
-    repos.people.create({ id: "person-standalone", name: "Standalone Person", company: "Acme", title: "CTO", linkedInProfileUrl: null, connectedOn: null });
-    repos.people.create({ id: "person-contact", name: "Contact Person", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null });
-    repos.networking.create({ id: "contact-record", personId: "person-contact", relationshipType: "recruiter", relationshipStrength: "warm", introducedBy: null, relationshipNotes: null, priority: "high", status: "active_relationship", lastContacted: null, lastContactMethod: null, lastContactSummary: null, nextAction: null, nextActionDue: null, whyInteresting: null, notesJson: "[]", tagsJson: "[]" });
+    repos.people.create(personData({ id: "person-standalone", name: "Standalone Person", company: "Acme", title: "CTO", linkedInProfileUrl: null, connectedOn: null }));
+    repos.people.create(personData({ id: "person-contact", name: "Contact Person", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null }, { relationshipType: "recruiter", relationshipStrength: "warm", priority: "high", status: "active_relationship" }));
     expect(app.people.query({ query: "acme" }).items.map(person => person.id)).toEqual(["person-standalone"]);
-    const contactRead = app.networking.read("contact-record");
-    expect(contactRead).toMatchObject({
-      status: "ok",
-      record: { id: "contact-record", personId: "person-contact" },
-    });
+    const contactRead = app.people.read("person-contact");
+    expect(contactRead).toMatchObject({ status: "ok", record: { id: "person-contact", status: "active_relationship" } });
     const listedPerson = app.people.query({ query: "Standalone" }).items[0]!;
     const readPerson = app.people.read("person-standalone");
     expect(readPerson.status).toBe("ok");
     if (readPerson.status !== "ok") throw new Error("Expected person read to succeed");
     expect(Object.keys(listedPerson).sort()).toEqual(Object.keys(readPerson.record).sort());
-    const listedContact = app.networking.query({ statuses: ["active_relationship"] }).items[0]!;
+    const listedContact = app.people.query({ statuses: ["active_relationship"] }).items[0]!;
     if (contactRead.status !== "ok") throw new Error("Expected contact read to succeed");
     expect(Object.keys(listedContact).sort()).toEqual(Object.keys(contactRead.record).sort());
-    app.networking.update(context, "contact-record", { status: "follow_up_due" });
-    expect(repos.networking.get("contact-record")?.personId).toBe("person-contact");
+    app.people.update(context, "person-contact", { status: "follow_up_due" });
+    expect(repos.people.get("person-contact")?.status).toBe("follow_up_due");
   });
 
   test("relationships support multi-value filters and both traversal directions", () => {
     const { app, repos } = application();
     repos.gigs.create(gig("gig-1", "Alpha"));
     repos.gigs.create(gig("gig-2", "Beta"));
-    repos.people.create({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null });
-    repos.people.create({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null });
+    repos.people.create(personData({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null }));
+    repos.people.create(personData({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null }));
     repos.gigPeople.create({ id: "rel-1", gigId: "gig-1", personId: "person-1", relationship: "hiring_manager", notes: null });
     repos.gigPeople.create({ id: "rel-2", gigId: "gig-1", personId: "person-2", relationship: "recruiter", notes: null });
     repos.gigPeople.create({ id: "rel-3", gigId: "gig-2", personId: "person-1", relationship: "former_peer", notes: null });
@@ -288,8 +298,8 @@ describe("caller-neutral read services", () => {
     const { app, repos, changes } = application();
     repos.gigs.create(gig("gig-1", "Alpha"));
     repos.gigs.create(gig("gig-2", "Beta"));
-    repos.people.create({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null });
-    repos.people.create({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null });
+    repos.people.create(personData({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null }));
+    repos.people.create(personData({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null }));
     repos.meetings.create(meeting("meeting-old", "2026-07-10T10:00:00-07:00", { gigId: "gig-1" }));
     repos.meetings.create(meeting("meeting-new", "2026-07-20T10:00:00-07:00", { title: "Coffee", status: "completed", gigId: "gig-2", description: "Leadership discussion" }));
     repos.meetingParticipants.create({ id: "meeting-old::person-1", meetingId: "meeting-old", personId: "person-1" });
@@ -324,7 +334,7 @@ describe("caller-neutral read services", () => {
 
   test("meeting date filters and ordering compare absolute instants", () => {
     const { app, repos } = application();
-    repos.people.create({ id: "person-1", name: "Alex", company: null, title: null, linkedInProfileUrl: null, connectedOn: null });
+    repos.people.create(personData({ id: "person-1", name: "Alex", company: null, title: null, linkedInProfileUrl: null, connectedOn: null }));
     repos.meetings.create(meeting("chronologically-newer", "2026-07-20T10:00:00-07:00"));
     repos.meetings.create(meeting("lexically-newer", "2026-07-20T18:00:00+02:00"));
     repos.meetingParticipants.create({ id: "participant-1", meetingId: "chronologically-newer", personId: "person-1" });

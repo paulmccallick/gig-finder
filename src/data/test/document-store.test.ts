@@ -73,6 +73,20 @@ const person: PersonData = {
   title: "Director",
   linkedInProfileUrl: null,
   connectedOn: null,
+  relationshipType: "professional_contact",
+  relationshipStrength: "unknown",
+  introducedBy: null,
+  relationshipNotes: null,
+  priority: "unranked",
+  status: "not_contacted",
+  lastContacted: null,
+  lastContactMethod: null,
+  lastContactSummary: null,
+  nextAction: null,
+  nextActionDue: null,
+  whyInteresting: null,
+  notesJson: "[]",
+  tagsJson: "[]",
 };
 
 beforeEach(() => {

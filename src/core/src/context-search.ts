@@ -1,8 +1,8 @@
 import type { GigRecord } from "./gigs";
-import type { NetworkContactRecord } from "./network";
+import type { PersonRecord } from "./people";
 import type {
   GigQueryInput,
-  NetworkingContactQueryInput,
+  PeopleQueryInput,
   Page,
 } from "./queries";
 
@@ -18,8 +18,8 @@ export interface SearchContextResult {
   > & {
     matchedCompanyNames: string[];
   }>;
-  networkingContacts: Array<Pick<
-    NetworkContactRecord,
+  people: Array<Pick<
+    PersonRecord,
     "id" | "name" | "company" | "title" | "status"
   > & {
     matchedCompanyNames: string[];
@@ -30,8 +30,8 @@ export interface SearchContextResult {
 
 interface ContextSearchSources {
   gigs: { query(input: GigQueryInput): Page<GigRecord> };
-  networking: {
-    query(input: NetworkingContactQueryInput): Page<NetworkContactRecord>;
+  people: {
+    query(input: PeopleQueryInput): Page<PersonRecord>;
   };
 }
 
@@ -71,7 +71,7 @@ export class SearchContextService {
     const companyNames = uniqueQueries(input.companyNames);
     const personNames = uniqueQueries(input.personNames);
     const gigCandidates = new Map<string, GigRecord>();
-    const contactCandidates = new Map<string, NetworkContactRecord>();
+    const personCandidates = new Map<string, PersonRecord>();
     let truncated = false;
 
     for (const query of companyNames) {
@@ -80,24 +80,24 @@ export class SearchContextService {
         truncated ||= gigs.page.hasMore;
         for (const gig of gigs.items) gigCandidates.set(gig.id, gig);
 
-        const contacts = this.sources.networking.query({
+        const people = this.sources.people.query({
           query: term,
           offset: 0,
           limit: 50,
         });
-        truncated ||= contacts.page.hasMore;
-        for (const contact of contacts.items) contactCandidates.set(contact.id, contact);
+        truncated ||= people.page.hasMore;
+        for (const person of people.items) personCandidates.set(person.id, person);
       }
     }
     for (const query of personNames) {
       for (const term of searchTerms(query)) {
-        const contacts = this.sources.networking.query({
+        const people = this.sources.people.query({
           query: term,
           offset: 0,
           limit: 50,
         });
-        truncated ||= contacts.page.hasMore;
-        for (const contact of contacts.items) contactCandidates.set(contact.id, contact);
+        truncated ||= people.page.hasMore;
+        for (const person of people.items) personCandidates.set(person.id, person);
       }
     }
 
@@ -112,23 +112,23 @@ export class SearchContextService {
         matchedCompanyNames,
       }] : [];
     });
-    const allContacts = [...contactCandidates.values()].flatMap(contact => {
-      const matchedCompanyNames = companyNames.filter(query => matches(contact.company, query));
-      const matchedPersonNames = personNames.filter(query => matches(contact.name, query));
+    const allPeople = [...personCandidates.values()].flatMap(person => {
+      const matchedCompanyNames = companyNames.filter(query => matches(person.company, query));
+      const matchedPersonNames = personNames.filter(query => matches(person.name, query));
       return matchedCompanyNames.length + matchedPersonNames.length > 0 ? [{
-        id: contact.id,
-        name: contact.name,
-        company: contact.company,
-        title: contact.title,
-        status: contact.status,
+        id: person.id,
+        name: person.name,
+        company: person.company,
+        title: person.title,
+        status: person.status,
         matchedCompanyNames,
         matchedPersonNames,
       }] : [];
     });
     return {
       gigs: allGigs.slice(0, 20),
-      networkingContacts: allContacts.slice(0, 20),
-      truncated: truncated || allGigs.length > 20 || allContacts.length > 20,
+      people: allPeople.slice(0, 20),
+      truncated: truncated || allGigs.length > 20 || allPeople.length > 20,
     };
   }
 }
