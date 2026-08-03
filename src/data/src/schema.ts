@@ -115,15 +115,18 @@ export const managedDocuments = sqliteTable("managed_documents", {
     enum: ["job_description", "notes", "interview_prep", "profile"],
   }).notNull(),
   title: text("title"),
+  description: text("description"),
   mediaType: text("media_type", {
     enum: ["text/plain", "text/markdown"],
   }).notNull(),
   sourceDescription: text("source_description"),
+  filePath: text("file_path"),
   uploadProvenanceJson: text("upload_provenance_json"),
   currentVersion: integer("current_version").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
+  uniqueIndex("managed_documents_file_path_unique").on(table.filePath),
   check(
     "managed_documents_type_check",
     sql`${table.documentType} in ('job_description', 'notes', 'interview_prep', 'profile')`,
@@ -133,7 +136,19 @@ export const managedDocuments = sqliteTable("managed_documents", {
     sql`${table.mediaType} in ('text/plain', 'text/markdown')`,
   ),
   check("managed_documents_current_version_check", sql`${table.currentVersion} > 0`),
+  check(
+    "managed_documents_description_check",
+    sql`${table.description} is null or length(${table.description}) <= 255`,
+  ),
+  check(
+    "managed_documents_file_path_check",
+    sql`${table.filePath} is null or (instr(${table.filePath}, '/') = 0 and instr(${table.filePath}, '\\') = 0 and ${table.filePath} like '%.md')`,
+  ),
 ]);
+
+export const candidateProfiles = sqliteTable("candidate_profiles", {
+  id: text("id").primaryKey(),
+});
 
 export const managedDocumentLinks = sqliteTable("managed_document_links", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -141,15 +156,18 @@ export const managedDocumentLinks = sqliteTable("managed_document_links", {
     .references(() => managedDocuments.id),
   gigId: text("gig_id").references(() => gigs.id),
   personId: text("person_id").references(() => people.id),
+  profileId: text("profile_id").references(() => candidateProfiles.id),
 }, (table) => [
   index("managed_document_links_document_idx").on(table.documentId),
   index("managed_document_links_gig_idx").on(table.gigId),
   index("managed_document_links_person_idx").on(table.personId),
+  index("managed_document_links_profile_idx").on(table.profileId),
   uniqueIndex("managed_document_links_gig_unique").on(table.documentId, table.gigId),
   uniqueIndex("managed_document_links_person_unique").on(table.documentId, table.personId),
+  uniqueIndex("managed_document_links_profile_unique").on(table.documentId, table.profileId),
   check(
     "managed_document_links_target_check",
-    sql`(${table.gigId} is not null and ${table.personId} is null) or (${table.gigId} is null and ${table.personId} is not null)`,
+    sql`(${table.gigId} is not null and ${table.personId} is null and ${table.profileId} is null) or (${table.gigId} is null and ${table.personId} is not null and ${table.profileId} is null) or (${table.gigId} is null and ${table.personId} is null and ${table.profileId} is not null)`,
   ),
 ]);
 

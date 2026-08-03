@@ -44,6 +44,7 @@ import {
   documentLinkEntityTypes,
   managedDocumentContentLimit,
   managedDocumentTypes,
+  profileDocumentDescriptionLimit,
 } from "../core/src/documents";
 import { stagedDocumentReferencePattern } from "../core/src/staged-documents";
 import { gigPersonRelationships } from "../core/src/people";
@@ -218,15 +219,17 @@ const revertChangeInputSchema = z.object({
 const createDocumentInputSchema = z.object({
   links: z.array(z.object({
     entityType: z.enum(documentLinkEntityTypes)
-      .describe("Whether this link targets a gig or a canonical person."),
+      .describe("Whether this link targets a gig, canonical person, or the candidate Profile."),
     entityId: z.string().trim().min(1).max(200)
-      .describe("Exact durable gig or person ID returned by a corresponding record tool."),
+      .describe("Exact durable Gig or Person ID, or candidate for the candidate Profile."),
   }).strict()).min(1).max(20)
-    .describe("Records to which the document applies. Profiles require exactly one person link and may also have gig links."),
+    .describe("Records to which the document applies. Profile context documents link only to Profile candidate; Person profile documents require exactly one Person link and may also have Gig links."),
   documentType: z.enum(managedDocumentTypes)
     .describe("Document category: job_description, notes, interview_prep, or profile."),
   title: z.string().trim().min(1).max(200).nullable()
-    .describe("Optional friendly document title; use null to derive a display name from the upload filename or document type."),
+    .describe("Friendly document name. Required for Profile context documents; otherwise use null to derive a display name from the upload filename or document type."),
+  description: z.string().trim().min(1).max(profileDocumentDescriptionLimit).nullable()
+    .describe(`Optional description of the document's contents, up to ${profileDocumentDescriptionLimit} characters. Profile document descriptions are always available as agent context.`),
   sourceKind: z.enum(["inline_content", "staged_document"])
     .describe("Whether the source is inline conversation content or an exact staged-document reference."),
   content: z.string().min(1).max(managedDocumentContentLimit).nullable()
@@ -1002,7 +1005,7 @@ export function createGigFinderTools(
     }),
     create_document: tool({
       strict: true,
-      description: "Create a managed text document linked to existing gigs or people from inline conversation content or an exact staged-document reference. First resolve the links and intended action; ask one targeted question when required context remains ambiguous. Preserve supplied source content without rewriting it and report the document ID, version, and change ID.",
+      description: "Create a managed text document linked to existing Gigs, People, or the candidate Profile from inline conversation content or an exact staged-document reference. Profile context documents require a name and description when known, and link only to Profile candidate. First resolve the intended ownership; preserve supplied source content without rewriting it and report the document ID, version, and change ID.",
       inputSchema: createDocumentInputSchema,
       execute: loggedExecution(
         logger,
@@ -1039,6 +1042,7 @@ export function createGigFinderTools(
             links: input.links,
             documentType: input.documentType,
             title: input.title,
+            description: input.description,
             mediaType: input.mediaType,
             sourceDescription: input.sourceDescription,
             content,

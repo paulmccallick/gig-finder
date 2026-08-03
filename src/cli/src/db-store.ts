@@ -45,7 +45,7 @@ export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)
 
 export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
 export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));
-export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person",entityId:string)=>withApplication(paths,app=>app.documents.list(entityType,entityId));
+export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person"|"profile",entityId:string)=>withApplication(paths,app=>app.documents.list(entityType,entityId));
 export const getDocument=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.get(documentId));
 export const listDocumentVersions=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.versions(documentId));
 export const createDocument=(paths:TrackerPaths,input:CreateManagedDocumentInput)=>withApplication(paths,app=>app.documents.create(context(paths,`CLI document create ${input.documentType}`),input));

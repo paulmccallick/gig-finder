@@ -17,6 +17,24 @@ test("uses GigFinder context names for a new workspace", async () => {
 
   expect(context.database).toBe(path.join(directory, "context/data/gig-finder.sqlite"));
   expect(context.profile).toBe(path.join(directory, "context/profile/candidate-profile.json"));
+  expect(context.profileDocuments).toBe(path.join(directory, "context/profile/documents"));
+});
+
+test("configures the private Profile document directory", async () => {
+  directory = await mkdtemp(path.join(tmpdir(), "gig-finder-context-"));
+  const root = path.join(directory, "context");
+  await mkdir(root, { recursive: true });
+  await writeFile(path.join(root, "config.json"), JSON.stringify({
+    version: 1,
+    actor: "Example Candidate",
+    profileDocuments: "private/profile-documents",
+  }));
+
+  expect(resolveGigFinderContext(directory, {}).profileDocuments)
+    .toBe(path.join(root, "private/profile-documents"));
+  expect(resolveGigFinderContext(directory, {
+    GIG_FINDER_PROFILE_DOCUMENTS: path.join(directory, "override"),
+  }).profileDocuments).toBe(path.join(directory, "override"));
 });
 
 test("discovers legacy private context without moving it", async () => {

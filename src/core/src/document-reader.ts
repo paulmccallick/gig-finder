@@ -6,7 +6,7 @@ export type ReadableDocumentType = ManagedDocumentType;
 
 interface DocumentReferenceBase {
   reference: string;
-  entityType: "gig" | "person";
+  entityType: "gig" | "person" | "profile";
   entityId: string;
   documentType: ReadableDocumentType;
   title: string | null;
@@ -27,7 +27,7 @@ export type ReadableDocument = DocumentReference & {
 export const readableDocumentContentLimit = 50_000;
 
 export interface DocumentReader {
-  list(entityType: "gig" | "person", entityId: string): Promise<DocumentReference[]>;
+  list(entityType: "gig" | "person" | "profile", entityId: string): Promise<DocumentReference[]>;
   get(reference: string): Promise<ReadResult<ReadableDocument>>;
 }
 
@@ -54,9 +54,21 @@ export class ApplicationDocumentReader implements DocumentReader {
   constructor(private readonly services: DocumentReaderServices) {}
 
   async list(
-    entityType: "gig" | "person",
+    entityType: "gig" | "person" | "profile",
     entityId: string,
   ): Promise<DocumentReference[]> {
+    if (entityType === "profile") {
+      return (this.services.managed?.list("profile", entityId) ?? []).map(document => ({
+        reference: document.id,
+        entityType,
+        entityId,
+        documentType: document.documentType,
+        title: document.title,
+        displayName: document.displayName,
+        storage: "managed" as const,
+        currentVersion: document.currentVersion,
+      }));
+    }
     if (entityType === "person") {
       return (this.services.people.get(entityId) ? this.services.managed?.list("person", entityId) ?? [] : [])
         .map(document => ({
@@ -140,10 +152,10 @@ export class ApplicationDocumentReader implements DocumentReader {
     const entityType = parts[0];
     const entityId = parts[1] ? decoded(parts[1]) : null;
     const documentType = parts[2];
-    if (!entityId || (entityType !== "gig" && entityType !== "person")) {
+    if (!entityId || !["gig", "person", "profile"].includes(entityType ?? "")) {
       return { status: "not_found", id: reference };
     }
-    const match = (await this.list(entityType, entityId))
+    const match = (await this.list(entityType as "gig" | "person" | "profile", entityId))
       .find(item => item.reference === reference);
     if (!match) return { status: "not_found", id: reference };
     if (documentType === "job_description") {

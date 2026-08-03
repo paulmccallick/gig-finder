@@ -4,7 +4,9 @@ import type { ChangeContext } from "./models";
 import type { Persistence } from "./ports";
 import { DomainValidationError, MutationError, OptimisticConcurrencyError } from "./errors";
 
-export const documentLinkEntityTypes = ["gig", "person"] as const;
+export const candidateProfileId = "candidate";
+
+export const documentLinkEntityTypes = ["gig", "person", "profile"] as const;
 export type DocumentLinkEntityType = typeof documentLinkEntityTypes[number];
 
 export const managedDocumentTypes = [
@@ -19,6 +21,7 @@ export const documentMediaTypes = ["text/plain", "text/markdown"] as const;
 export type DocumentMediaType = typeof documentMediaTypes[number];
 
 export const managedDocumentContentLimit = 50_000;
+export const profileDocumentDescriptionLimit = 255;
 
 export const uploadedSourceMediaTypes = [
   "application/pdf",
@@ -54,8 +57,10 @@ export interface ManagedDocumentData {
   links: DocumentLink[];
   documentType: ManagedDocumentType;
   title: string | null;
+  description: string | null;
   mediaType: DocumentMediaType;
   sourceDescription: string | null;
+  filePath: string | null;
   uploadProvenance: UploadedDocumentProvenance | null;
 }
 
@@ -86,6 +91,7 @@ export interface CreateManagedDocumentInput {
   links: DocumentLink[];
   documentType: ManagedDocumentType;
   title: string | null;
+  description?: string | null;
   mediaType: DocumentMediaType;
   sourceDescription: string | null;
   content: string;
@@ -103,6 +109,14 @@ export interface ManagedDocumentMutationResult {
   document: ManagedDocumentRecord;
   changeId: string | null;
   changed: boolean;
+}
+
+export interface ProfileDocumentContext {
+  id: string;
+  name: string;
+  type: ManagedDocumentType;
+  description: string | null;
+  currentVersion: number;
 }
 
 const contentSchema = z.string()
@@ -131,6 +145,8 @@ export const createManagedDocumentSchema = z.object({
   links: z.array(documentLinkSchema).min(1),
   documentType: z.enum(managedDocumentTypes),
   title: z.string().trim().min(1).max(200).nullable(),
+  description: z.string().trim().min(1).max(profileDocumentDescriptionLimit).nullable()
+    .default(null),
   mediaType: z.enum(documentMediaTypes),
   sourceDescription: z.string().trim().min(1).max(500).nullable(),
   content: contentSchema,
@@ -166,6 +182,18 @@ export const documentSummary = (document: ManagedDocumentRecord): DocumentSummar
   displayName: document.displayName,
 });
 
+export function profileDocumentFilePath(id: string, title: string): string {
+  const slug = title
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "context-document";
+  const suffix = id.replace(/^doc_/, "").slice(0, 8);
+  return `${slug}-${suffix}.md`;
+}
+
 export function documentIdFromIdentifier(identifier: string): string | null {
   const raw = /^(doc_[0-9a-f-]+)$/i.exec(identifier)?.[1];
   if (raw) return raw;
@@ -198,6 +226,21 @@ export class ManagedDocumentService {
     return this.persistence.documents.list(entityType, entityId).map(documentSummary);
   }
 
+  profileContext(): ProfileDocumentContext[] {
+    return this.persistence.documents.list("profile", candidateProfileId).map(document => {
+      if (!document.title) {
+        throw new Error(`Profile context document ${document.id} has no name.`);
+      }
+      return {
+        id: document.id,
+        name: document.title,
+        type: document.documentType,
+        description: document.description,
+        currentVersion: document.currentVersion,
+      };
+    });
+  }
+
   versions(identifier: string): ManagedDocumentVersionData[] {
     const id = documentIdFromIdentifier(identifier);
     return id ? this.persistence.documents.listVersions(id) : [];
@@ -208,11 +251,18 @@ export class ManagedDocumentService {
     input: CreateManagedDocumentInput,
   ): ManagedDocumentMutationResult {
     const parsed = this.parseCreate(input);
-    this.validateLinkContract(parsed.documentType, parsed.links);
+    this.validateLinkContract(parsed.documentType, parsed.links, parsed.title);
     const contentHash = hashContent(parsed.content);
+    const id = `doc_${randomUUID()}`;
+    const profileOwned = parsed.links.some(link => link.entityType === "profile");
+    const profileTitle = profileOwned ? parsed.title : null;
+    if (profileOwned && !profileTitle) {
+      throw new DomainValidationError("A profile context document requires a name.");
+    }
     try {
       const result = this.persistence.change(context, transaction => {
         for (const link of parsed.links) {
+          if (link.entityType === "profile") continue;
           const target = link.entityType === "gig"
             ? transaction.gigs.get(link.entityId)
             : transaction.people.get(link.entityId);
@@ -225,12 +275,14 @@ export class ManagedDocumentService {
         }
         return transaction.documents.create({
           document: {
-            id: `doc_${randomUUID()}`,
+            id,
             links: parsed.links,
             documentType: parsed.documentType,
             title: parsed.title,
+            description: parsed.description,
             mediaType: parsed.mediaType,
             sourceDescription: parsed.sourceDescription,
+            filePath: profileTitle ? profileDocumentFilePath(id, profileTitle) : null,
             uploadProvenance: parsed.uploadProvenance,
           },
           content: parsed.content,
@@ -294,22 +346,51 @@ export class ManagedDocumentService {
     }
   }
 
-  private validateLinkContract(type: ManagedDocumentType, links: DocumentLink[]) {
+  private validateLinkContract(
+    type: ManagedDocumentType,
+    links: DocumentLink[],
+    title: string | null,
+  ) {
     const keys = links.map(linkKey);
     if (new Set(keys).size !== keys.length) {
       throw new DomainValidationError("Document links must be unique.");
     }
     const personLinks = links.filter(link => link.entityType === "person");
     const gigLinks = links.filter(link => link.entityType === "gig");
+    const profileLinks = links.filter(link => link.entityType === "profile");
+    if (profileLinks.length > 0) {
+      if (
+        profileLinks.length !== 1
+        || profileLinks[0]?.entityId !== candidateProfileId
+        || links.length !== 1
+      ) {
+        throw new DomainValidationError(
+          `A profile context document must link only to Profile ${candidateProfileId}.`,
+        );
+      }
+      if (type === "profile") {
+        throw new DomainValidationError(
+          "A profile context document is not a Person profile document.",
+        );
+      }
+      if (title === null) {
+        throw new DomainValidationError("A profile context document requires a name.");
+      }
+    }
     if (type === "profile" && personLinks.length !== 1) {
       throw new DomainValidationError("A profile must link to exactly one person.");
     }
     if (
-      (type === "job_description" || type === "interview_prep")
+      type === "job_description"
       && gigLinks.length === 0
     ) {
       throw new DomainValidationError(
-        `${type === "job_description" ? "A job description" : "Interview preparation"} must link to at least one gig.`,
+        "A job description must link to at least one gig.",
+      );
+    }
+    if (type === "interview_prep" && gigLinks.length === 0 && profileLinks.length === 0) {
+      throw new DomainValidationError(
+        "Interview preparation must link to at least one gig or the candidate Profile.",
       );
     }
   }

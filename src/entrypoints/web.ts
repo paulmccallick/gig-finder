@@ -27,6 +27,7 @@ const defaultAgentModel = parseAgentModelId(
 const local = openLocalApplication({
   database: context.database,
   artifacts: context.artifacts,
+  profileDocuments: context.profileDocuments,
 }, { defaultAgentModel });
 const gigFinder = local.application;
 const port = Number(process.env.API_PORT ?? 3001);
@@ -52,6 +53,7 @@ const uploadHandler = createDocumentUploadHandler(
 );
 const agentHandler = createAgentHandler({
   profile: loadCandidateProfile(context.profile),
+  profileDocuments: () => gigFinder.documents.profileContext(),
   logger,
   reads: {
     gigs: gigFinder.gigs,

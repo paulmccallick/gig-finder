@@ -48,7 +48,8 @@ describe("migrations", () => {
   });
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["gigs","gig_history","people","person_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","application_settings","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["gigs","gig_history","people","person_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","application_settings","business_events","event_sources","candidate_profiles","managed_documents","managed_document_links","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    expect(database.query("SELECT id FROM candidate_profiles").get()).toEqual({ id: "candidate" });
     expect(names).not.toContain("networking_contacts");
     expect(names).not.toContain("networking_contact_history");
   });

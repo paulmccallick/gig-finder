@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { mkdir, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
+import path from "node:path";
 import {
+  candidateProfileId,
   ManagedDocumentService,
   type ManagedDocumentData,
 } from "../../core/src/documents";
@@ -8,6 +11,7 @@ import { MutationError } from "../../core/src/errors";
 import type { ChangeContext, GigData, PersonData } from "../../core/src/models";
 import {
   DataStore,
+  LocalProfileDocumentFiles,
   migrateDatabase,
   openDatabase,
   RevisionConflictError,
@@ -61,8 +65,10 @@ const document: ManagedDocumentData = {
   links: [{ entityType: "gig", entityId: gig.id }],
   documentType: "job_description",
   title: "Job description",
+  description: null,
   mediaType: "text/plain",
   sourceDescription: "Received by text message",
+  filePath: null,
   uploadProvenance: null,
 };
 
@@ -102,6 +108,93 @@ beforeEach(() => {
 afterEach(() => database.close());
 
 describe("managed document persistence", () => {
+  test("stores profile-owned context and materializes its current Markdown version", async () => {
+    const temporaryRoot = path.resolve(import.meta.dir, "../../../tmp");
+    await mkdir(temporaryRoot, { recursive: true });
+    const directory = await mkdtemp(path.join(temporaryRoot, "profile-documents-"));
+    try {
+      const materializedStore = new DataStore(
+        database,
+        new LocalProfileDocumentFiles(directory),
+      );
+      const documents = new ManagedDocumentService(materializedStore);
+      const created = documents.create(context("Create interview stories"), {
+        links: [{ entityType: "profile", entityId: candidateProfileId }],
+        documentType: "interview_prep",
+        title: "Interview stories",
+        description: "Behavioral examples from prior leadership roles.",
+        mediaType: "text/markdown",
+        sourceDescription: null,
+        content: "# Interview stories\n\nOriginal examples.",
+      });
+      const filePath = created.document.filePath!;
+
+      expect(created.document).toMatchObject({
+        links: [{ entityType: "profile", entityId: candidateProfileId }],
+        title: "Interview stories",
+        description: "Behavioral examples from prior leadership roles.",
+      });
+      expect(filePath).toMatch(/^interview-stories-[0-9a-f]{8}\.md$/);
+      expect(documents.profileContext()).toEqual([{
+        id: created.document.id,
+        name: "Interview stories",
+        type: "interview_prep",
+        description: "Behavioral examples from prior leadership roles.",
+        currentVersion: 1,
+      }]);
+      expect(await readFile(path.join(directory, filePath), "utf8"))
+        .toBe("# Interview stories\n\nOriginal examples.");
+      expect(database.query(
+        "SELECT profile_id FROM managed_document_links WHERE document_id = ?",
+      ).get(created.document.id)).toEqual({ profile_id: candidateProfileId });
+
+      const updated = documents.update(context("Expand interview stories"), {
+        documentId: created.document.id,
+        expectedVersion: 1,
+        content: "# Interview stories\n\nExpanded examples.",
+        changeSummary: "Expand examples",
+      });
+      expect(await readFile(path.join(directory, filePath), "utf8"))
+        .toBe("# Interview stories\n\nExpanded examples.");
+
+      await unlink(path.join(directory, filePath));
+      materializedStore.synchronizeProfileDocuments();
+      expect(await readFile(path.join(directory, filePath), "utf8"))
+        .toBe("# Interview stories\n\nExpanded examples.");
+      expect(() => new LocalProfileDocumentFiles(directory).write({
+        ...updated.document,
+        filePath: "../outside.md",
+      })).toThrow("unsafe file path");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("validates profile context ownership, name, and description", () => {
+    const documents = new ManagedDocumentService(store);
+    const base = {
+      links: [{ entityType: "profile" as const, entityId: candidateProfileId }],
+      documentType: "notes" as const,
+      title: "Search principles",
+      description: null,
+      mediaType: "text/markdown" as const,
+      sourceDescription: null,
+      content: "# Search principles",
+    };
+    expect(() => documents.create(context("Missing name"), {
+      ...base,
+      title: null,
+    })).toThrow("requires a name");
+    expect(() => documents.create(context("Mixed owners"), {
+      ...base,
+      links: [...base.links, { entityType: "gig", entityId: gig.id }],
+    })).toThrow("must link only to Profile candidate");
+    expect(() => documents.create(context("Long description"), {
+      ...base,
+      description: "x".repeat(256),
+    })).toThrow("Too big");
+  });
+
   test("migration preserves legacy gig-owned documents and versions as links", async () => {
     const legacy = openDatabase(":memory:");
     try {

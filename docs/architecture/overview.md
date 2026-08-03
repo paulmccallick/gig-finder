@@ -71,7 +71,9 @@ validates relationships and lifecycle dates before generic persistence writes.
   migration retains exact legacy relationship values on historical Meeting
   snapshots rather than guessing historical attendees.
 - Managed documents and their immutable versions live in the document tables;
-  legacy job-description and interview-prep files remain filesystem artifacts.
+  `candidate_profiles` supplies the Profile relationship target, and current
+  Profile context Markdown is materialized from SQLite for local access.
+  Legacy job-description and interview-prep files remain filesystem artifacts.
 - `application_settings` stores operator preferences outside entity revision
   history; the core service validates values before the generic adapter writes.
 - Person identity, relationship, and outreach share `people` and
@@ -82,7 +84,10 @@ validates relationships and lifecycle dates before generic persistence writes.
 
 Private paths default below `context/`. `GIG_FINDER_CONTEXT_ROOT` changes that
 root; `GIG_FINDER_PROFILE`, `GIG_FINDER_DATABASE`, `GIG_FINDER_ARTIFACTS`,
-`LOG_DIRECTORY`, and `GIG_FINDER_BACKUP_ROOT` override individual paths.
+`GIG_FINDER_PROFILE_DOCUMENTS`, `LOG_DIRECTORY`, and
+`GIG_FINDER_BACKUP_ROOT` override individual paths. Profile context Markdown
+defaults to `context/profile/documents/`; `config.json` can set
+`profileDocuments` relative to the context root.
 `GIG_FINDER_MEETING_PARTICIPANT_MIGRATION` overrides the private, typed legacy
 Meeting mapping used only by migration 0010.
 `GIG_FINDER_ACTOR` overrides the configured audit actor.

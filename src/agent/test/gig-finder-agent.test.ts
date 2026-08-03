@@ -208,6 +208,25 @@ describe("GigFinderAgent instructions", () => {
     expect(instructions).toContain("Hybrid");
     expect(instructions).toContain("Individual-contributor roles");
   });
+
+  test("loads Profile document descriptions without loading document contents", () => {
+    const instructions = buildGigFinderInstructions(testCandidateProfile, {
+      liveRecords: true,
+      profileDocuments: [{
+        id: "doc_11111111-1111-4111-8111-111111111111",
+        name: "Interview stories",
+        type: "interview_prep",
+        description: "Behavioral examples from prior leadership roles.",
+        currentVersion: 3,
+      }],
+    });
+
+    expect(instructions).toContain(
+      "Interview stories [doc_11111111-1111-4111-8111-111111111111] (interview_prep, version 3): Behavioral examples from prior leadership roles.",
+    );
+    expect(instructions).toContain("Use get_document with the exact ID");
+    expect(instructions).not.toContain("Confidential story content");
+  });
 });
 
 describe("agent streaming", () => {
@@ -569,9 +588,11 @@ describe("agent streaming", () => {
       links: [{ entityType: "gig", entityId: gig.id }],
       documentType: "job_description",
       title: "Director of Engineering job description",
+      description: null,
       displayName: "Director of Engineering job description",
       mediaType: "text/plain",
       sourceDescription: "Shared by Taylor via text message",
+      filePath: null,
       uploadProvenance: null,
       currentVersion: 1,
       content: "Lead the engineering organization.",
@@ -625,6 +646,7 @@ describe("agent streaming", () => {
                   links: [{ entityType: "gig", entityId: gig.id }],
                   documentType: "job_description",
                   title: "Director of Engineering job description",
+                  description: null,
                   sourceKind: "inline_content",
                   content: "Lead the engineering organization.",
                   reference: null,
@@ -737,7 +759,7 @@ describe("agent streaming", () => {
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ links: [{ entityType: "gig", entityId: gig.id }], documentType: "job_description", title: "Director of Engineering job description", sourceKind: "staged_document", content: null, reference: staged.reference, mediaType: "text/markdown", sourceDescription: null }) },
+            { type: "tool-call", toolCallId: "save-upload", toolName: "create_document", input: JSON.stringify({ links: [{ entityType: "gig", entityId: gig.id }], documentType: "job_description", title: "Director of Engineering job description", description: null, sourceKind: "staged_document", content: null, reference: staged.reference, mediaType: "text/markdown", sourceDescription: null }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
@@ -763,9 +785,11 @@ describe("agent streaming", () => {
             links: input.links,
             documentType: "job_description",
             title: input.title,
+            description: input.description ?? null,
             displayName: input.title ?? "Job Description",
             mediaType: input.mediaType,
             sourceDescription: input.sourceDescription,
+            filePath: null,
             uploadProvenance: input.uploadProvenance ?? null,
             currentVersion: 1,
             content: input.content,
@@ -934,7 +958,7 @@ describe("agent streaming", () => {
     expect(createCalls).toBe(0);
     expect(model.doStreamCalls).toHaveLength(1);
     expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
-      "Ask a concise question when ownership or intent",
+      "when ownership or intent is ambiguous",
     );
   });
 

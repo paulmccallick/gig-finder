@@ -22,6 +22,8 @@
   history.
 - Core services attach the same compact managed-document summaries to gig and
   person reads for CLI, agent, and web clients.
+- Core owns Profile-document relationships, names, descriptions, and versions;
+  data materializes current Markdown beneath the configured private directory.
 - Generic agent policy is separate from the user profile, which defaults to
   `context/`.
 - Core owns the supported agent-model catalog and preference validation; web

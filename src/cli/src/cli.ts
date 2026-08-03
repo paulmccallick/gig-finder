@@ -6,6 +6,7 @@ import type { Meeting } from "../../core/src/meetings";
 import type { PersonStatus, Person, PersonCreateInput } from "../../core/src";
 import type { GigSummary, Outcome, PipelineStage } from "../../core/src/gigs";
 import {
+  candidateProfileId,
   documentMediaTypes,
   managedDocumentTypes,
 } from "../../core/src/documents";
@@ -39,9 +40,9 @@ Usage:
   gig-finder events add <id> --patch-file <path> [--dry-run]
   gig-finder artifacts verify
   gig-finder artifacts sync
-  gig-finder documents list (--gig <gig-id> | --person <person-id>)
+  gig-finder documents list (--gig <gig-id> | --person <person-id> | --profile)
   gig-finder documents get <document-id>
-  gig-finder documents create [--gigs <id,...>] [--people <id,...>] --type <type> --media-type <type> --content-file <path> [--title <text>] [--source-description <text>]
+  gig-finder documents create [--gigs <id,...>] [--people <id,...>] [--profile] --type <type> --media-type <type> --content-file <path> [--title <text>] [--description <text>] [--source-description <text>]
   gig-finder documents update <document-id> --expected-version <number> --change-summary <text> --content-file <path>
   gig-finder documents versions <document-id>
 
@@ -56,7 +57,7 @@ const parseFlags = (args: string[]): Flags => {
     const token = args[i]!;
     if (!token.startsWith("--")) throw new Error(`Unexpected argument: ${token}`);
     const key = token.slice(2);
-    if (key === "dry-run") { flags[key] = true; continue; }
+    if (key === "dry-run" || key === "profile") { flags[key] = true; continue; }
     const value = args[++i];
     if (!value || value.startsWith("--")) throw new Error(`Missing value for --${key}.`);
     flags[key] = value;
@@ -111,9 +112,12 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
     const flags = parseFlags(args.slice(2));
     const gigId = optional(flags, "gig");
     const personId = optional(flags, "person");
-    if (Boolean(gigId) === Boolean(personId)) throw new Error("Provide exactly one of --gig or --person.");
-    const entityType = gigId ? "gig" as const : "person" as const;
-    const entityId = gigId ?? personId!;
+    const profile = flags.profile === true;
+    if ([gigId, personId, profile].filter(Boolean).length !== 1) {
+      throw new Error("Provide exactly one of --gig, --person, or --profile.");
+    }
+    const entityType = gigId ? "gig" as const : personId ? "person" as const : "profile" as const;
+    const entityId = gigId ?? personId ?? candidateProfileId;
     console.log(JSON.stringify({
       ok: true,
       entity: "document",
@@ -150,11 +154,13 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
       links: [
         ...(optional(flags, "gig") ? [{ entityType: "gig" as const, entityId: optional(flags, "gig")! }] : []),
         ...(optional(flags, "person") ? [{ entityType: "person" as const, entityId: optional(flags, "person")! }] : []),
+        ...(flags.profile === true ? [{ entityType: "profile" as const, entityId: candidateProfileId }] : []),
         ...commaList(flags, "gigs").map(entityId => ({ entityType: "gig" as const, entityId })),
         ...commaList(flags, "people").map(entityId => ({ entityType: "person" as const, entityId })),
       ],
       documentType: acceptedValue(flags, "type", managedDocumentTypes),
       title: optional(flags, "title") ?? null,
+      description: optional(flags, "description") ?? null,
       mediaType: acceptedValue(flags, "media-type", documentMediaTypes),
       sourceDescription: optional(flags, "source-description") ?? null,
       content,
