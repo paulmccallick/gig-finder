@@ -20,7 +20,7 @@ class DocumentRepo implements DocumentWriteRepository {
 }
 const documents=new DocumentRepo();
 const recordedEvents:string[]=[];
-const persistence:Persistence={gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,change:(context,action)=>({changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,recordEvent:event=>{recordedEvents.push(event.id??event.type);return event.id??event.type}} as UnitOfWork)}),revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
+const persistence:Persistence={gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,settings:{get:()=>null,set:()=>undefined},change:(context,action)=>({changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,recordEvent:event=>{recordedEvents.push(event.id??event.type);return event.id??event.type}} as UnitOfWork)}),revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
 const artifacts:ArtifactPort={jobDescription:async()=>"description",interviewPrep:async()=>[{name:"general.md",content:"prep"}],jobDescriptionExists:async()=>true,interviewPrepExists:async()=>true,verify:async():Promise<ArtifactVerification>=>({ok:true,errors:[],unregistered:[]})};
 const audit:AuditPort={query:query=>({query})};const app=new GigFinderApplication(persistence,audit,artifacts);const context:ChangeContext={actor:"test",source:"test",summary:"change"};
 describe("application services",()=>{

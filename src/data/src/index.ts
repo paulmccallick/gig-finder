@@ -7,4 +7,5 @@ export * from "./errors";
 export * from "./maintenance";
 export * from "./meeting-migration";
 export * from "./local-application";
+export * from "./settings-store";
 export * from "./store";

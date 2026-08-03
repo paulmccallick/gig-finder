@@ -48,7 +48,7 @@ describe("migrations", () => {
   });
   test("creates every live, history, change, event, and source table", () => {
     const names = database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String((row as {name:string}).name));
-    for (const table of ["gigs","gig_history","people","person_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
+    for (const table of ["gigs","gig_history","people","person_history","gig_people","gig_people_history","tasks","task_history","meetings","meeting_history","meeting_participants","meeting_participant_history","changes","application_settings","business_events","event_sources","managed_documents","managed_document_versions","__drizzle_migrations"]) expect(names).toContain(table);
     expect(names).not.toContain("networking_contacts");
     expect(names).not.toContain("networking_contact_history");
   });
@@ -185,13 +185,30 @@ describe("migrations", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "gig-finder-data-test-"));
     const filename = path.join(directory, "test.sqlite");
     try {
-      const first = openDatabase(filename); migrateDatabase(first); new DataStore(first).change(context("Persist task"), (tx) => tx.tasks.create(task)); first.close();
-      const second = openDatabase(filename, { create:false }); migrateDatabase(second); expect(new DataStore(second).tasks.get(task.id)?.title).toBe(task.title); second.close();
+      const first = openDatabase(filename);
+      migrateDatabase(first);
+      const firstStore = new DataStore(first);
+      firstStore.change(context("Persist task"), (tx) => tx.tasks.create(task));
+      firstStore.settings.set("agent_model", "gpt-5.6-luna");
+      first.close();
+
+      const second = openDatabase(filename, { create:false });
+      migrateDatabase(second);
+      const secondStore = new DataStore(second);
+      expect(secondStore.tasks.get(task.id)?.title).toBe(task.title);
+      expect(secondStore.settings.get("agent_model")).toBe("gpt-5.6-luna");
+      second.close();
     } finally { await rm(directory, { recursive:true, force:true }); }
   });
 });
 
 describe("typed CRUD repositories", () => {
+  test("persists application settings independently of entity history", () => {
+    expect(store.settings.get("agent_model")).toBeNull();
+    store.settings.set("agent_model", "gpt-5.6-terra");
+    expect(store.settings.get("agent_model")).toBe("gpt-5.6-terra");
+    expect((database.query("SELECT count(*) count FROM changes").get() as { count: number }).count).toBe(0);
+  });
   test("creates and reads gigs with initial metadata", () => {
     const result = store.change(context("Create gig"), (tx) => tx.gigs.create(gig));
     expect(result.value).toMatchObject({ id:"gig-1", revision:1, isDeleted:false, createdAt:timestamp, updatedAt:timestamp });

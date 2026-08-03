@@ -11,16 +11,23 @@ import { loadCandidateProfile } from "../agent/profile-loader";
 import { openLocalApplication, resolveGigFinderContext } from "../data/src";
 import { registerDevelopmentTelemetry } from "../observability/devtools";
 import { managedDocumentContentLimit, StagedDocumentService } from "../core/src";
+import {
+  defaultAgentModelId,
+  parseAgentModelId,
+} from "../core/src/application-settings";
 import { LocalDocumentConverter } from "../web/document-conversion";
 import { createDocumentUploadHandler } from "../web/document-upload-handler";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const devToolsEnabled = await registerDevelopmentTelemetry();
 const context = resolveGigFinderContext(repoRoot);
+const defaultAgentModel = parseAgentModelId(
+  process.env.CODEX_AGENT_MODEL ?? defaultAgentModelId,
+);
 const local = openLocalApplication({
   database: context.database,
   artifacts: context.artifacts,
-});
+}, { defaultAgentModel });
 const gigFinder = local.application;
 const port = Number(process.env.API_PORT ?? 3001);
 const positiveInteger = (value: string | undefined, fallback: number) => {
@@ -43,11 +50,10 @@ const uploadHandler = createDocumentUploadHandler(
   stagedDocuments,
   uploadLimits.maxBytes,
 );
-const agentHandler = createAgentHandler(
-  loadCandidateProfile(context.profile),
-  undefined,
+const agentHandler = createAgentHandler({
+  profile: loadCandidateProfile(context.profile),
   logger,
-  {
+  reads: {
     gigs: gigFinder.gigs,
     people: gigFinder.people,
     gigPeople: gigFinder.gigPeople,
@@ -55,10 +61,11 @@ const agentHandler = createAgentHandler(
     meetings: gigFinder.meetings,
     documents: gigFinder.documentReader,
   },
-  gigFinder,
-  context.actor,
-  { contextSearch: gigFinder.contextSearch, stagedDocuments },
-);
+  mutations: gigFinder,
+  actor: context.actor,
+  toolExtensions: { contextSearch: gigFinder.contextSearch, stagedDocuments },
+  selectModel: () => gigFinder.settings.get().agentModel,
+});
 const server = Bun.serve({
   port,
   hostname: "127.0.0.1",

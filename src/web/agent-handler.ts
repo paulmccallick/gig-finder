@@ -15,8 +15,24 @@ import {
 } from "../agent/gig-finder-tools";
 import type { GigFinderMutationCapabilities } from "../agent/gig-finder-tools";
 import { logger as defaultLogger } from "../observability/logger";
+import {
+  defaultAgentModelId,
+  type AgentModelId,
+} from "../core/src/application-settings";
 
-type ModelFactory = () => Promise<LanguageModel>;
+type ModelFactory = (modelId: AgentModelId) => Promise<LanguageModel>;
+type ModelSelector = () => AgentModelId;
+
+export interface AgentHandlerOptions {
+  profile: CandidateProfile;
+  modelFactory?: ModelFactory;
+  selectModel?: ModelSelector;
+  logger?: Logger;
+  reads?: GigFinderReadCapabilities;
+  mutations?: GigFinderMutationCapabilities;
+  actor?: string;
+  toolExtensions?: GigFinderToolExtensions;
+}
 
 export const agentLimits = {
   maxMessages: 20,
@@ -91,15 +107,16 @@ export function safeAgentError(error: unknown) {
   return "The GigFinderAgent could not complete that response. Please try again.";
 }
 
-export function createAgentHandler(
-  profile: CandidateProfile,
-  modelFactory: ModelFactory = createCodexLanguageModel,
-  logger: Logger = defaultLogger,
-  reads?: GigFinderReadCapabilities,
-  mutations?: GigFinderMutationCapabilities,
+export function createAgentHandler({
+  profile,
+  modelFactory = createCodexLanguageModel,
+  selectModel = () => defaultAgentModelId,
+  logger = defaultLogger,
+  reads,
+  mutations,
   actor = "GigFinderAgent",
-  toolExtensions?: GigFinderToolExtensions,
-) {
+  toolExtensions,
+}: AgentHandlerOptions) {
   return async (request: Request) => {
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
     const requestStartedAt = performance.now();
@@ -122,9 +139,14 @@ export function createAgentHandler(
         err: request.signal.reason,
       }, "Agent request signal aborted");
     }, { once: true });
+    const selectedModel = selectModel();
+    agentLogger.debug({
+      event: "agent.model.selected",
+      modelId: selectedModel,
+    }, "Selected agent model");
     const agent = new GigFinderAgent({
       profile,
-      model: await modelFactory(),
+      model: await modelFactory(selectedModel),
       logger: agentLogger,
       tools: reads
         ? createGigFinderTools(

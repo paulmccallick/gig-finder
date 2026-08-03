@@ -21,4 +21,7 @@
   person reads for CLI, agent, and web clients.
 - Generic agent policy is separate from the user profile, which defaults to
   `context/`.
+- Core owns the supported agent-model catalog and preference validation; web
+  owns its HTTP contract and control, while data stores only generic key/value
+  settings.
 - Private context never belongs in application source control.

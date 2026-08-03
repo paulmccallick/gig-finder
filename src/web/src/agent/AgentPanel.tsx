@@ -14,6 +14,16 @@ import {
   minimumAgentPanelWidth,
   type AgentLayout,
 } from "./agent-workspace";
+import {
+  agentModelCatalog,
+  defaultAgentModelId,
+  isAgentModelId,
+  type AgentModelId,
+} from "../../../core/src/application-settings";
+import {
+  loadApplicationSettings,
+  saveAgentModel,
+} from "../data/settings";
 
 const starterPrompts = [
   "What kinds of roles should I prioritize?",
@@ -153,6 +163,9 @@ export function AgentPanel({
   const [upload, setUpload] = useState<StagedUpload | null>(null);
   const [uploadingFilename, setUploadingFilename] = useState<string | null>(null);
   const [uploadFailure, setUploadFailure] = useState<string | null>(null);
+  const [agentModel, setAgentModel] = useState<AgentModelId>(defaultAgentModelId);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelFailure, setModelFailure] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
@@ -215,6 +228,45 @@ export function AgentPanel({
     startWidth: number;
   } | null>(null);
   activeRef.current = active;
+
+  useEffect(() => {
+    let mounted = true;
+    void loadApplicationSettings()
+      .then(settings => {
+        if (mounted) setAgentModel(settings.agentModel);
+      })
+      .catch(error => {
+        if (mounted) {
+          setModelFailure(
+            error instanceof Error
+              ? error.message
+              : "The agent model preference could not be loaded.",
+          );
+        }
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const selectAgentModel = async (nextModel: AgentModelId) => {
+    if (modelSaving || nextModel === agentModel) return;
+    const previousModel = agentModel;
+    setAgentModel(nextModel);
+    setModelFailure(null);
+    setModelSaving(true);
+    try {
+      const settings = await saveAgentModel(nextModel);
+      setAgentModel(settings.agentModel);
+    } catch (error) {
+      setAgentModel(previousModel);
+      setModelFailure(
+        error instanceof Error
+          ? error.message
+          : "The agent model preference could not be saved.",
+      );
+    } finally {
+      setModelSaving(false);
+    }
+  };
 
   useEffect(() => () => {
     document.body.classList.remove("is-resizing-agent");
@@ -340,6 +392,7 @@ export function AgentPanel({
       (!value && !attachedUpload)
       || activeRef.current
       || uploadingRef.current
+      || modelSaving
     ) return;
     const outgoingText = attachedUpload
       ? [value, `Attached staged document: ${attachedUpload.reference}`]
@@ -369,6 +422,7 @@ export function AgentPanel({
   };
 
   const retry = () => {
+    if (modelSaving) return;
     const sequence = sequenceRef.current + 1;
     sequenceRef.current = sequence;
     diagnosticRef.current = {
@@ -472,6 +526,28 @@ export function AgentPanel({
           </div>
         </div>
         <div className="agent-header-actions">
+          <label className="agent-model-control">
+            <span>Model</span>
+            <select
+              aria-label="Agent model"
+              value={agentModel}
+              disabled={modelSaving}
+              aria-busy={modelSaving}
+              onChange={event => {
+                if (isAgentModelId(event.target.value)) {
+                  void selectAgentModel(event.target.value);
+                }
+              }}
+            >
+              {agentModelCatalog.map(model => (
+                <option key={model.id} value={model.id}>
+                  {layout === "full"
+                    ? model.label.replace("GPT-5.6 ", "")
+                    : model.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="agent-layout-controls" role="group" aria-label="Agent layout">
             {layoutChoices.map(choice => (
               <button
@@ -486,6 +562,9 @@ export function AgentPanel({
             ))}
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close GigFinder">×</button>
+          {modelFailure && (
+            <span className="agent-model-error" role="alert">{modelFailure}</span>
+          )}
         </div>
       </header>
 
@@ -497,7 +576,7 @@ export function AgentPanel({
             <p>Ask for positioning, role-fit guidance, decision criteria, or a practical next move.</p>
             <div className="agent-starters">
               {starterPrompts.map(prompt => (
-                <button type="button" onClick={() => void submit(prompt)} key={prompt}>{prompt}<span>↗</span></button>
+                <button type="button" disabled={modelSaving} onClick={() => void submit(prompt)} key={prompt}>{prompt}<span>↗</span></button>
               ))}
             </div>
           </div>
@@ -520,7 +599,7 @@ export function AgentPanel({
         <div className="agent-error" role="alert">
           <span>RESPONSE INTERRUPTED</span>
           <p>{interactionFailure || error?.message || "The GigFinderAgent could not complete that response."}</p>
-          <button type="button" onClick={retry}>Retry response</button>
+          <button type="button" onClick={retry} disabled={modelSaving}>Retry response</button>
           <button type="button" onClick={() => {
             clearError();
             setInteractionFailure(null);
@@ -588,7 +667,7 @@ export function AgentPanel({
           placeholder="Ask about fit, positioning, or priorities…"
           rows={3}
           maxLength={8000}
-          disabled={!open || uploadingFilename !== null}
+          disabled={!open || uploadingFilename !== null || modelSaving}
         />
         <div className="agent-composer-footer">
           <span>{active ? "STREAM ACTIVE" : "LIVE DATA ACCESS"}</span>
@@ -605,7 +684,7 @@ export function AgentPanel({
                 });
                 stop();
               }}>Stop <i /></button>
-            : <button className="agent-send" type="submit" disabled={!input.trim() && !upload}>Send <span>↗</span></button>}
+            : <button className="agent-send" type="submit" disabled={modelSaving || (!input.trim() && !upload)}>Send <span>↗</span></button>}
         </div>
       </form>
     </aside>

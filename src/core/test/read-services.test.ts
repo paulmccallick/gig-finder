@@ -101,6 +101,7 @@ function application() {
   const meetings = new Repo<MeetingData>();
   const meetingParticipants = new Repo<MeetingParticipantData>();
   const documents = new EmptyDocuments();
+  const settings = { get: () => null, set: () => undefined };
   let readChanges = 0;
   const persistence: Persistence = {
     gigs,
@@ -110,6 +111,7 @@ function application() {
     meetings,
     meetingParticipants,
     documents,
+    settings,
     change: (changeContext, action) => {
       readChanges += 1;
       return {

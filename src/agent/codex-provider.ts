@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createOpenAI } from "@ai-sdk/openai";
+import {
+  defaultAgentModelId,
+  parseAgentModelId,
+  type AgentModelId,
+} from "../core/src/application-settings";
 
 interface CodexAuth {
   tokens?: {
@@ -16,9 +21,6 @@ interface CodexJwtClaims {
     chatgpt_account_id?: string;
   };
 }
-
-const supportedModels = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] as const;
-export type CodexModelId = typeof supportedModels[number];
 
 function decodeClaims(token: string): CodexJwtClaims {
   const payload = token.split(".")[1];
@@ -47,11 +49,9 @@ async function loadCodexCredential() {
 }
 
 export async function createCodexLanguageModel(
-  modelId = (process.env.CODEX_AGENT_MODEL ?? "gpt-5.6-sol") as CodexModelId,
+  modelId: AgentModelId = defaultAgentModelId,
 ) {
-  if (!supportedModels.includes(modelId)) {
-    throw new Error(`Unsupported Codex model: ${modelId}.`);
-  }
+  const selectedModel = parseAgentModelId(modelId);
   const credential = await loadCodexCredential();
   const codexFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
@@ -69,5 +69,5 @@ export async function createCodexLanguageModel(
     apiKey: "managed-by-codex-provider",
     fetch: codexFetch,
   });
-  return provider.responses(modelId);
+  return provider.responses(selectedModel);
 }

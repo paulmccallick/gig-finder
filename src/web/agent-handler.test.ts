@@ -117,10 +117,10 @@ describe("agent web adapter", () => {
   });
 
   test("serves the POST contract through an injected model", async () => {
-    const handler = createAgentHandler(
-      testCandidateProfile,
-      async () => mockModel("This is a deterministic response."),
-    );
+    const handler = createAgentHandler({
+      profile: testCandidateProfile,
+      modelFactory: async () => mockModel("This is a deterministic response."),
+    });
     const response = await handler(new Request("http://localhost/api/agent/messages", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -131,11 +131,33 @@ describe("agent web adapter", () => {
     expect(await response.text()).toContain("This is a deterministic response.");
   });
 
+  test("resolves the selected model for each new request", async () => {
+    const selectedModels: string[] = [];
+    const handler = createAgentHandler({
+      profile: testCandidateProfile,
+      modelFactory: async modelId => {
+        selectedModels.push(modelId);
+        return mockModel();
+      },
+      selectModel: () => "gpt-5.6-terra",
+    });
+    const response = await handler(new Request("http://localhost/api/agent/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [userMessage("Hello")] }),
+    }));
+    await response.text();
+    expect(selectedModels).toEqual(["gpt-5.6-terra"]);
+  });
+
   test("throws validation errors for the server boundary to log and map", async () => {
     let modelCreated = false;
-    const handler = createAgentHandler(testCandidateProfile, async () => {
-      modelCreated = true;
-      return mockModel();
+    const handler = createAgentHandler({
+      profile: testCandidateProfile,
+      modelFactory: async () => {
+        modelCreated = true;
+        return mockModel();
+      },
     });
     const request = new Request("http://localhost/api/agent/messages", {
       method: "POST",

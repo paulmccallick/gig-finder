@@ -133,6 +133,15 @@ test("session-only GigFinderAgent streams guidance and remains available across 
   await expect(panel).toBeVisible();
   await expect(launcher).toBeHidden();
   await expect(panel).toHaveAttribute("data-layout", "panel");
+  const modelSelector = panel.getByLabel("Agent model");
+  await expect(modelSelector).toHaveValue("gpt-5.6-sol");
+  const modelUpdate = page.waitForResponse(response =>
+    response.url().endsWith("/api/settings/agent-model")
+    && response.request().method() === "PUT");
+  await modelSelector.selectOption("gpt-5.6-terra");
+  expect((await modelUpdate).status()).toBe(200);
+  await page.reload();
+  await expect(panel.getByLabel("Agent model")).toHaveValue("gpt-5.6-terra");
   await expect(panel.getByRole("button", { name: "Dock agent to side" })).toHaveAttribute("aria-pressed", "true");
   await expect(panel.locator(".agent-boundary")).toHaveCount(0);
   const resizeHandle = panel.getByRole("separator", { name: "Resize agent panel" });
