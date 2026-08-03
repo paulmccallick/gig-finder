@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   gigUpdateSchema,
+  meetingUpdateSchema,
   personUpdateSchema,
 } from "../src/update-contracts";
 
@@ -56,6 +57,35 @@ describe("shared update contracts", () => {
       { outreach: { nextActionDue: "tomorrow" } },
     ]) {
       expect(personUpdateSchema.safeParse(patch).success).toBe(false);
+    }
+  });
+
+  test("accepts partial meeting updates and nullable clears", () => {
+    expect(meetingUpdateSchema.parse({
+      status: "completed",
+      personIds: ["person-1", "person-2"],
+      gigId: null,
+      location: null,
+    })).toEqual({
+      status: "completed",
+      personIds: ["person-1", "person-2"],
+      gigId: null,
+      location: null,
+    });
+  });
+
+  test("rejects immutable and malformed meeting updates", () => {
+    for (const patch of [
+      {},
+      { id: "other" },
+      { externalCalendarId: "calendar" },
+      { revision: 2 },
+      { status: "tentative" },
+      { startsAt: "tomorrow" },
+      { timezone: "Mars/Olympus" },
+      { personIds: [] },
+    ]) {
+      expect(meetingUpdateSchema.safeParse(patch).success).toBe(false);
     }
   });
 });

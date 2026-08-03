@@ -16,6 +16,7 @@ import {
   meetingStatuses,
   meetingInstant,
   meetingParticipantId,
+  meetingTimezoneSchema,
   type Meeting,
   type MeetingRecord,
   type MeetingStatus,
@@ -35,8 +36,13 @@ import {
 import type { GigRecord } from "./gigs";
 import { DomainValidationError } from "./errors";
 import type { ManagedDocumentService } from "./documents";
-import { ChangeExecutor, type MutationOptions } from "./changes";
-import { personUpdateSchema, type PersonUpdate } from "./update-contracts";
+import { ChangeExecutor, type MutationOptions, type MutationResult } from "./changes";
+import {
+  meetingUpdateSchema,
+  personUpdateSchema,
+  type MeetingUpdate,
+  type PersonUpdate,
+} from "./update-contracts";
 import { deepPatch } from "./tracker-services";
 
 export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
@@ -140,6 +146,7 @@ export class MeetingService {
     private readonly persistence: Persistence,
     private readonly gigs: GigReadService,
     private readonly people: PeopleService,
+    private readonly changes: ChangeExecutor,
   ) {}
 
   get(id: string): MeetingRecord | null {
@@ -193,16 +200,79 @@ export class MeetingService {
     return { status: "ok", ...page(filtered, input) };
   }
 
-  create(context: ChangeContext, meeting: Meeting): MeetingRecord {
+  create(context: ChangeContext, meeting: Meeting): MutationResult<MeetingRecord> {
     validateMeeting(meeting, this.gigs, this.people);
     const { personIds, ...data } = meeting;
-    this.persistence.change(context, transaction => {
-      transaction.meetings.create(data);
+    const result = this.persistence.change(context, transaction => {
+      const record = transaction.meetings.create(data);
       for (const personId of personIds) {
         transaction.meetingParticipants.create(participantData(meeting.id, personId));
       }
+      return {
+        ...record,
+        status: meeting.status,
+        personIds: [...personIds].sort(),
+      };
     });
-    return this.get(meeting.id)!;
+    return { changeId: result.changeId, record: result.value };
+  }
+
+  update(
+    context: ChangeContext,
+    id: string,
+    patch: MeetingUpdate,
+    options: MutationOptions = {},
+  ): MutationResult<MeetingRecord> {
+    const validatedPatch = meetingUpdateSchema.parse(patch);
+    const current = this.get(id);
+    if (!current) throw new Error(`Meeting not found: ${id}`);
+    const candidate: MeetingRecord = {
+      ...current,
+      ...validatedPatch,
+      personIds: [...(validatedPatch.personIds ?? current.personIds)].sort(),
+    };
+    validateMeeting(candidate, this.gigs, this.people);
+
+    const raw = this.persistence.meetings.get(id)!;
+    const participants = this.persistence.meetingParticipants.list()
+      .filter(participant => participant.meetingId === id);
+    const currentParticipantIds = new Set(participants.map(participant => participant.personId));
+    const candidateParticipantIds = new Set(candidate.personIds);
+    const { personIds: _, ...meetingPatch } = validatedPatch;
+
+    return this.changes.execute(context, candidate, options, transaction => {
+      const persisted = Object.keys(meetingPatch).length > 0
+        ? transaction.meetings.update(id, raw.revision, meetingPatch)
+        : transaction.meetings.touch(id, raw.revision);
+      for (const participant of participants) {
+        if (!candidateParticipantIds.has(participant.personId)) {
+          transaction.meetingParticipants.delete(participant.id, participant.revision);
+        }
+      }
+      for (const personId of candidate.personIds) {
+        if (!currentParticipantIds.has(personId)) {
+          const participant = participantData(id, personId);
+          const previous = this.persistence.meetingParticipants.get(
+            participant.id,
+            { includeDeleted: true },
+          );
+          if (previous?.isDeleted) {
+            transaction.meetingParticipants.restore(
+              participant.id,
+              previous.revision,
+              { meetingId: id, personId },
+            );
+          } else {
+            transaction.meetingParticipants.create(participant, { reversible: true });
+          }
+        }
+      }
+      return {
+        ...persisted,
+        status: candidate.status,
+        personIds: candidate.personIds,
+      };
+    });
   }
 
   private compose(raw: EntityRecord<MeetingData>): ComposeResult<MeetingRecord> {
@@ -518,6 +588,9 @@ function validateMeeting(
 ) {
   if (!meeting.id.trim() || !meeting.title.trim()) {
     throw new DomainValidationError("Meeting id and title are required.");
+  }
+  if (!meetingTimezoneSchema.safeParse(meeting.timezone).success) {
+    throw new DomainValidationError(`Meeting ${meeting.id} timezone must be a valid IANA timezone.`);
   }
   if (!isMeetingStatus(meeting.status)) {
     throw new DomainValidationError(`Meeting ${meeting.id} has unsupported status ${meeting.status}.`);

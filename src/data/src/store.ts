@@ -9,6 +9,11 @@ import {
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
+type HistoryOperation = "create" | "update" | "delete";
+interface HistorySnapshot<T extends DataRecord> {
+  operation: HistoryOperation;
+  record: EntityRecord<T>;
+}
 type ColumnMap<T> = { [K in keyof T]: string };
 interface RepositoryConfig<T extends DataRecord> { entity: string; table: string; historyTable: string; columns: ColumnMap<T>;booleans?:Array<keyof T> }
 
@@ -59,14 +64,16 @@ export class ReadRepository<T extends DataRecord> {
 
 class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
   constructor(database: Database, config: RepositoryConfig<T>, private readonly context: Required<Pick<ChangeContext,"actor">> & ChangeContext, private readonly changeId: string) { super(database, config); }
-  create(input: T): EntityRecord<T> {
+  create(input: T, options: { reversible?: boolean } = {}): EntityRecord<T> {
     if (this.get(input.id, { includeDeleted: true })) throw new Error(`${this.config.entity} already exists: ${input.id}`);
     const timestamp = now(this.context);
     const entries = Object.entries(this.config.columns).map(([property, column]) => [column, input[property as keyof T] as Scalar] as const);
     const values = [...entries.map(([, value]) => value), 1, false, timestamp, timestamp];
     const columns = [...entries.map(([column]) => column), ...Object.values(baseColumns)];
     this.database.query(`INSERT INTO ${quote(this.config.table)} (${columns.map(quote).join(", ")}) VALUES (${placeholders(values.length)})`).run(...values.map(toBinding));
-    return this.get(input.id, { includeDeleted: true })!;
+    const created = this.get(input.id, { includeDeleted: true })!;
+    if (options.reversible) this.snapshot(created, "create");
+    return created;
   }
   update(recordId: string, expectedRevision: number, patch: Partial<Omit<T,"id">>): EntityRecord<T> {
     const current = this.requireCurrent(recordId, expectedRevision);
@@ -80,6 +87,14 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
     const timestamp = now(this.context);
     const assignments = [...patchEntries.map(([column]) => `${quote(column)} = ?`), "revision = revision + 1", "updated_at = ?"];
     const result = this.database.query(`UPDATE ${quote(this.config.table)} SET ${assignments.join(", ")} WHERE id = ? AND revision = ? AND is_deleted = 0`).run(...patchEntries.map(([, value]) => toBinding(value)), timestamp, recordId, expectedRevision);
+    if (result.changes !== 1) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, this.get(recordId, { includeDeleted: true })?.revision ?? -1);
+    return this.get(recordId)!;
+  }
+  touch(recordId: string, expectedRevision: number): EntityRecord<T> {
+    const current = this.requireCurrent(recordId, expectedRevision);
+    this.snapshot(current, "update");
+    const timestamp = now(this.context);
+    const result = this.database.query(`UPDATE ${quote(this.config.table)} SET revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ? AND is_deleted = 0`).run(timestamp, recordId, expectedRevision);
     if (result.changes !== 1) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, this.get(recordId, { includeDeleted: true })?.revision ?? -1);
     return this.get(recordId)!;
   }
@@ -125,19 +140,31 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
     return this.get(recordId, { includeDeleted: true })!;
   }
   restore(recordId: string, expectedRevision: number, patch: Partial<Omit<T,"id">>): EntityRecord<T> {
-    const current = this.get(recordId, { includeDeleted: true });
-    if (!current) throw new NotFoundError(this.config.entity, recordId);
-    if (!current.isDeleted) throw new Error(`${this.config.entity} is not deleted: ${recordId}`);
-    if (current.revision !== expectedRevision) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, current.revision);
     const patchEntries = Object.entries(patch).map(([property, value]) => {
       const column = this.config.columns[property as keyof T];
       if (!column || property === "id") throw new Error(`Unknown or immutable ${this.config.entity} field: ${property}`);
       return [column, value as Scalar] as const;
     });
+    return this.restoreEntries(recordId, expectedRevision, patchEntries);
+  }
+  restoreSnapshot(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>): EntityRecord<T> {
+    const entries = Object.entries(this.config.columns)
+      .filter(([property]) => property !== "id")
+      .map(([property, column]) => [
+        column,
+        snapshot[property as keyof T] as Scalar,
+      ] as const);
+    return this.restoreEntries(recordId, expectedRevision, entries);
+  }
+  private restoreEntries(recordId: string, expectedRevision: number, entries: ReadonlyArray<readonly [string, Scalar]>): EntityRecord<T> {
+    const current = this.get(recordId, { includeDeleted: true });
+    if (!current) throw new NotFoundError(this.config.entity, recordId);
+    if (!current.isDeleted) throw new Error(`${this.config.entity} is not deleted: ${recordId}`);
+    if (current.revision !== expectedRevision) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, current.revision);
     this.snapshot(current, "update");
     const timestamp = now(this.context);
-    const assignments = [...patchEntries.map(([column]) => `${quote(column)} = ?`), "is_deleted = 0", "revision = revision + 1", "updated_at = ?"];
-    const result = this.database.query(`UPDATE ${quote(this.config.table)} SET ${assignments.join(", ")} WHERE id = ? AND revision = ? AND is_deleted = 1`).run(...patchEntries.map(([, value]) => toBinding(value)), timestamp, recordId, expectedRevision);
+    const assignments = [...entries.map(([column]) => `${quote(column)} = ?`), "is_deleted = 0", "revision = revision + 1", "updated_at = ?"];
+    const result = this.database.query(`UPDATE ${quote(this.config.table)} SET ${assignments.join(", ")} WHERE id = ? AND revision = ? AND is_deleted = 1`).run(...entries.map(([, value]) => toBinding(value)), timestamp, recordId, expectedRevision);
     if (result.changes !== 1) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, this.get(recordId, { includeDeleted: true })?.revision ?? -1);
     return this.get(recordId)!;
   }
@@ -148,7 +175,7 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
     if (current.revision !== expectedRevision) throw new RevisionConflictError(this.config.entity, recordId, expectedRevision, current.revision);
     return current;
   }
-  private snapshot(current: EntityRecord<T>, operation: "update" | "delete") {
+  private snapshot(current: EntityRecord<T>, operation: HistoryOperation) {
     const recordEntries = [...Object.entries(this.config.columns).map(([property, column]) => [column, current[property as keyof T] as Scalar] as const), ["revision", current.revision] as const, ["is_deleted", current.isDeleted] as const, ["created_at", current.createdAt] as const, ["updated_at", current.updatedAt] as const];
     const metadata = [["change_id", this.changeId], ["operation", operation], ["recorded_at", now(this.context)], ["recorded_by", this.context.actor]] as const;
     const entries = [...metadata, ...recordEntries];
@@ -246,33 +273,58 @@ export class DataStore {
   private historyRecords<T extends DataRecord>(
     changeId: string,
     config: RepositoryConfig<T>,
-  ): EntityRecord<T>[] {
+  ): HistorySnapshot<T>[] {
     const rows = this.database.query(
       `SELECT * FROM ${quote(config.historyTable)} WHERE change_id = ? ORDER BY history_id`,
     ).all(changeId) as Record<string, unknown>[];
-    return rows.map(row => fromRow(row, config));
+    return rows.map(row => ({
+      operation: row.operation as HistoryOperation,
+      record: fromRow(row, config),
+    }));
   }
 
   private restoreRecords<T extends DataRecord>(
-    snapshots: EntityRecord<T>[],
+    snapshots: HistorySnapshot<T>[],
     reader: ReadRepository<T>,
     writer: MutationRepository<T>,
     entity: string,
   ): RevertedRecord[] {
-    return snapshots.map(snapshot => {
+    return snapshots.map(({ operation, record: snapshot }) => {
       const current = reader.get(snapshot.id, { includeDeleted: true });
-      if (
-        !current
-        || current.revision !== snapshot.revision + 1
-        || current.isDeleted
-        || snapshot.isDeleted
-      ) {
+      const expectedRevision = operation === "create"
+        ? snapshot.revision
+        : snapshot.revision + 1;
+      if (!current || current.revision !== expectedRevision) {
         throw new MutationError(
           "revision_conflict",
-          `Cannot revert ${entity} ${snapshot.id} because it is not the immediately preceding active revision.`,
+          `Cannot revert ${entity} ${snapshot.id} because it is not the immediately preceding revision.`,
         );
       }
-      writer.revert(snapshot.id, current.revision, snapshot);
+      if (operation === "create") {
+        if (current.isDeleted) throw new MutationError(
+          "revision_conflict",
+          `Cannot revert ${entity} ${snapshot.id} because the created record is no longer active.`,
+        );
+        writer.delete(snapshot.id, current.revision);
+      } else if (operation === "delete") {
+        if (!current.isDeleted || snapshot.isDeleted) throw new MutationError(
+          "revision_conflict",
+          `Cannot revert ${entity} ${snapshot.id} because the deleted record state has changed.`,
+        );
+        writer.restoreSnapshot(snapshot.id, current.revision, snapshot);
+      } else if (snapshot.isDeleted) {
+        if (current.isDeleted) throw new MutationError(
+          "revision_conflict",
+          `Cannot revert ${entity} ${snapshot.id} because the restored record is no longer active.`,
+        );
+        writer.delete(snapshot.id, current.revision);
+      } else {
+        if (current.isDeleted) throw new MutationError(
+          "revision_conflict",
+          `Cannot revert ${entity} ${snapshot.id} because the updated record is no longer active.`,
+        );
+        writer.revert(snapshot.id, current.revision, snapshot);
+      }
       return { entity, id: snapshot.id };
     });
   }

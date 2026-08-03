@@ -40,7 +40,7 @@ export const touchPerson=(paths:TrackerPaths,id:string,input:PersonTouchInput,op
 export function createGigPerson(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.gigPeople.create(context(paths,"CLI gig-person create"),record));return record}
 export const getMeeting=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.meetings.get(id));
 export const listMeetings=(paths:TrackerPaths)=>withApplication(paths,app=>app.meetings.list());
-export function createMeeting(paths:TrackerPaths,record:Meeting,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.meetings.create(context(paths,"CLI meeting create",record.startsAt.slice(0,10)),record));return record}
+export function createMeeting(paths:TrackerPaths,record:Meeting,options:UpdateOptions={}){return options.dryRun?record:withApplication(paths,app=>app.meetings.create(context(paths,"CLI meeting create",record.startsAt.slice(0,10)),record).record)}
 export function createEvent(paths:TrackerPaths,record:BusinessEventInput,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.events.record(context(paths,`CLI event create: ${record.type}`,record.occurredAt),record));return record}
 export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)=>withApplication(paths,app=>app.history.events(entityType,entityId));
 

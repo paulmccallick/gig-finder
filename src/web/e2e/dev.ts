@@ -11,7 +11,7 @@ import { DataStore, migrateDatabase, openDatabase } from "../../data/src";
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 const contextRoot = path.join(repoRoot, "tmp", "e2e-context");
 const databasePath = path.join(contextRoot, "data", "gig-finder.sqlite");
-const apiPort = "3101";
+const apiPort = "3002";
 const clientPort = "5174";
 
 rmSync(contextRoot, { recursive: true, force: true });

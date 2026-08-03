@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   activeStageOrder,
   archiveGroup,
@@ -21,6 +21,11 @@ import { NetworkingBoard } from "./NetworkingBoard";
 import { loadTasks, type TasksResult } from "./data/tasks";
 import { TaskBoard } from "./TaskBoard";
 import { AgentLauncher, AgentPanel } from "./agent/AgentPanel";
+import {
+  defaultAgentPanelWidth,
+  initialAgentWorkspace,
+  updateAgentWorkspace,
+} from "./agent/agent-workspace";
 
 type WorkspaceView = "gigs" | "network" | "tasks";
 
@@ -37,10 +42,9 @@ const emptyFilters: BoardFilters = {
   overdueOnly: false,
 };
 
-function Icon({ name }: { name: "search" | "calendar" | "close" | "arrow" }) {
+function Icon({ name }: { name: "search" | "close" | "arrow" }) {
   const paths = {
     search: <><circle cx="11" cy="11" r="7" /><path d="m16.2 16.2 4.3 4.3" /></>,
-    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></>,
     close: <path d="m6 6 12 12M18 6 6 18" />,
     arrow: <path d="m9 18 6-6-6-6" />,
   };
@@ -59,11 +63,7 @@ function GigCard({ gig, onSelect }: { gig: GigSummary; onSelect: (gig: GigSummar
         <span className="fit-chip" data-fit={gig.fit.rating}>{fitLabels[gig.fit.rating]}</span>
         {pay && <span className="pay-chip">{pay}</span>}
       </span>
-      <span className={`action-line ${overdue ? "is-overdue" : ""}`}>
-        <Icon name="calendar" />
-        <span>{gig.nextAction?.description ?? "No next action"}</span>
-      </span>
-      <span className="card-footer">
+      <span className={`card-footer ${overdue ? "is-overdue" : ""}`}>
         <span>{overdue ? "OVERDUE" : gig.nextAction?.due ?? "NO DEADLINE"}</span>
         <span>ACT {gig.lastActivity}</span>
         <Icon name="arrow" />
@@ -259,11 +259,6 @@ function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: Works
         <button className="clear-button" onClick={() => setFilters(emptyFilters)} disabled={JSON.stringify(filters) === JSON.stringify(emptyFilters)}>Clear</button>
       </section>
 
-      <div className="board-heading">
-        <div><span className="eyebrow">{mode === "active" ? "Live pipeline" : "Historical outcomes"}</span><h2>{visibleGigs.length} gigs in view</h2></div>
-        <p>Cards are ordered by urgency, then activity.</p>
-      </div>
-
       <section className="kanban-board" aria-label={`${mode} gig board`}>
         {groups.map((group, index) => (
           <section className="kanban-column" key={group.key} style={{ "--column-index": index } as React.CSSProperties}>
@@ -284,7 +279,11 @@ function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: Works
 
 export function App() {
   const [view, setView] = useState<WorkspaceView>("gigs");
-  const [agentOpen, setAgentOpen] = useState(true);
+  const [agentWorkspace, dispatchAgentWorkspace] = useReducer(
+    updateAgentWorkspace,
+    initialAgentWorkspace,
+  );
+  const [agentPanelWidth, setAgentPanelWidth] = useState(defaultAgentPanelWidth);
   const [result, setResult] = useState<GigsResult | null>(null);
   const [peopleResult, setPeopleResult] = useState<PeopleResult | null>(null);
   const [taskResult, setTaskResult] = useState<TasksResult | null>(null);
@@ -308,12 +307,24 @@ export function App() {
       : <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>;
   return (
     <>
-      <div className={agentOpen ? "dashboard-with-agent" : ""}>{dashboard}</div>
-      <AgentLauncher open={agentOpen} onClick={() => setAgentOpen(value => !value)} />
+      <div
+        className={agentWorkspace.open ? "dashboard-with-agent" : ""}
+        data-agent-layout={agentWorkspace.open ? agentWorkspace.layout : undefined}
+        style={{ "--agent-panel-width": `${agentPanelWidth}px` } as React.CSSProperties}
+      >{dashboard}</div>
+      <AgentLauncher
+        open={agentWorkspace.open}
+        layout={agentWorkspace.layout}
+        onClick={() => dispatchAgentWorkspace({ type: "toggle" })}
+      />
       <div id="gig-finder-agent">
         <AgentPanel
-          open={agentOpen}
-          onClose={() => setAgentOpen(false)}
+          open={agentWorkspace.open}
+          layout={agentWorkspace.layout}
+          panelWidth={agentPanelWidth}
+          onPanelWidthChange={setAgentPanelWidth}
+          onLayoutChange={layout => dispatchAgentWorkspace({ type: "set-layout", layout })}
+          onClose={() => dispatchAgentWorkspace({ type: "close" })}
           onDataChanged={refreshDashboard}
         />
       </div>

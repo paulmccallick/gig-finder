@@ -64,7 +64,7 @@ export function validateDatabase(database:Database):ValidationReport {
     if(!existingTables.has(live)||!existingTables.has(history))continue;
     const rows=database.query(`SELECT id, revision FROM ${live} ORDER BY id`).all() as {id:string;revision:number}[];
     for(const row of rows){
-      const revisions=(database.query(`SELECT revision FROM ${history} WHERE id = ? ORDER BY revision`).all(row.id) as {revision:number}[]).map((item)=>item.revision);
+      const revisions=(database.query(`SELECT revision FROM ${history} WHERE id = ? AND operation <> 'create' ORDER BY revision`).all(row.id) as {revision:number}[]).map((item)=>item.revision);
       const expected=Array.from({length:Math.max(0,row.revision-1)},(_,index)=>index+1);
       if(JSON.stringify(revisions)!==JSON.stringify(expected))issues.push({check:"revision_chain",message:`${entity} ${row.id}: history [${revisions.join(",")}] does not precede live revision ${row.revision}`});
     }

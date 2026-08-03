@@ -1,6 +1,19 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  constrainAgentPanelWidth,
+  maximumAgentPanelWidth,
+  minimumAgentPanelWidth,
+  type AgentLayout,
+} from "./agent-workspace";
 
 const starterPrompts = [
   "What kinds of roles should I prioritize?",
@@ -103,12 +116,35 @@ async function discardStagedDocument(reference: string) {
   });
 }
 
+const layoutChoices: ReadonlyArray<{
+  layout: AgentLayout;
+  label: string;
+}> = [
+  { layout: "panel", label: "Dock agent to side" },
+  { layout: "full", label: "Expand agent to full screen" },
+];
+
+function LayoutIcon({ layout }: { layout: AgentLayout }) {
+  if (layout === "panel") {
+    return <svg aria-hidden="true" viewBox="0 0 20 20"><rect x="2.5" y="3" width="15" height="14" rx="1" /><path d="M12.5 3v14" /></svg>;
+  }
+  return <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M7 3H3v4M13 3h4v4M17 13v4h-4M7 17H3v-4" /></svg>;
+}
+
 export function AgentPanel({
   open,
+  layout,
+  panelWidth,
+  onPanelWidthChange,
+  onLayoutChange,
   onClose,
   onDataChanged,
 }: {
   open: boolean;
+  layout: AgentLayout;
+  panelWidth: number;
+  onPanelWidthChange: (width: number) => void;
+  onLayoutChange: (layout: AgentLayout) => void;
   onClose: () => void;
   onDataChanged?: () => void;
 }) {
@@ -173,7 +209,58 @@ export function AgentPanel({
   const previousStatusRef = useRef(status);
   const active = status === "submitted" || status === "streaming";
   const activeRef = useRef(active);
+  const resizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
   activeRef.current = active;
+
+  useEffect(() => () => {
+    document.body.classList.remove("is-resizing-agent");
+  }, []);
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: panelWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-resizing-agent");
+  };
+
+  const resize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = resizeRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    onPanelWidthChange(constrainAgentPanelWidth(
+      current.startWidth + current.startX - event.clientX,
+      window.innerWidth,
+    ));
+  };
+
+  const finishResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    resizeRef.current = null;
+    document.body.classList.remove("is-resizing-agent");
+  };
+
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const adjustment = event.key === "ArrowLeft"
+      ? 24
+      : event.key === "ArrowRight"
+        ? -24
+        : 0;
+    if (adjustment === 0) return;
+    event.preventDefault();
+    onPanelWidthChange(constrainAgentPanelWidth(
+      panelWidth + adjustment,
+      window.innerWidth,
+    ));
+  };
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -352,7 +439,30 @@ export function AgentPanel({
   };
 
   return (
-    <aside className={`agent-panel ${open ? "is-open" : ""}`} aria-label="GigFinder" aria-hidden={!open}>
+    <aside
+      className={`agent-panel is-layout-${layout} ${open ? "is-open" : ""}`}
+      data-layout={layout}
+      style={{ "--agent-panel-width": `${panelWidth}px` } as React.CSSProperties}
+      aria-label="GigFinder"
+      aria-hidden={!open}
+    >
+      {layout === "panel" && (
+        <div
+          className="agent-resize-handle"
+          role="separator"
+          aria-label="Resize agent panel"
+          aria-orientation="vertical"
+          aria-valuemin={minimumAgentPanelWidth}
+          aria-valuemax={maximumAgentPanelWidth}
+          aria-valuenow={panelWidth}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onPointerMove={resize}
+          onPointerUp={finishResize}
+          onPointerCancel={finishResize}
+          onKeyDown={resizeWithKeyboard}
+        />
+      )}
       <header className="agent-panel-header">
         <div className="agent-identity">
           <span className="agent-orbit" aria-hidden="true"><i /><i /><i /></span>
@@ -361,13 +471,23 @@ export function AgentPanel({
             <h2>GigFinderAgent</h2>
           </div>
         </div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Close GigFinder">×</button>
+        <div className="agent-header-actions">
+          <div className="agent-layout-controls" role="group" aria-label="Agent layout">
+            {layoutChoices.map(choice => (
+              <button
+                type="button"
+                key={choice.layout}
+                aria-label={choice.label}
+                aria-pressed={layout === choice.layout}
+                onClick={() => onLayoutChange(choice.layout)}
+              >
+                <LayoutIcon layout={choice.layout} />
+              </button>
+            ))}
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close GigFinder">×</button>
+        </div>
       </header>
-
-      <div className="agent-boundary" role="note">
-        <span>CONTEXT 01</span>
-        <p>I understand your target roles, strengths, constraints, and search strategy. I can read your applications, people, tasks, and registered documents; update existing gigs and people; and create or revise linked documents when asked.</p>
-      </div>
 
       <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
         {messages.length === 0 && (
@@ -492,9 +612,17 @@ export function AgentPanel({
   );
 }
 
-export function AgentLauncher({ open, onClick }: { open: boolean; onClick: () => void }) {
+export function AgentLauncher({
+  open,
+  layout,
+  onClick,
+}: {
+  open: boolean;
+  layout: AgentLayout;
+  onClick: () => void;
+}) {
   return (
-    <button className={`agent-launcher ${open ? "is-active" : ""}`} type="button" onClick={onClick} aria-expanded={open} aria-controls="gig-finder-agent">
+    <button className={`agent-launcher ${open ? "is-active" : ""} is-layout-${layout}`} type="button" onClick={onClick} aria-expanded={open} aria-controls="gig-finder-agent">
       <span className="agent-launcher-signal"><i /></span>
       <span><small>ADVISORY CHANNEL</small>Ask GigFinderAgent</span>
       <b>{open ? "×" : "↗"}</b>

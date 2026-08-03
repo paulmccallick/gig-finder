@@ -48,6 +48,7 @@ class Repo<T extends { id: string }> implements ReadRepository<T> {
     this.rows.set(id, value);
     return value;
   }
+  touch(id: string, revision: number) { return this.update(id, revision, {}); }
   delete(id: string) { return this.rows.get(id)!; }
   restore(id: string) { return this.rows.get(id)!; }
 }

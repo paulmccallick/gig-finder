@@ -16,8 +16,8 @@ Agent update tools accept `{ id, changes: [{ operation, field, value }] }`.
 Their field and value descriptions enumerate accepted values derived from
 domain constants. The schema constrains the operation structure; core update
 schemas validate field-value compatibility and complete-entity consistency.
-The agent adapter translates operations into `GigUpdate` or
-`PersonUpdate` before calling the domain service.
+The agent adapter translates operations into `GigUpdate`,
+`PersonUpdate`, or `MeetingUpdate` before calling the domain service.
 
 The domain will retain partial update schemas which are more natural for other clients like the cli and web.
 

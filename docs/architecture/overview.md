@@ -32,6 +32,11 @@ flowchart LR
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
 - `src/web/` owns the Bun HTTP API and React dashboard.
 
+The React dashboard owns session-only agent layout and side-panel width. Changing
+between side-panel and full-screen layouts keeps one mounted agent session and
+does not change the agent or HTTP contracts. Full-screen layout places identity
+and controls in a full-height left rail.
+
 Gigs, people, gig-person relationships, tasks, and
 meetings expose caller-neutral query/read services from `GigFinderApplication`;
 agent tools receive only those narrow capabilities. Document lookup uses a
@@ -48,7 +53,8 @@ facade.
   transactions in `src/data/src/store.ts`.
 - Each mutable entity table in `src/data/src/schema.ts` has a companion
   `*_history` table; updates and deletes copy the prior revision there with its
-  operation and `change_id`.
+  operation and `change_id`. Reversible relationship additions also record a
+  `create` entry.
 - The `changes` table groups all records written by one transaction into one
   audited change.
 - Meeting attendees use versioned participant and participant-history tables;
@@ -57,7 +63,7 @@ facade.
 - Managed documents and their immutable versions live in the document tables;
   legacy job-description and interview-prep files remain filesystem artifacts.
 - Person identity, relationship, and outreach share `people` and
-  `person_history`; migration 0012 coalesces legacy snapshots by Person ID and
+  `person_history`; migration 0013 coalesces legacy snapshots by Person ID and
   change ID before removing the separate networking tables.
 
 ## Context Files

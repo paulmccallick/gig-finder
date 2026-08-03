@@ -11,7 +11,7 @@ const recordMetadata = {
 const historyMetadata = {
   historyId: integer("history_id").primaryKey({ autoIncrement: true }),
   changeId: text("change_id").notNull().references(() => changes.id),
-  operation: text("operation", { enum: ["update", "delete"] }).notNull(),
+  operation: text("operation", { enum: ["create", "update", "delete"] }).notNull(),
   recordedAt: text("recorded_at").notNull(),
   recordedBy: text("recorded_by").notNull(),
 };
@@ -93,7 +93,7 @@ const meetingParticipantFields = {
   personId: text("person_id").notNull().references(() => people.id),
 };
 export const meetingParticipants = sqliteTable("meeting_participants", { ...meetingParticipantFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [uniqueIndex("meeting_participants_relation_idx").on(table.meetingId, table.personId), index("meeting_participants_meeting_idx").on(table.meetingId), index("meeting_participants_person_idx").on(table.personId), check("meeting_participants_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
-export const meetingParticipantHistory = sqliteTable("meeting_participant_history", { ...historyMetadata, ...meetingParticipantFields, ...recordMetadata }, (table) => [index("meeting_participant_history_entity_idx").on(table.id, table.revision), index("meeting_participant_history_change_idx").on(table.changeId), check("meeting_participant_history_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_participant_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
+export const meetingParticipantHistory = sqliteTable("meeting_participant_history", { ...historyMetadata, ...meetingParticipantFields, ...recordMetadata }, (table) => [index("meeting_participant_history_entity_idx").on(table.id, table.revision), index("meeting_participant_history_change_idx").on(table.changeId), check("meeting_participant_history_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_participant_history_operation_check", sql`${table.operation} in ('create', 'update', 'delete')`)]);
 
 export const businessEvents = sqliteTable("business_events", {
   id: text("id").primaryKey(), changeId: text("change_id").references(() => changes.id), type: text("type").notNull(), entityType: text("entity_type").notNull(), entityId: text("entity_id").notNull(), occurredAt: text("occurred_at").notNull(), summary: text("summary").notNull(), dataJson: text("data_json").notNull().default("{}"), supersedesEventId: text("supersedes_event_id"),
