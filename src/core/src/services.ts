@@ -1,9 +1,16 @@
 import type { AuditPort, Persistence } from "./ports";
-import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, GigPersonData, MeetingData, MeetingParticipantData, Person, PersonData } from "./models";
+import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, GigPersonData, MeetingData, MeetingParticipantData, PersonData } from "./models";
 import {
+  comparePeople,
+  personPriorities,
+  personStatuses,
   gigPersonRelationships,
   type GigPersonRelationship,
   type GigPersonRelationshipType,
+  type Person,
+  type PersonRecord,
+  personIsOverdue,
+  relationshipStrengths,
 } from "./people";
 import {
   meetingStatuses,
@@ -17,6 +24,7 @@ import {
 import {
   matchesQuery,
   normalizedQuery,
+  pacificDate,
   page,
   type GigPersonRelationshipQueryInput,
   type MeetingQueryInput,
@@ -27,57 +35,110 @@ import {
 } from "./queries";
 import type { GigRecord } from "./gigs";
 import { DomainValidationError } from "./errors";
+import type { ManagedDocumentService } from "./documents";
 import { ChangeExecutor, type MutationOptions, type MutationResult } from "./changes";
-import { meetingUpdateSchema, type MeetingUpdate } from "./update-contracts";
+import {
+  meetingUpdateSchema,
+  personUpdateSchema,
+  type MeetingUpdate,
+  type PersonUpdate,
+} from "./update-contracts";
+import { deepPatch } from "./tracker-services";
 
 export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
 
+type PersonRelationshipData = Pick<PersonData,
+  "relationshipType" | "relationshipStrength" | "introducedBy" | "relationshipNotes"
+  | "priority" | "status" | "lastContacted" | "lastContactMethod" | "lastContactSummary"
+  | "nextAction" | "nextActionDue" | "whyInteresting" | "notesJson" | "tagsJson">;
+export type PersonCreateInput = Omit<PersonData, keyof PersonRelationshipData> & Partial<PersonRelationshipData>;
+export interface PersonTouchInput {
+  date: string;
+  status: Person["status"];
+  method: string;
+  summary: string;
+  nextAction?: string | null;
+  due?: string | null;
+}
+
 export class PeopleService {
-  constructor(private readonly persistence: Persistence) {}
+  constructor(
+    private readonly persistence: Persistence,
+    private readonly changes: ChangeExecutor,
+    private readonly documents: ManagedDocumentService,
+  ) {}
 
-  get(id: string): Person | null {
+  private record(record: EntityRecord<PersonData>): PersonRecord {
+    const documents = this.documents.summaries("person", record.id);
+    return personFromData(record, documents);
+  }
+
+  get(id: string): PersonRecord | null {
     const record = this.persistence.people.get(id);
-    return record ? personFromData(record) : null;
+    return record ? this.record(record) : null;
   }
 
-  list(): Person[] {
-    return this.persistence.people.list().map(personFromData);
+  list(): PersonRecord[] {
+    return this.persistence.people.list().map(record => this.record(record));
   }
 
-  read(id: string): ReadResult<Person> {
+  read(id: string): ReadResult<PersonRecord> {
     const record = this.get(id);
     return record ? { status: "ok", record } : { status: "not_found", id };
   }
 
-  query(input: PeopleQueryInput): Page<Person> {
+  query(input: PeopleQueryInput): Page<PersonRecord> {
+    const today = pacificDate();
     const query = normalizedQuery(input.query);
     return page(
       this.list()
-        .filter(person => matchesQuery(query, [person.name, person.company, person.title]))
-        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+        .filter(person => input.statuses === undefined || input.statuses.includes(person.status))
+        .filter(person => input.priorities === undefined || input.priorities.includes(person.priority))
+        .filter(person => input.relationshipStrengths === undefined || input.relationshipStrengths.includes(person.relationship.strength))
+        .filter(person => !input.overdueOnly || personIsOverdue(person, today))
+        .filter(person => matchesQuery(query, [person.name, person.company, person.title, person.whyInteresting]))
+        .sort((a, b) => comparePeople(a, b, today) || a.id.localeCompare(b.id)),
       input,
     );
   }
 
-  create(context: ChangeContext, person: PersonData): Person {
-    return personFromData(
-      this.persistence.change(context, transaction => transaction.people.create(person)).value,
-    );
+  create(context: ChangeContext, person: PersonCreateInput, options: MutationOptions = {}): PersonRecord {
+    const data = withPersonDefaults(person);
+    const preview = { ...data, revision: 1, isDeleted: false, createdAt: context.occurredAt ?? new Date().toISOString(), updatedAt: context.occurredAt ?? new Date().toISOString() };
+    validatePerson(personFromData(preview, []));
+    if (options.dryRun) return personFromData(preview, []);
+    return this.record(this.persistence.change(context, transaction => transaction.people.create(data)).value);
   }
 
-  patch(
+  update(
     context: ChangeContext,
     id: string,
-    patch: Partial<Omit<PersonData, "id">>,
-    options: { dryRun?: boolean } = {},
-  ): Person {
-    const current = this.persistence.people.get(id);
-    if (!current) throw new Error(`Person not found: ${id}`);
-    if (options.dryRun) return { ...personFromData(current), ...patch };
-    return personFromData(this.persistence.change(
-      context,
-      transaction => transaction.people.update(id, current.revision, patch),
-    ).value);
+    patch: PersonUpdate,
+    options: MutationOptions = {},
+  ) {
+    const validatedPatch = personUpdateSchema.parse(patch);
+    const raw = this.persistence.people.get(id);
+    if (!raw) throw new Error(`Person not found: ${id}`);
+    const updated = deepPatch(this.record(raw), validatedPatch);
+    updated.profileStatus = updated.linkedInProfileUrl ? "verified" : "missing";
+    validatePerson(updated);
+    const data = personToData(updated);
+    const { id: _, ...fields } = data;
+    return this.changes.execute(context, updated, options, transaction =>
+      this.record(transaction.people.update(id, raw.revision, fields)));
+  }
+
+  touch(context: ChangeContext, id: string, input: PersonTouchInput, options: MutationOptions = {}) {
+    return this.update(context, id, {
+      status: input.status,
+      outreach: {
+        lastContacted: input.date,
+        lastContactMethod: input.method,
+        lastContactSummary: input.summary,
+        nextAction: input.nextAction ?? null,
+        nextActionDue: input.due ?? null,
+      },
+    }, options).record;
   }
 }
 export class MeetingService {
@@ -390,14 +451,110 @@ export class GigPeopleService {
   }
 }
 
-const personFromData = (person: PersonData): Person => ({
+const personDefaults: PersonRelationshipData = {
+  relationshipType: "professional_contact",
+  relationshipStrength: "unknown",
+  introducedBy: null,
+  relationshipNotes: null,
+  priority: "unranked",
+  status: "not_contacted",
+  lastContacted: null,
+  lastContactMethod: null,
+  lastContactSummary: null,
+  nextAction: null,
+  nextActionDue: null,
+  whyInteresting: null,
+  notesJson: "[]",
+  tagsJson: "[]",
+};
+
+const withPersonDefaults = (person: PersonCreateInput): PersonData => ({
+  ...personDefaults,
+  ...person,
+});
+
+const personFromData = (
+  person: EntityRecord<PersonData>,
+  documents: PersonRecord["documents"],
+): PersonRecord => ({
+  id: person.id,
+  name: person.name,
+  company: person.company,
+  title: person.title,
+  linkedInProfileUrl: person.linkedInProfileUrl,
+  profileStatus: person.linkedInProfileUrl ? "verified" : "missing",
+  connectedOn: person.connectedOn,
+  relationship: {
+    type: person.relationshipType,
+    strength: person.relationshipStrength as Person["relationship"]["strength"],
+    introducedBy: person.introducedBy,
+    notes: person.relationshipNotes,
+  },
+  priority: person.priority as Person["priority"],
+  status: person.status as Person["status"],
+  outreach: {
+    lastContacted: person.lastContacted,
+    lastContactMethod: person.lastContactMethod,
+    lastContactSummary: person.lastContactSummary,
+    nextAction: person.nextAction,
+    nextActionDue: person.nextActionDue,
+  },
+  whyInteresting: person.whyInteresting,
+  notes: JSON.parse(person.notesJson) as string[],
+  tags: JSON.parse(person.tagsJson) as string[],
+  createdAt: person.createdAt.slice(0, 10),
+  updatedAt: person.updatedAt.slice(0, 10),
+  hasProfile: documents.some(document => document.type === "profile"),
+  documents,
+});
+
+const personToData = (person: Person): PersonData => ({
   id: person.id,
   name: person.name,
   company: person.company,
   title: person.title,
   linkedInProfileUrl: person.linkedInProfileUrl,
   connectedOn: person.connectedOn,
+  relationshipType: person.relationship.type,
+  relationshipStrength: person.relationship.strength,
+  introducedBy: person.relationship.introducedBy,
+  relationshipNotes: person.relationship.notes,
+  priority: person.priority,
+  status: person.status,
+  lastContacted: person.outreach.lastContacted,
+  lastContactMethod: person.outreach.lastContactMethod,
+  lastContactSummary: person.outreach.lastContactSummary,
+  nextAction: person.outreach.nextAction,
+  nextActionDue: person.outreach.nextActionDue,
+  whyInteresting: person.whyInteresting,
+  notesJson: JSON.stringify(person.notes),
+  tagsJson: JSON.stringify(person.tags),
 });
+
+const personDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+function validatePerson(person: Person) {
+  if (!person.id.trim() || !person.name.trim()) throw new DomainValidationError("Person id and name are required.");
+  if (!personPriorities.includes(person.priority)
+    || !personStatuses.includes(person.status)
+    || !relationshipStrengths.includes(person.relationship.strength)) {
+    throw new DomainValidationError(`Person ${person.id} has invalid relationship or outreach state.`);
+  }
+  for (const [value, label] of [
+    [person.connectedOn, "connectedOn"],
+    [person.outreach.lastContacted, "lastContacted"],
+    [person.outreach.nextActionDue, "nextActionDue"],
+  ] as const) {
+    if (value !== null && !personDatePattern.test(value)) {
+      throw new DomainValidationError(`Person ${person.id} ${label} must use YYYY-MM-DD.`);
+    }
+  }
+  if (person.linkedInProfileUrl && !/^https:\/\/(www\.)?linkedin\.com\/in\//.test(person.linkedInProfileUrl)) {
+    throw new DomainValidationError(`Person ${person.id} has an invalid LinkedIn profile URL.`);
+  }
+  if (person.outreach.nextActionDue && !person.outreach.nextAction) {
+    throw new DomainValidationError(`Person ${person.id} has a next-action due date without a next action.`);
+  }
+}
 
 function parseRelationship(record: GigPersonData): GigPersonRelationship | null {
   if (!isGigPersonRelationship(record.relationship)) return null;

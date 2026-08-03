@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { EntityName } from "../../core/src/models";
 import type { AuditQuery } from "../../core/src/services";
 
-const historyTable:Record<EntityName,string>={gig:"gig_history",person:"person_history",networking:"networking_contact_history","gig-person":"gig_people_history",task:"task_history",meeting:"meeting_history","meeting-participant":"meeting_participant_history"};
+const historyTable:Record<EntityName,string>={gig:"gig_history",person:"person_history","gig-person":"gig_people_history",task:"task_history",meeting:"meeting_history","meeting-participant":"meeting_participant_history"};
 
 export class AuditReader {
   constructor(private readonly database:Database){}

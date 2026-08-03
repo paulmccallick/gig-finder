@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { GigData, NetworkingContactData, PersonData } from "../../core/src/models";
+import type { GigData, PersonData } from "../../core/src/models";
 import {
   DataStore,
   migrateDatabase,
@@ -47,9 +47,7 @@ const gig: GigData = {
 const person: PersonData = {
   id: "person-1", name: "Jordan Example", company: "Example Company",
   title: "Director", linkedInProfileUrl: null, connectedOn: null,
-};
-const contact: NetworkingContactData = {
-  id: "contact-1", personId: person.id, relationshipType: "colleague",
+  relationshipType: "colleague",
   relationshipStrength: "warm", introducedBy: null, relationshipNotes: null,
   priority: "medium", status: "active_relationship", lastContacted: null,
   lastContactMethod: null, lastContactSummary: null, nextAction: null,
@@ -83,7 +81,7 @@ describe("managed document CLI", () => {
     });
     expect((await run(["gigs", "get", gig.id], database, artifacts)).record.documents)
       .toContainEqual(expect.objectContaining({ id: created.record.id, type: "profile", displayName: "Profile" }));
-    expect((await run(["networking", "get", contact.id], database, artifacts)).record)
+    expect((await run(["people", "get", person.id], database, artifacts)).record)
       .toMatchObject({ hasProfile: true, documents: [{ id: created.record.id, type: "profile", displayName: "Profile" }] });
   });
 
@@ -299,7 +297,6 @@ async function workspace() {
     transaction => {
       transaction.gigs.create(gig);
       transaction.people.create(person);
-      transaction.networking.create(contact);
     },
   );
   connection.close();

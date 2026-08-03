@@ -18,7 +18,7 @@
   changes advance the Meeting revision and remain reversible through generic
   history.
 - Core services attach the same compact managed-document summaries to gig and
-  networking-contact reads for CLI, agent, and web clients.
+  person reads for CLI, agent, and web clients.
 - Generic agent policy is separate from the user profile, which defaults to
   `context/`.
 - Private context never belongs in application source control.

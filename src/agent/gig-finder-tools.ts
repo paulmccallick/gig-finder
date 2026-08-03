@@ -4,7 +4,6 @@ import { z } from "zod";
 import type {
   ChangeContext,
   ChangeService,
-  ContactDomainService,
   DocumentReader,
   GigDomainService,
   GigPeopleService,
@@ -16,8 +15,7 @@ import type {
   MeetingQueryInput,
   MeetingService,
   MeetingUpdate,
-  NetworkingContactQueryInput,
-  NetworkingContactUpdate,
+  PersonUpdate,
   PeopleQueryInput,
   PeopleService,
   SearchContextService,
@@ -29,14 +27,14 @@ import { DomainValidationError, MutationError } from "../core/src/errors";
 import {
   gigUpdateSchema,
   meetingUpdateSchema,
-  networkingContactUpdateSchema,
+  personUpdateSchema,
 } from "../core/src/update-contracts";
 import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
 import {
-  contactPriorities,
-  contactStatuses,
+  personPriorities,
+  personStatuses,
   relationshipStrengths,
-} from "../core/src/network";
+} from "../core/src/people";
 import { taskPriorities, taskStatuses, taskTypes } from "../core/src/tasks";
 import {
   documentMediaTypes,
@@ -48,7 +46,7 @@ import { stagedDocumentReferencePattern } from "../core/src/staged-documents";
 import { gigPersonRelationships } from "../core/src/people";
 import { meetingStatuses, meetingTimezoneSchema } from "../core/src/meetings";
 import {
-  contactChangesSchema,
+  personChangesSchema,
   gigChangesSchema,
   meetingChangesSchema,
 } from "./update-tool-schemas";
@@ -86,17 +84,17 @@ const listGigsInputSchema = z.object({
   ...pageSchema,
 }).strict();
 
-const listContactsInputSchema = z.object({
-  statuses: nonEmptyArray(contactStatuses).nullable()
-    .describe("Include contacts with any of these networking statuses."),
-  priorities: nonEmptyArray(contactPriorities).nullable()
-    .describe("Include contacts with any of these networking priorities."),
+const listPeopleInputSchema = z.object({
+  statuses: nonEmptyArray(personStatuses).nullable()
+    .describe("Include people with any of these relationship statuses."),
+  priorities: nonEmptyArray(personPriorities).nullable()
+    .describe("Include people with any of these relationship priorities."),
   relationshipStrengths: nonEmptyArray(relationshipStrengths).nullable()
-    .describe("Include contacts with any of these relationship strengths."),
+    .describe("Include people with any of these relationship strengths."),
   overdueOnly: z.boolean().nullable()
-    .describe("When true, include only contacts whose next outreach is overdue."),
+    .describe("When true, include only people whose next outreach is overdue."),
   query: z.string().trim().nullable()
-    .describe("Case-insensitive text to search across contact name, company, title, and why-interesting text."),
+    .describe("Case-insensitive text to search across person name, company, title, and why-interesting text."),
   ...pageSchema,
 }).strict();
 
@@ -107,20 +105,14 @@ const listTasksInputSchema = z.object({
     .describe("Include tasks with any of these priorities."),
   types: nonEmptyArray(taskTypes).nullable()
     .describe("Include tasks with any of these task types."),
-  relatedEntityType: z.enum(["gig", "contact", "general"]).nullable()
+  relatedEntityType: z.enum(["gig", "person", "general"]).nullable()
     .describe("Include tasks related to this kind of entity."),
   relatedEntityId: z.string().trim().min(1).nullable()
-    .describe("Include tasks related to this exact durable gig or contact ID."),
+    .describe("Include tasks related to this exact durable gig or person ID."),
   overdueOnly: z.boolean().nullable()
     .describe("When true, include only tasks whose due date is overdue."),
   query: z.string().trim().nullable()
     .describe("Case-insensitive text to search across task title, related-entity label, and notes."),
-  ...pageSchema,
-}).strict();
-
-const listPeopleInputSchema = z.object({
-  query: z.string().trim().nullable()
-    .describe("Case-insensitive text to search across person name, company, and title."),
   ...pageSchema,
 }).strict();
 
@@ -160,11 +152,11 @@ const getDocumentInputSchema = z.object({
     .describe("Exact registered reference returned by a detail tool or staged reference supplied by the web application."),
 }).strict();
 
-const searchGigsAndContactsInputSchema = z.object({
+const searchGigsAndPeopleInputSchema = z.object({
   companyNames: z.array(z.string().trim().min(2).max(200)).max(4)
-    .describe("Company names to match against gigs and networking contacts; use an empty array when none are known."),
+    .describe("Company names to match against gigs and people; use an empty array when none are known."),
   personNames: z.array(z.string().trim().min(2).max(200)).max(4)
-    .describe("Person names to match against networking contacts; use an empty array when none are known."),
+    .describe("Person names to match against people; use an empty array when none are known."),
 }).strict();
 
 const updateGigInputSchema = z.object({
@@ -173,10 +165,10 @@ const updateGigInputSchema = z.object({
     .describe("One or more explicit changes to mutable gig fields."),
 }).strict();
 
-const updateNetworkingContactInputSchema = z.object({
+const updatePersonInputSchema = z.object({
   id: getInputSchema.shape.id,
-  changes: contactChangesSchema
-    .describe("One or more explicit changes to mutable networking-contact fields."),
+  changes: personChangesSchema
+    .describe("One or more explicit changes to mutable person fields."),
 }).strict();
 
 const createMeetingInputSchema = z.object({
@@ -276,7 +268,7 @@ const createDocumentInputSchema = z.object({
 
 const updateDocumentInputSchema = z.object({
   documentId: z.string().trim().min(1)
-    .describe("Exact managed-document ID returned by create_document, get_gig, get_networking_contact, or get_document."),
+    .describe("Exact managed-document ID returned by create_document, get_gig, get_person, or get_document."),
   expectedVersion: z.number().int().positive()
     .describe("Current managed-document version returned by create_document, get_gig, or get_document."),
   content: z.string().min(1).max(managedDocumentContentLimit)
@@ -318,7 +310,6 @@ export interface ToolFailure {
 
 export interface GigFinderReadCapabilities {
   gigs: Pick<GigDomainService, "query" | "read">;
-  networking: Pick<ContactDomainService, "query" | "read">;
   people: Pick<PeopleService, "query" | "read">;
   gigPeople: Pick<GigPeopleService, "query" | "read">;
   tasks: Pick<TaskDomainService, "query" | "read">;
@@ -330,8 +321,8 @@ export interface GigFinderMutationCapabilities {
   gigs: {
     update(context: ChangeContext, id: string, patch: GigUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
-  networking: {
-    update(context: ChangeContext, id: string, patch: NetworkingContactUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
+  people: {
+    update(context: ChangeContext, id: string, patch: PersonUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
   meetings: Pick<MeetingService, "create" | "update">;
   changes: Pick<ChangeService, "revert">;
@@ -471,10 +462,10 @@ function gigPatchFromOperations(
   return gigUpdateSchema.parse(changesToPatch(changes));
 }
 
-function contactPatchFromOperations(
-  changes: z.infer<typeof contactChangesSchema>,
-): NetworkingContactUpdate {
-  return networkingContactUpdateSchema.parse(changesToPatch(changes));
+function personPatchFromOperations(
+  changes: z.infer<typeof personChangesSchema>,
+): PersonUpdate {
+  return personUpdateSchema.parse(changesToPatch(changes));
 }
 
 function meetingPatchFromOperations(
@@ -497,9 +488,9 @@ function normalizeGigsInput(
   };
 }
 
-function normalizeContactsInput(
-  input: z.infer<typeof listContactsInputSchema>,
-): NetworkingContactQueryInput {
+function normalizePeopleInput(
+  input: z.infer<typeof listPeopleInputSchema>,
+): PeopleQueryInput {
   return {
     ...(input.statuses === null ? {} : { statuses: input.statuses }),
     ...(input.priorities === null ? {} : { priorities: input.priorities }),
@@ -525,16 +516,6 @@ function normalizeTasksInput(
       : { relatedEntityType: input.relatedEntityType }),
     ...(input.relatedEntityId === null ? {} : { relatedEntityId: input.relatedEntityId }),
     ...(input.overdueOnly === null ? {} : { overdueOnly: input.overdueOnly }),
-    ...(input.query === null ? {} : { query: input.query }),
-    ...(input.offset === null ? {} : { offset: input.offset }),
-    ...(input.limit === null ? {} : { limit: input.limit }),
-  };
-}
-
-function normalizePeopleInput(
-  input: z.infer<typeof listPeopleInputSchema>,
-): PeopleQueryInput {
-  return {
     ...(input.query === null ? {} : { query: input.query }),
     ...(input.offset === null ? {} : { offset: input.offset }),
     ...(input.limit === null ? {} : { limit: input.limit }),
@@ -607,10 +588,10 @@ function safeResultSummary(result: unknown): ToolResultSummary {
   if (
     "gigs" in result
     && Array.isArray(result.gigs)
-    && "networkingContacts" in result
-    && Array.isArray(result.networkingContacts)
+    && "people" in result
+    && Array.isArray(result.people)
   ) {
-    const records = [...result.gigs, ...result.networkingContacts] as Array<{ id?: unknown }>;
+    const records = [...result.gigs, ...result.people] as Array<{ id?: unknown }>;
     return {
       outcome: records.length === 0 ? "not_found" : "found",
       returned: records.length,
@@ -703,7 +684,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         return { status: "error", error: error.code, message: error.message };
       }
       const message = error instanceof Error ? error.message : "";
-      if (/^(Gig|Contact|Meeting) not found:/.test(message)) {
+      if (/^(Gig|Meeting|Person) not found:/.test(message)) {
         return { status: "error", error: "not_found", message };
       }
       return {
@@ -735,13 +716,13 @@ export function createGigFinderTools(
   const readTools = {
     ...(extensions?.contextSearch
       ? {
-          search_gigs_and_contacts: tool({
+          search_gigs_and_people: tool({
             strict: true,
-            description: "Find existing gigs and networking contacts in one call using company and person names. Use this whenever a request needs to resolve names to durable records; it is not limited to document workflows.",
-            inputSchema: searchGigsAndContactsInputSchema,
+            description: "Find existing gigs and people in one call using company and person names. Use this whenever a request needs to resolve names to durable records; it is not limited to document workflows.",
+            inputSchema: searchGigsAndPeopleInputSchema,
             execute: loggedExecution(
               logger,
-              "search_gigs_and_contacts",
+              "search_gigs_and_people",
               input => extensions.contextSearch!.search(input),
             ),
           }),
@@ -781,38 +762,25 @@ export function createGigFinderTools(
           : result;
       }),
     }),
-    list_networking_contacts: tool({
-      strict: true,
-      description: "List complete current Networking Contact records. A Networking Contact is relationship and outreach state for one canonical Person; contact ID and personId are both returned. Use optional filters if desired. Results may be paginated.",
-      inputSchema: listContactsInputSchema,
-      execute: loggedExecution(logger, "list_networking_contacts", (input) =>
-        reads.networking.query(normalizeContactsInput(input))),
-    }),
-    get_networking_contact: tool({
-      strict: true,
-      description: "Get one complete current Networking Contact using its contact ID. The result includes the canonical Person fields, compact document summaries, and related gig IDs with relationship types; do not call get_person for the same contact.",
-      inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_networking_contact", async ({ id }) => {
-        const contact = reads.networking.read(id);
-        if (contact.status !== "ok") return contact;
-        const references = gigReferencesForPerson(reads.gigPeople, contact.record.personId);
-        return references.status === "ok"
-          ? { ...contact, record: { ...contact.record, gigs: references.gigs } }
-          : references;
-      }),
-    }),
     list_people: tool({
       strict: true,
-      description: "List complete current Person records, including people who have no Networking Contact. A Person is the canonical identity referenced by Networking Contact personId and Gig-Person Relationship personId. Use optional filters if desired.",
+      description: "List complete current Person records with identity, relationship, outreach, and document summaries. Use optional filters if desired. Results may be paginated.",
       inputSchema: listPeopleInputSchema,
       execute: loggedExecution(logger, "list_people", input =>
         reads.people.query(normalizePeopleInput(input))),
     }),
     get_person: tool({
       strict: true,
-      description: "Get one complete canonical Person using the durable person ID returned by a Person, Networking Contact, or Gig-Person Relationship tool.",
+      description: "Get one complete Person using its durable ID, including identity, relationship, outreach, documents, and related gig IDs with relationship types.",
       inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_person", ({ id }) => reads.people.read(id)),
+      execute: loggedExecution(logger, "get_person", async ({ id }) => {
+        const person = reads.people.read(id);
+        if (person.status !== "ok") return person;
+        const references = gigReferencesForPerson(reads.gigPeople, id);
+        return references.status === "ok"
+          ? { ...person, record: { ...person.record, gigs: references.gigs } }
+          : references;
+      }),
     }),
     list_gig_person_relationships: tool({
       strict: true,
@@ -902,21 +870,21 @@ export function createGigFinderTools(
         }),
       ),
     }),
-    update_networking_contact: tool({
+    update_person: tool({
       strict: true,
-      description: "Update one existing networking contact using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and report the resulting record and change ID to the user.",
-      inputSchema: updateNetworkingContactInputSchema,
+      description: "Update one existing person using explicit set or clear operations. Supply only desired identity, relationship, or outreach changes; use dot paths for nested fields and report the resulting record and change ID.",
+      inputSchema: updatePersonInputSchema,
       execute: loggedExecution(
         logger,
-        "update_networking_contact",
+        "update_person",
         ({ id, changes }, { toolCallId }) => ({
           status: "ok" as const,
-          ...mutations.networking.update({
+          ...mutations.people.update({
             actor: requestContext.actor,
             source: "agent",
-            summary: `Agent updated networking contact ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            summary: `Agent updated person ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
             changeId: `agent-tool:${toolCallId}`,
-          }, id, contactPatchFromOperations(changes)),
+          }, id, personPatchFromOperations(changes)),
         }),
       ),
     }),
@@ -1072,11 +1040,9 @@ export function createGigFinderTools(
 
 export type GigFinderTools = ReturnType<typeof createGigFinderTools>;
 export const gigFinderToolSchemas = {
-  search_gigs_and_contacts: searchGigsAndContactsInputSchema,
+  search_gigs_and_people: searchGigsAndPeopleInputSchema,
   list_gigs: listGigsInputSchema,
   get_gig: getInputSchema,
-  list_networking_contacts: listContactsInputSchema,
-  get_networking_contact: getInputSchema,
   list_people: listPeopleInputSchema,
   get_person: getInputSchema,
   list_gig_person_relationships: listGigPersonRelationshipsInputSchema,
@@ -1087,7 +1053,7 @@ export const gigFinderToolSchemas = {
   get_meeting: getInputSchema,
   get_document: getDocumentInputSchema,
   update_gig: updateGigInputSchema,
-  update_networking_contact: updateNetworkingContactInputSchema,
+  update_person: updatePersonInputSchema,
   create_meeting: createMeetingInputSchema,
   update_meeting: updateMeetingInputSchema,
   create_document: createDocumentInputSchema,

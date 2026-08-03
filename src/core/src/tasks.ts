@@ -12,7 +12,7 @@ export interface TaskRecord {
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string | null;
-  relatedEntity: { type: "contact" | "gig" | "general"; id: string | null; label: string };
+  relatedEntity: { type: "person" | "gig" | "general"; id: string | null; label: string };
   notes: string | null;
   createdAt: string;
   updatedAt: string;

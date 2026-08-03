@@ -4,13 +4,13 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 
 ## User Experience
 
-- The dashboard presents gigs, networking contacts, and tasks with search,
+- The dashboard presents gigs, people, and tasks with search,
   filters, urgency signals, details, and captured job descriptions.
 - The CLI reads and updates the same records and linked documents with audited mutations and
   non-persisting dry-run previews where available.
 - The agent window uses the candidate profile; reads complete current gigs,
-  people, networking contacts, gig-person relationships, tasks, and registered
-  meetings and documents; updates existing gigs and contacts; creates and
+  people, gig-person relationships, tasks, and registered meetings and
+  documents; updates existing gigs and people; creates and
   updates meetings; and manages documents.
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
   locally to Markdown, and attaches a staged reference to the user's next
@@ -26,12 +26,10 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - **Gig:** An opportunity moving through the candidate's pipeline that can be
   linked to people, tasks, registered artifacts, and versioned managed
   documents.
-- **Person:** A canonical individual whose optional managed profile document
-  can be linked to gigs and whose relationship is extended by networking activity.
-- **Networking contact:** The candidate's relationship, priority, status, and
-  outreach state for one person.
+- **Person:** An individual whose identity, relationship, priority, status,
+  outreach, notes, tags, documents, gigs, and meetings share one record.
 - **Gig-person relationship:** A typed connection between one gig and one person.
-- **Task:** A job-search action related to a gig, networking contact, or the
+- **Task:** A job-search action related to a gig, person, or the
   search generally.
 - **Meeting:** A scheduled or completed interaction with one or more people
   that may be associated with a gig.
@@ -47,12 +45,12 @@ Application source is generic. By default, a user's profile, operational
 records, documents, logs, database, and backups live in the ignored `context/`
 workspace.
 
-Gig and networking-contact records include document IDs, types, optional titles,
-and friendly display names; contact detail also includes related gig IDs and
+Gig and person records include document IDs, types, optional titles, and
+friendly display names; person detail also includes related gig IDs and
 relationship types. User interfaces display document names rather than IDs.
 
-Agent tools cannot create or delete gigs, contacts, or tasks, delete managed documents,
+Agent tools cannot create or delete gigs, people, or tasks, delete managed documents,
 or access arbitrary files, history, email, calendars, or external
-services. Agent mutations are audited; gig, contact, and meeting updates can be reverted
+services. Agent mutations are audited; gig, person, and meeting updates can be reverted
 when no later edit would be overwritten. The agent verifies the intended change
 with the user before mutating records or documents.

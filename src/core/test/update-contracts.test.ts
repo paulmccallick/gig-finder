@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   gigUpdateSchema,
   meetingUpdateSchema,
-  networkingContactUpdateSchema,
+  personUpdateSchema,
 } from "../src/update-contracts";
 
 describe("shared update contracts", () => {
@@ -33,8 +33,8 @@ describe("shared update contracts", () => {
     }
   });
 
-  test("accepts explicit partial and nested contact updates", () => {
-    expect(networkingContactUpdateSchema.parse({
+  test("accepts explicit partial and nested person updates", () => {
+    expect(personUpdateSchema.parse({
       status: "awaiting_response",
       relationship: { strength: "strong" },
       outreach: { nextAction: null },
@@ -45,7 +45,7 @@ describe("shared update contracts", () => {
     });
   });
 
-  test("rejects contact metadata and invalid nested fields", () => {
+  test("rejects person metadata and invalid nested fields", () => {
     for (const patch of [
       {},
       { id: "other" },
@@ -56,7 +56,7 @@ describe("shared update contracts", () => {
       { relationship: {} },
       { outreach: { nextActionDue: "tomorrow" } },
     ]) {
-      expect(networkingContactUpdateSchema.safeParse(patch).success).toBe(false);
+      expect(personUpdateSchema.safeParse(patch).success).toBe(false);
     }
   });
 

@@ -37,7 +37,7 @@ between side-panel and full-screen layouts keeps one mounted agent session and
 does not change the agent or HTTP contracts. Full-screen layout places identity
 and controls in a full-height left rail.
 
-Gigs, people, networking contacts, gig-person relationships, tasks, and
+Gigs, people, gig-person relationships, tasks, and
 meetings expose caller-neutral query/read services from `GigFinderApplication`;
 agent tools receive only those narrow capabilities. Document lookup uses a
 separate shared document reader. There is no agent-specific domain context
@@ -62,6 +62,9 @@ facade.
   snapshots rather than guessing historical attendees.
 - Managed documents and their immutable versions live in the document tables;
   legacy job-description and interview-prep files remain filesystem artifacts.
+- Person identity, relationship, and outreach share `people` and
+  `person_history`; migration 0013 coalesces legacy snapshots by Person ID and
+  change ID before removing the separate networking tables.
 
 ## Context Files
 

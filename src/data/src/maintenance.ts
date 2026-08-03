@@ -8,7 +8,6 @@ import { openDatabase } from "./database";
 const entityTables=[
   {entity:"gig",live:"gigs",history:"gig_history"},
   {entity:"person",live:"people",history:"person_history"},
-  {entity:"networking",live:"networking_contacts",history:"networking_contact_history"},
   {entity:"gig-person",live:"gig_people",history:"gig_people_history"},
   {entity:"task",live:"tasks",history:"task_history"},
   {entity:"meeting",live:"meetings",history:"meeting_history"},

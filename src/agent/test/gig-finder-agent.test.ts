@@ -52,17 +52,6 @@ function readerWithGigs(items: GigRecord[]): GigFinderReadCapabilities {
         nextOffset: null,
       },
     }), read: id => ({ status: "not_found" as const, id }) },
-    networking: { query: input => ({
-      items: [],
-      page: {
-        offset: input.offset ?? 0,
-        limit: input.limit ?? 20,
-        returned: 0,
-        total: 0,
-        hasMore: false,
-        nextOffset: null,
-      },
-    }), read: id => ({ status: "not_found" as const, id }) },
     people: {
       query: input => ({ items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
       read: id => ({ status: "not_found" as const, id }),
@@ -128,7 +117,7 @@ function documentMutations(
 ): GigFinderMutationCapabilities {
   return {
     gigs: { update: () => { throw new Error("not executed"); } },
-    networking: { update: () => { throw new Error("not executed"); } },
+    people: { update: () => { throw new Error("not executed"); } },
     meetings: {
       create: () => { throw new Error("not executed"); },
       update: () => { throw new Error("not executed"); },
@@ -184,7 +173,7 @@ describe("GigFinderAgent instructions", () => {
       canUpdateRecords: true,
     });
     expect(writableInstructions).toContain(
-      "Networking Contact: relationship and outreach state for one Person",
+      "Person: an individual with identity, relationship, priority, status, outreach, notes, tags, and documents",
     );
     expect(writableInstructions).toContain(
       "Gig-Person Relationship: a connection between a Person and a Gig",
@@ -647,7 +636,7 @@ describe("agent streaming", () => {
         {
           stream: simulateReadableStream({ chunks: [
             { type: "stream-start", warnings: [] },
-            { type: "tool-call", toolCallId: "resolve-upload", toolName: "search_gigs_and_contacts", input: JSON.stringify({ companyNames: ["Example Company"], personNames: [] }) },
+            { type: "tool-call", toolCallId: "resolve-upload", toolName: "search_gigs_and_people", input: JSON.stringify({ companyNames: ["Example Company"], personNames: [] }) },
             { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage },
           ] }),
         },
@@ -700,7 +689,7 @@ describe("agent streaming", () => {
         contextSearch: {
           search: () => ({
             gigs: [{ ...gig, matchedCompanyNames: ["Example Company"] }],
-            networkingContacts: [],
+            people: [],
             truncated: false,
           }),
         },

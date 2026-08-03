@@ -3,7 +3,6 @@ import path from "node:path";
 import type {
   ChangeContext,
   GigData,
-  NetworkingContactData,
   PersonData,
   TaskData,
 } from "../../core/src/models";
@@ -81,21 +80,14 @@ const gigs: GigData[] = [
   },
 ];
 const person: PersonData = {
-  id: "person-one",
-  name: "Alex Example",
-  company: "Example Labs",
-  title: "VP Product",
-  linkedInProfileUrl: "https://www.linkedin.com/in/alex-example",
-  connectedOn: "2024-01-01",
-};
-const contact: NetworkingContactData = {
-  id: "person-one", personId: "person-one", relationshipType: "former_peer",
-  relationshipStrength: "strong", introducedBy: null,
+  id: "person-one", name: "Alex Example", company: "Example Labs", title: "VP Product",
+  linkedInProfileUrl: "https://www.linkedin.com/in/alex-example", connectedOn: "2024-01-01",
+  relationshipType: "former_peer", relationshipStrength: "strong", introducedBy: null,
   relationshipNotes: "Worked together on a product launch.", priority: "high",
-  status: "active_relationship", lastContacted: "2026-07-20",
-  lastContactMethod: "email", lastContactSummary: "Discussed the open role.",
-  nextAction: "Send follow-up", nextActionDue: "2026-07-23",
-  whyInteresting: "Knows the hiring team.", notesJson: "[]", tagsJson: "[]",
+  status: "active_relationship", lastContacted: "2026-07-20", lastContactMethod: "email",
+  lastContactSummary: "Discussed the open role.", nextAction: "Send follow-up",
+  nextActionDue: "2026-07-23", whyInteresting: "Knows the hiring team.",
+  notesJson: "[]", tagsJson: "[]",
 };
 const task: TaskData = {
   id: "task-one", title: "Prepare questions", type: "application", status: "open",
@@ -110,7 +102,6 @@ const store = new DataStore(database);
 store.change(change, transaction => {
   gigs.forEach(gig => transaction.gigs.create(gig));
   transaction.people.create(person);
-  transaction.networking.create(contact);
   transaction.tasks.create(task);
 });
 database.close();

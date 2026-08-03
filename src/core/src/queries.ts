@@ -1,10 +1,10 @@
 import { DomainValidationError } from "./errors";
 import type { FitRating, Outcome, PipelineStage } from "./gigs";
 import type {
-  ContactPriority,
-  ContactStatus,
+  PersonPriority,
+  PersonStatus,
   RelationshipStrength,
-} from "./network";
+} from "./people";
 import type { GigPersonRelationshipType } from "./people";
 import type { MeetingStatus } from "./meetings";
 import type {
@@ -41,9 +41,9 @@ export interface GigQueryInput extends PageInput {
   query?: string;
 }
 
-export interface NetworkingContactQueryInput extends PageInput {
-  statuses?: ContactStatus[];
-  priorities?: ContactPriority[];
+export interface PeopleQueryInput extends PageInput {
+  statuses?: PersonStatus[];
+  priorities?: PersonPriority[];
   relationshipStrengths?: RelationshipStrength[];
   overdueOnly?: boolean;
   query?: string;
@@ -56,10 +56,6 @@ export interface TaskQueryInput extends PageInput {
   relatedEntityType?: TaskRecord["relatedEntity"]["type"];
   relatedEntityId?: string;
   overdueOnly?: boolean;
-  query?: string;
-}
-
-export interface PeopleQueryInput extends PageInput {
   query?: string;
 }
 

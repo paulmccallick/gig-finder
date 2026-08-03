@@ -49,7 +49,6 @@ const agentHandler = createAgentHandler(
   logger,
   {
     gigs: gigFinder.gigs,
-    networking: gigFinder.networking,
     people: gigFinder.people,
     gigPeople: gigFinder.gigPeople,
     tasks: gigFinder.tasks,

@@ -1,7 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
 import { MutationError } from "../../core/src/errors";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, GigData, GigPersonData, MeetingData, MeetingParticipantData, NetworkingContactData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
+import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, GigData, GigPersonData, MeetingData, MeetingParticipantData, PersonData, RevertedRecord, TaskData } from "../../core/src/models";
 import {
   SqliteDocumentReadRepository,
   SqliteDocumentWriteRepository,
@@ -19,8 +19,7 @@ interface RepositoryConfig<T extends DataRecord> { entity: string; table: string
 
 const baseColumns = { revision: "revision", isDeleted: "is_deleted", createdAt: "created_at", updatedAt: "updated_at" } as const;
 const gigColumns: ColumnMap<GigData> = { id:"id",company:"company",title:"title",externalJobId:"external_job_id",stage:"stage",outcome:"outcome",statusSummary:"status_summary",lastActivity:"last_activity",nextActionDescription:"next_action_description",nextActionDue:"next_action_due",fitRating:"fit_rating",fitSummary:"fit_summary",payCurrency:"pay_currency",payMinimum:"pay_minimum",payMaximum:"pay_maximum",payPeriod:"pay_period",payNotes:"pay_notes",sourceUrl:"source_url",location:"location",workArrangement:"work_arrangement",postedDate:"posted_date",businessUnitTeam:"business_unit_team",recruiterSource:"recruiter_source",bonus:"bonus",equity:"equity",otherCompensation:"other_compensation",tagsJson:"tags_json",hasJobDescription:"has_job_description",hasInterviewPrep:"has_interview_prep" };
-const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on"};
-const networkingColumns:ColumnMap<NetworkingContactData>={id:"id",personId:"person_id",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",lastContacted:"last_contacted",lastContactMethod:"last_contact_method",lastContactSummary:"last_contact_summary",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
+const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",lastContacted:"last_contacted",lastContactMethod:"last_contact_method",lastContactSummary:"last_contact_summary",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
 const gigPersonColumns:ColumnMap<GigPersonData>={id:"id",gigId:"gig_id",personId:"person_id",relationship:"relationship",notes:"notes"};
 const taskColumns: ColumnMap<TaskData> = { id:"id",title:"title",type:"type",status:"status",priority:"priority",dueDate:"due_date",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",relatedEntityLabel:"related_entity_label",notes:"notes",completedAt:"completed_at" };
 const meetingColumns: ColumnMap<MeetingData> = { id:"id",title:"title",startsAt:"starts_at",endsAt:"ends_at",timezone:"timezone",location:"location",description:"description",status:"status",gigId:"gig_id",externalCalendarId:"external_calendar_id",externalEventId:"external_event_id" };
@@ -29,7 +28,6 @@ const meetingParticipantColumns: ColumnMap<MeetingParticipantData> = { id:"id",m
 const configs = {
   gigs: { entity:"gig", table:"gigs", historyTable:"gig_history", columns: gigColumns,booleans:["hasJobDescription","hasInterviewPrep"] } satisfies RepositoryConfig<GigData>,
   people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns} satisfies RepositoryConfig<PersonData>,
-  networking:{entity:"networking",table:"networking_contacts",historyTable:"networking_contact_history",columns:networkingColumns} satisfies RepositoryConfig<NetworkingContactData>,
   gigPeople:{entity:"gig-person",table:"gig_people",historyTable:"gig_people_history",columns:gigPersonColumns} satisfies RepositoryConfig<GigPersonData>,
   tasks: { entity:"task", table:"tasks", historyTable:"task_history", columns: taskColumns } satisfies RepositoryConfig<TaskData>,
   meetings: { entity:"meeting", table:"meetings", historyTable:"meeting_history", columns: meetingColumns } satisfies RepositoryConfig<MeetingData>,
@@ -186,10 +184,10 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly gigs: MutationRepository<GigData>; readonly people:MutationRepository<PersonData>;readonly networking:MutationRepository<NetworkingContactData>;readonly gigPeople:MutationRepository<GigPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly meetingParticipants: MutationRepository<MeetingParticipantData>; readonly documents: SqliteDocumentWriteRepository;
+  readonly gigs: MutationRepository<GigData>; readonly people:MutationRepository<PersonData>;readonly gigPeople:MutationRepository<GigPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly meetingParticipants: MutationRepository<MeetingParticipantData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
     this.gigs = new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.networking=new MutationRepository(database,configs.networking,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.gigPeople=new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
+    this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.gigPeople=new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
     this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.meetings = new MutationRepository(database, configs.meetings, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.meetingParticipants = new MutationRepository(database, configs.meetingParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
@@ -213,8 +211,8 @@ export class ChangeTransaction {
 }
 
 export class DataStore {
-  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly networking:ReadRepository<NetworkingContactData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly meetingParticipants: ReadRepository<MeetingParticipantData>; readonly documents: SqliteDocumentReadRepository;
-  constructor(private readonly database: Database) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.networking=new ReadRepository(database,configs.networking);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.meetingParticipants = new ReadRepository(database, configs.meetingParticipants); this.documents = new SqliteDocumentReadRepository(database); }
+  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly meetingParticipants: ReadRepository<MeetingParticipantData>; readonly documents: SqliteDocumentReadRepository;
+  constructor(private readonly database: Database) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.meetingParticipants = new ReadRepository(database, configs.meetingParticipants); this.documents = new SqliteDocumentReadRepository(database); }
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");
@@ -241,7 +239,6 @@ export class DataStore {
     const snapshots = {
       gigs: this.historyRecords(targetChangeId, configs.gigs),
       people: this.historyRecords(targetChangeId, configs.people),
-      networking: this.historyRecords(targetChangeId, configs.networking),
       gigPeople: this.historyRecords(targetChangeId, configs.gigPeople),
       tasks: this.historyRecords(targetChangeId, configs.tasks),
       meetings: this.historyRecords(targetChangeId, configs.meetings),
@@ -259,7 +256,6 @@ export class DataStore {
       transaction => [
         ...this.restoreRecords(snapshots.gigs, this.gigs, transaction.gigs, "gig"),
         ...this.restoreRecords(snapshots.people, this.people, transaction.people, "person"),
-        ...this.restoreRecords(snapshots.networking, this.networking, transaction.networking, "networking"),
         ...this.restoreRecords(snapshots.gigPeople, this.gigPeople, transaction.gigPeople, "gig-person"),
         ...this.restoreRecords(snapshots.tasks, this.tasks, transaction.tasks, "task"),
         ...this.restoreRecords(snapshots.meetings, this.meetings, transaction.meetings, "meeting"),
