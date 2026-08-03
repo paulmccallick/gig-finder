@@ -14,6 +14,15 @@ export class OptimisticConcurrencyError extends Error {
   }
 }
 
+export class PersistenceConsistencyError extends Error {
+  readonly code = "consistency_error";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "PersistenceConsistencyError";
+  }
+}
+
 export type MutationErrorCode =
   | "duplicate_change"
   | "not_found"

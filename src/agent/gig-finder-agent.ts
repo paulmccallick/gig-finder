@@ -46,6 +46,7 @@ export class GigFinderAgent {
       instructions: buildGigFinderInstructions(this.options.profile, {
         liveRecords: this.options.tools !== undefined,
         canUpdateRecords: this.options.canUpdateRecords,
+        profileDocuments: this.options.profileDocuments,
       }),
       messages,
       tools: this.options.tools,

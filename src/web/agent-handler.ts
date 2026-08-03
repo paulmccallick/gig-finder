@@ -19,12 +19,14 @@ import {
   defaultAgentModelId,
   type AgentModelId,
 } from "../core/src/application-settings";
+import type { ProfileDocumentContext } from "../core/src/documents";
 
 type ModelFactory = (modelId: AgentModelId) => Promise<LanguageModel>;
 type ModelSelector = () => AgentModelId;
 
 export interface AgentHandlerOptions {
   profile: CandidateProfile;
+  profileDocuments?: () => ProfileDocumentContext[];
   modelFactory?: ModelFactory;
   selectModel?: ModelSelector;
   logger?: Logger;
@@ -109,6 +111,7 @@ export function safeAgentError(error: unknown) {
 
 export function createAgentHandler({
   profile,
+  profileDocuments = () => [],
   modelFactory = createCodexLanguageModel,
   selectModel = () => defaultAgentModelId,
   logger = defaultLogger,
@@ -158,6 +161,7 @@ export function createAgentHandler({
         )
         : undefined,
       canUpdateRecords: mutations !== undefined,
+      profileDocuments: profileDocuments(),
     });
     const result = agent.respond(await convertToModelMessages(uiMessages), request.signal);
     return result.toUIMessageStreamResponse({

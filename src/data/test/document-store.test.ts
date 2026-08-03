@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { mkdir, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
+import path from "node:path";
 import {
+  candidateProfileId,
   ManagedDocumentService,
   type ManagedDocumentData,
 } from "../../core/src/documents";
-import { MutationError } from "../../core/src/errors";
+import {
+  MutationError,
+  PersistenceConsistencyError,
+} from "../../core/src/errors";
 import type { ChangeContext, GigData, PersonData } from "../../core/src/models";
 import {
   DataStore,
+  LocalProfileDocumentFiles,
   migrateDatabase,
   openDatabase,
   RevisionConflictError,
@@ -61,8 +68,10 @@ const document: ManagedDocumentData = {
   links: [{ entityType: "gig", entityId: gig.id }],
   documentType: "job_description",
   title: "Job description",
+  description: null,
   mediaType: "text/plain",
   sourceDescription: "Received by text message",
+  filePath: null,
   uploadProvenance: null,
 };
 
@@ -102,6 +111,165 @@ beforeEach(() => {
 afterEach(() => database.close());
 
 describe("managed document persistence", () => {
+  test("stores profile-owned context and materializes its current Markdown version", async () => {
+    const temporaryRoot = path.resolve(import.meta.dir, "../../../tmp");
+    await mkdir(temporaryRoot, { recursive: true });
+    const directory = await mkdtemp(path.join(temporaryRoot, "profile-documents-"));
+    try {
+      const materializedStore = new DataStore(
+        database,
+        new LocalProfileDocumentFiles(directory),
+      );
+      const documents = new ManagedDocumentService(materializedStore);
+      const created = documents.create(context("Create interview stories"), {
+        links: [{ entityType: "profile", entityId: candidateProfileId }],
+        documentType: "interview_prep",
+        title: "Interview stories",
+        description: "Behavioral examples from prior leadership roles.",
+        mediaType: "text/markdown",
+        sourceDescription: null,
+        content: "# Interview stories\n\nOriginal examples.",
+      });
+      const filePath = created.document.filePath!;
+
+      expect(created.document).toMatchObject({
+        links: [{ entityType: "profile", entityId: candidateProfileId }],
+        title: "Interview stories",
+        description: "Behavioral examples from prior leadership roles.",
+      });
+      expect(filePath).toMatch(/^interview-stories-[0-9a-f]{8}\.md$/);
+      expect(documents.profileContext()).toEqual([{
+        id: created.document.id,
+        name: "Interview stories",
+        type: "interview_prep",
+        description: "Behavioral examples from prior leadership roles.",
+        currentVersion: 1,
+      }]);
+      expect(await readFile(path.join(directory, filePath), "utf8"))
+        .toBe("# Interview stories\n\nOriginal examples.");
+      expect(database.query(
+        "SELECT profile_id FROM managed_document_links WHERE document_id = ?",
+      ).get(created.document.id)).toEqual({ profile_id: candidateProfileId });
+
+      const updated = documents.update(context("Expand interview stories"), {
+        documentId: created.document.id,
+        expectedVersion: 1,
+        content: "# Interview stories\n\nExpanded examples.",
+        changeSummary: "Expand examples",
+      });
+      expect(await readFile(path.join(directory, filePath), "utf8"))
+        .toBe("# Interview stories\n\nExpanded examples.");
+
+      await unlink(path.join(directory, filePath));
+      materializedStore.synchronizeProfileDocuments();
+      expect(await readFile(path.join(directory, filePath), "utf8"))
+        .toBe("# Interview stories\n\nExpanded examples.");
+      expect(() => new LocalProfileDocumentFiles(directory).write({
+        ...updated.document,
+        filePath: "../outside.md",
+      })).toThrow("unsafe file path");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps failed materialization pending and retries without replaying the change", async () => {
+    const temporaryRoot = path.resolve(import.meta.dir, "../../../tmp");
+    await mkdir(temporaryRoot, { recursive: true });
+    const directory = await mkdtemp(path.join(temporaryRoot, "profile-repair-"));
+    const files = new LocalProfileDocumentFiles(directory);
+    const failures: Array<{ error: unknown; documentId: string }> = [];
+    let failWrites = true;
+    let writeCount = 0;
+    const materializedStore = new DataStore(database, {
+      write: document => {
+        writeCount += 1;
+        if (failWrites) throw new Error("simulated filesystem failure");
+        files.write(document);
+      },
+    }, (error, failedDocument) => failures.push({
+      error,
+      documentId: failedDocument.id,
+    }));
+    const documents = new ManagedDocumentService(materializedStore);
+
+    try {
+      const created = documents.create({
+        ...context("Create durable context"),
+        changeId: "profile-document-change",
+      }, {
+        links: [{ entityType: "profile", entityId: candidateProfileId }],
+        documentType: "notes",
+        title: "Search context",
+        description: "Durable candidate context.",
+        mediaType: "text/markdown",
+        sourceDescription: null,
+        content: "# Search context",
+      });
+
+      expect(created.changeId).toBe("profile-document-change");
+      expect(failures).toHaveLength(1);
+      expect(database.query(
+        "SELECT current_version, materialized_version FROM managed_documents WHERE id = ?",
+      ).get(created.document.id)).toEqual({
+        current_version: 1,
+        materialized_version: null,
+      });
+
+      failWrites = false;
+      materializedStore.synchronizeProfileDocuments();
+      expect(await readFile(path.join(directory, created.document.filePath!), "utf8"))
+        .toBe("# Search context");
+      expect(database.query(
+        "SELECT materialized_version FROM managed_documents WHERE id = ?",
+      ).get(created.document.id)).toEqual({ materialized_version: 1 });
+
+      const writesAfterRepair = writeCount;
+      materializedStore.change(context("Update unrelated gig"), transaction =>
+        transaction.gigs.update(gig.id, 1, { statusSummary: "Reviewed" }));
+      expect(writeCount).toBe(writesAfterRepair);
+      expect(() => documents.create({
+        ...context("Create durable context"),
+        changeId: "profile-document-change",
+      }, {
+        links: [{ entityType: "profile", entityId: candidateProfileId }],
+        documentType: "notes",
+        title: "Search context",
+        description: "Durable candidate context.",
+        mediaType: "text/markdown",
+        sourceDescription: null,
+        content: "# Search context",
+      })).toThrow("Change has already been applied");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("validates profile context ownership, name, and description", () => {
+    const documents = new ManagedDocumentService(store);
+    const base = {
+      links: [{ entityType: "profile" as const, entityId: candidateProfileId }],
+      documentType: "notes" as const,
+      title: "Search principles",
+      description: null,
+      mediaType: "text/markdown" as const,
+      sourceDescription: null,
+      content: "# Search principles",
+    };
+    expect(() => documents.create(context("Missing name"), {
+      ...base,
+      title: null,
+    })).toThrow("requires a name");
+    expect(() => documents.create(context("Mixed owners"), {
+      ...base,
+      links: [...base.links, { entityType: "gig", entityId: gig.id }],
+    })).toThrow("must link only to Profile candidate");
+    expect(() => documents.create(context("Long description"), {
+      ...base,
+      description: "x".repeat(256),
+    })).toThrow("Too big");
+  });
+
   test("migration preserves legacy gig-owned documents and versions as links", async () => {
     const legacy = openDatabase(":memory:");
     try {
@@ -182,6 +350,30 @@ describe("managed document persistence", () => {
     expect(store.documents.list("person", person.id)).toEqual([linked]);
     expect(store.documents.list("gig", gig.id)).toEqual([linked]);
     expect(linked).toMatchObject({ title: null, displayName: "Profile" });
+  });
+
+  test("rejects persisted document links that do not have exactly one target", () => {
+    store.change(
+      context("Capture job description"),
+      transaction => transaction.documents.create({
+        document,
+        content: "Original job description",
+        contentHash: "hash-v1",
+      }),
+    );
+    database.exec("PRAGMA ignore_check_constraints = ON");
+    database.query(
+      "UPDATE managed_document_links SET gig_id = NULL WHERE document_id = ?",
+    ).run(document.id);
+
+    try {
+      expect(() => store.documents.get(document.id))
+        .toThrow(PersistenceConsistencyError);
+      expect(() => store.documents.get(document.id))
+        .toThrow(/has 0 targets; expected exactly one/);
+    } finally {
+      database.exec("PRAGMA ignore_check_constraints = OFF");
+    }
   });
 
   test("creates a document and reads it by id and owner", () => {

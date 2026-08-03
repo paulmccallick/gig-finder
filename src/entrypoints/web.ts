@@ -27,7 +27,16 @@ const defaultAgentModel = parseAgentModelId(
 const local = openLocalApplication({
   database: context.database,
   artifacts: context.artifacts,
-}, { defaultAgentModel });
+  profileDocuments: context.profileDocuments,
+}, {
+  defaultAgentModel,
+  onProfileDocumentMaterializationFailure: (error, document) => logger.error({
+    event: "profile_document.materialization_failed",
+    documentId: document.id,
+    documentVersion: document.currentVersion,
+    err: error,
+  }, "Profile document materialization remains pending"),
+});
 const gigFinder = local.application;
 const port = Number(process.env.API_PORT ?? 3001);
 const positiveInteger = (value: string | undefined, fallback: number) => {
@@ -52,6 +61,7 @@ const uploadHandler = createDocumentUploadHandler(
 );
 const agentHandler = createAgentHandler({
   profile: loadCandidateProfile(context.profile),
+  profileDocuments: () => gigFinder.documents.profileContext(),
   logger,
   reads: {
     gigs: gigFinder.gigs,

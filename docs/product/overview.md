@@ -12,6 +12,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   people, gig-person relationships, tasks, and registered meetings and
   documents; updates existing gigs and people; creates and updates tasks and
   meetings; and manages documents.
+- Named Profile context-document descriptions are always visible to the agent;
+  it reads their versioned content on demand by document ID.
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
   locally to Markdown, and attaches a staged reference to the user's next
   message so the agent can determine what to do without altering the source.
@@ -25,6 +27,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 
 ## Entities
 
+- **Candidate Profile:** The configured facts and search preferences used to
+  personalize the agent; it owns context documents but is not itself a document.
 - **Gig:** An opportunity moving through the candidate's pipeline that can be
   linked to people, tasks, registered artifacts, and versioned managed
   documents.
@@ -35,8 +39,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   search generally.
 - **Meeting:** A scheduled or completed interaction with one or more people
   that may be associated with a gig.
-- **Managed document:** Versioned Markdown or text linked to gigs and people;
-  profiles link to exactly one person and may also link to gigs.
+- **Managed document:** Versioned Markdown or text linked to gigs, people, or
+  the Candidate Profile; Person profiles link to exactly one person, while
+  Profile context documents link only to the Candidate Profile.
 
 The archive is a dashboard view of closed gigs grouped by outcome; it does not
 copy or move records into separate storage.
@@ -50,6 +55,10 @@ workspace.
 Gig and person records include document IDs, types, optional titles, and
 friendly display names; person detail also includes related gig IDs and
 relationship types. User interfaces display document names rather than IDs.
+
+Profile context documents require a name, may include a 255-character
+description, and store their current Markdown file in the configured private
+Profile-document directory while SQLite remains authoritative.
 
 Agent tools cannot create or delete gigs or people, delete tasks or managed documents,
 or access arbitrary files, history, email, calendars, or external

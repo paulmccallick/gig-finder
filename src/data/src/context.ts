@@ -5,6 +5,7 @@ export interface GigFinderContextConfig {
   version: number;
   actor: string;
   profile?: string;
+  profileDocuments?: string;
 }
 
 export interface GigFinderContextPaths {
@@ -12,6 +13,7 @@ export interface GigFinderContextPaths {
   database: string;
   artifacts: string;
   profile: string;
+  profileDocuments: string;
   logs: string;
   backups: string;
   meetingParticipantMigration: string;
@@ -23,6 +25,18 @@ type ContextEnvironment = Record<string, string | undefined>;
 function optionalAbsolute(value: string | undefined) {
   const trimmed = value?.trim();
   return trimmed ? path.resolve(trimmed) : undefined;
+}
+
+function relativeContextPath(root: string, value: string, property: string) {
+  if (path.isAbsolute(value)) {
+    throw new Error(`${property} must be relative to the context root`);
+  }
+  const resolved = path.resolve(root, value);
+  const relative = path.relative(root, resolved);
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    throw new Error(`${property} must resolve to a directory within the context root`);
+  }
+  return resolved;
 }
 
 function hasDatabaseContents(filename: string) {
@@ -44,10 +58,14 @@ function readContextConfig(root: string): GigFinderContextConfig {
     if (parsed.profile !== undefined && (typeof parsed.profile !== "string" || !parsed.profile.trim())) {
       throw new Error("profile must be a non-empty string when provided");
     }
+    if (parsed.profileDocuments !== undefined && (typeof parsed.profileDocuments !== "string" || !parsed.profileDocuments.trim())) {
+      throw new Error("profileDocuments must be a non-empty string when provided");
+    }
     return {
       version: 1,
       actor: parsed.actor.trim(),
       ...(parsed.profile ? { profile: parsed.profile } : {}),
+      ...(parsed.profileDocuments ? { profileDocuments: parsed.profileDocuments } : {}),
     };
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -90,6 +108,10 @@ export function resolveGigFinderContext(
       ?? optionalAbsolute(environment.JOB_SEARCH_ARTIFACTS)
       ?? path.join(root, "artifacts"),
     profile,
+    profileDocuments: optionalAbsolute(environment.GIG_FINDER_PROFILE_DOCUMENTS)
+      ?? (config.profileDocuments
+        ? relativeContextPath(root, config.profileDocuments, "profileDocuments")
+        : path.join(root, "profile", "documents")),
     logs: optionalAbsolute(environment.LOG_DIRECTORY)
       ?? path.join(root, "logs"),
     backups: optionalAbsolute(environment.GIG_FINDER_BACKUP_ROOT)

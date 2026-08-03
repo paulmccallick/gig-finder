@@ -9,14 +9,14 @@ Project](https://github.com/users/paulmccallick/projects/5).
 
 ## GitHub workflow
 
-The GitHub Project is the workflow source of truth. Statuses are Backlog
-(unrefined), Grooming (requirements being refined), Development
-(implementation or verification underway), and Done (closed and hidden).
-Before grooming, developing, or closing an issue, ask the user whether to move
-it to the matching status. Create branches from `main` and link each pull
-request with `Closes #<issue>`. Changes to `main` must arrive through pull
-requests. Merging a linked pull request closes the issue; GitHub automation
-sets Done and the board hides it. Do not use labels as workflow statuses.
+- The GitHub Project is the workflow source of truth for issue defintion and status.
+- Statuses are backlog, grooming, development, and done
+  - grroming means issue details and implementation are being defined
+  - development meands it is currently in progress
+  - done means the user has signed off on the issue
+- move issues to the correct status when working with the user
+- always create a feature branch when working on an issue.
+- always create a PR when done with the development of an issue
 
 ## Development rules
 
@@ -34,6 +34,3 @@ sets Done and the board hides it. Do not use labels as workflow statuses.
 - Limit scope to the requested feature
 - Apply SOLID principles
 - Be pragmatic - avoid unecessary obfuscation
-- Treat TypeScript types as executable design constraints: flag unchecked
-  external data, unjustified `any` or assertions, incomplete union handling,
-  and public types that permit impossible states.

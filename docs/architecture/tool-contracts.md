@@ -22,7 +22,7 @@ GigFinderAgent has twelve read tools and nine mutation tools.
 | `update_task` | Updates mutable fields on one existing task. |
 | `create_meeting` | Creates a meeting linked to one or more existing people and optionally one existing gig. |
 | `update_meeting` | Updates mutable fields and the complete participant list of one existing meeting. |
-| `create_document` | Creates a versioned document linked to existing gigs and/or people from inline content or an exact staged reference. |
+| `create_document` | Creates a versioned document linked to existing gigs, people, or the candidate Profile from inline content or an exact staged reference. |
 | `update_document` | Replaces a managed document's current content while preserving prior versions. |
 | `revert_change` | Reverts one eligible change unless a later revision exists. |
 
@@ -101,13 +101,17 @@ can be cleared. Completing a task records the server date, while reopening or
 canceling clears the completion date.
 
 Document tools use strict, domain-enum-backed schemas. Text creation accepts
-nonempty gig/person links, type, nullable title, media type, source description,
-and flat source-kind, content, and reference fields. Inline content requires
+nonempty Gig/Person/Profile links, type, nullable title and description, media
+type, source description, and flat source-kind, content, and reference fields. Inline content requires
 content and a null reference; staged content requires a null content field, an
 exact staged reference, and Markdown media type. These combinations are
 validated locally because the provider's strict tool-schema subset rejects
-nested JSON Schema unions. Profiles require
-exactly one person link and may also link to gigs. Updates accept
+nested JSON Schema unions. Person profile documents require exactly one Person
+link and may also link to Gigs. Profile context documents link only to Profile
+`candidate`, require a name, reject the Person-profile document type, and may
+store a description of up to 255 characters. Their names, IDs, types, versions,
+and descriptions are serialized as untrusted discovery metadata in system
+context; content remains available on demand through `get_document`. Updates accept
 an exact managed-document ID, expected current version, replacement content,
 and change summary. They return links, the document ID, current version,
 content hash, change ID, and whether content changed; identical content is a
@@ -140,7 +144,10 @@ Staging does not invoke the agent. The panel retains the upload as an attachment
 and adds only its staged reference to the user's next message. The agent can
 read it with `get_document`, determine an appropriate action, and use
 `search_gigs_and_people` when names need resolution; that core service
-composes the existing Gig and Person list searches. If context is ambiguous,
+composes the existing Gig and Person list searches. Profile-owned uploads use
+the same flow and materialize as Markdown beneath the configured private
+Profile-document directory. SQLite records the materialized version so failed
+writes can be retried without replaying the mutation. If context is ambiguous,
 the agent asks one targeted question. `create_document` resolves staged content
 server-side, preserving its filename, detected media type, source hash,
 converter/version, warnings, and upload time. Saved uploads cannot be changed

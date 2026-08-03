@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { GigData, PersonData } from "../../core/src/models";
@@ -60,6 +60,41 @@ afterEach(async () => {
 });
 
 describe("managed document CLI", () => {
+  test("creates and lists a named Profile context document", async () => {
+    const { database, artifacts } = await workspace();
+    const contentFile = path.join(directory, "interview-stories.md");
+    await Bun.write(contentFile, "# Interview stories\n\nSynthetic example.");
+
+    const created = await run([
+      "documents", "create", "--profile",
+      "--type", "interview_prep",
+      "--title", "Interview stories",
+      "--description", "Behavioral examples for interview preparation.",
+      "--media-type", "text/markdown",
+      "--content-file", contentFile,
+    ], database, artifacts);
+    const filePath = created.record.filePath as string;
+
+    expect(created.record).toMatchObject({
+      links: [{ entityType: "profile", entityId: "candidate" }],
+      title: "Interview stories",
+      description: "Behavioral examples for interview preparation.",
+    });
+    expect(filePath).toMatch(/^interview-stories-[0-9a-f]{8}\.md$/);
+    expect(await run(
+      ["documents", "list", "--profile"],
+      database,
+      artifacts,
+    )).toMatchObject({
+      link: { entityType: "profile", entityId: "candidate" },
+      records: [{ id: created.record.id, title: "Interview stories" }],
+    });
+    expect(await readFile(
+      path.join(directory, "profile-documents", filePath),
+      "utf8",
+    )).toBe("# Interview stories\n\nSynthetic example.");
+  });
+
   test("creates a person profile with a friendly fallback and exposes it on linked records", async () => {
     const { database, artifacts } = await workspace();
     const contentFile = path.join(directory, "profile.md");
@@ -309,6 +344,7 @@ async function invoke(args: string[], database: string, artifacts: string) {
       ...process.env,
       GIG_FINDER_DATABASE: database,
       GIG_FINDER_ARTIFACTS: artifacts,
+      GIG_FINDER_PROFILE_DOCUMENTS: path.join(directory, "profile-documents"),
       GIG_FINDER_ACTOR: "cli-test",
     },
     stdout: "pipe",

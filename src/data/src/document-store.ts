@@ -17,14 +17,18 @@ import type {
   DocumentReadRepository,
   DocumentWriteRepository,
 } from "../../core/src/ports";
+import { PersistenceConsistencyError } from "../../core/src/errors";
 import { NotFoundError, RevisionConflictError } from "./errors";
 
 type DocumentRow = {
   id: string;
   document_type: ManagedDocumentData["documentType"];
   title: string | null;
+  description: string | null;
   media_type: ManagedDocumentData["mediaType"];
   source_description: string | null;
+  file_path: string | null;
+  materialized_version: number | null;
   upload_provenance_json: string | null;
   current_version: number;
   created_at: string;
@@ -54,8 +58,10 @@ const fromRow = (row: DocumentRow, links: DocumentLink[]): ManagedDocumentRecord
     links,
     documentType: row.document_type,
     title: row.title,
+    description: row.description,
     mediaType: row.media_type,
     sourceDescription: row.source_description,
+    filePath: row.file_path,
     uploadProvenance: row.upload_provenance_json
       ? uploadedDocumentProvenanceSchema.parse(JSON.parse(row.upload_provenance_json))
       : null,
@@ -103,7 +109,11 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
     entityType: DocumentLinkEntityType,
     entityId: string,
   ): ManagedDocumentRecord[] {
-    const targetColumn = entityType === "gig" ? "gig_id" : "person_id";
+    const targetColumn = entityType === "gig"
+      ? "gig_id"
+      : entityType === "person"
+        ? "person_id"
+        : "profile_id";
     const rows = this.database.query(
       `${selectCurrent}
        JOIN managed_document_links l ON l.document_id = d.id
@@ -121,14 +131,55 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
     return rows.map(versionFromRow);
   }
 
+  listPendingProfileMaterializations(): ManagedDocumentRecord[] {
+    const rows = this.database.query(
+      `${selectCurrent}
+       JOIN managed_document_links l ON l.document_id = d.id
+       WHERE l.profile_id IS NOT NULL
+         AND d.file_path IS NOT NULL
+         AND (d.materialized_version IS NULL OR d.materialized_version <> d.current_version)
+       ORDER BY d.id`,
+    ).all() as DocumentRow[];
+    return rows.map(row => fromRow(row, this.links(row.id)));
+  }
+
+  markProfileMaterialized(id: string, version: number): void {
+    const result = this.database.query(
+      `UPDATE managed_documents
+       SET materialized_version = ?
+       WHERE id = ? AND current_version = ? AND file_path IS NOT NULL`,
+    ).run(version, id, version);
+    if (result.changes !== 1) {
+      throw new Error(
+        `Profile document ${id} changed before version ${version} could be marked materialized.`,
+      );
+    }
+  }
+
   private links(documentId: string): DocumentLink[] {
     const rows = this.database.query(
-      `SELECT gig_id, person_id FROM managed_document_links
-       WHERE document_id = ? ORDER BY person_id, gig_id`,
-    ).all(documentId) as Array<{ gig_id: string | null; person_id: string | null }>;
-    return rows.map(row => row.gig_id
-      ? { entityType: "gig" as const, entityId: row.gig_id }
-      : { entityType: "person" as const, entityId: row.person_id! });
+      `SELECT id, gig_id, person_id, profile_id FROM managed_document_links
+       WHERE document_id = ? ORDER BY profile_id, person_id, gig_id`,
+    ).all(documentId) as Array<{
+      id: number;
+      gig_id: string | null;
+      person_id: string | null;
+      profile_id: string | null;
+    }>;
+    return rows.map(row => {
+      const targets = [
+        row.gig_id ? { entityType: "gig" as const, entityId: row.gig_id } : null,
+        row.person_id ? { entityType: "person" as const, entityId: row.person_id } : null,
+        row.profile_id ? { entityType: "profile" as const, entityId: row.profile_id } : null,
+      ].filter((target): target is DocumentLink => target !== null);
+      const [target] = targets;
+      if (!target || targets.length !== 1) {
+        throw new PersistenceConsistencyError(
+          `Managed document link ${row.id} for document ${documentId} has ${targets.length} targets; expected exactly one.`,
+        );
+      }
+      return target;
+    });
   }
 }
 
@@ -154,16 +205,19 @@ export class SqliteDocumentWriteRepository
     const occurredAt = timestamp(this.context);
     this.database.query(
       `INSERT INTO managed_documents (
-        id, document_type, title, media_type,
-        source_description, upload_provenance_json, current_version,
+        id, document_type, title, description, media_type,
+        source_description, file_path, materialized_version,
+        upload_provenance_json, current_version,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 1, ?, ?)`,
     ).run(
       input.document.id,
       input.document.documentType,
       input.document.title,
+      input.document.description,
       input.document.mediaType,
       input.document.sourceDescription,
+      input.document.filePath,
       input.document.uploadProvenance
         ? JSON.stringify(input.document.uploadProvenance)
         : null,
@@ -172,12 +226,13 @@ export class SqliteDocumentWriteRepository
     );
     for (const link of input.document.links) {
       this.database.query(
-        `INSERT INTO managed_document_links (document_id, gig_id, person_id)
-         VALUES (?, ?, ?)`,
+        `INSERT INTO managed_document_links (document_id, gig_id, person_id, profile_id)
+         VALUES (?, ?, ?, ?)`,
       ).run(
         input.document.id,
         link.entityType === "gig" ? link.entityId : null,
         link.entityType === "person" ? link.entityId : null,
+        link.entityType === "profile" ? link.entityId : null,
       );
     }
     this.insertVersion({

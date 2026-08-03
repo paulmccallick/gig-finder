@@ -11,7 +11,7 @@ if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
 }
 
 const context = resolveGigFinderContext(repoRoot);
-const local = openLocalApplication({database:context.database,artifacts:context.artifacts});
+const local = openLocalApplication({database:context.database,artifacts:context.artifacts,profileDocuments:context.profileDocuments});
 
 try {
   await runCli(args, {
