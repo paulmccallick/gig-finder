@@ -206,7 +206,7 @@ export async function runCli(args: string[], runtime: CliRuntime) {
   if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(runtime);console.log(JSON.stringify({ok:true,result},null,2));return}
   const aliases:Record<string,string>={gigs:"gig",tasks:"task",people:"person","gig-people":"gig-person",meetings:"meeting",events:"event"};
   const [rawEntity, command, id, ...rest] = args;const entity=aliases[rawEntity??""]??rawEntity;
-  if (!["gig", "person", "gig-person", "task", "meeting", "event"].includes(entity ?? "") || !["get", "list", "update", "touch", "add", "complete"].includes(command ?? "")) throw new Error(usage);
+  if (!entity || !["gig", "person", "gig-person", "task", "meeting", "event"].includes(entity) || !["get", "list", "update", "touch", "add", "complete"].includes(command ?? "")) throw new Error(usage);
   if (entity === "event" && command === "list") {
     const flags = parseFlags(args.slice(2));
     console.log(JSON.stringify({ok:true,entity,command,records:listEvents(runtime,optional(flags,"entity-type"),optional(flags,"entity-id"))},null,2));

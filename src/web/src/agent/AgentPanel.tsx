@@ -682,7 +682,7 @@ export function AgentPanel({
                     : undefined,
                   status,
                 });
-                stop();
+                void stop();
               }}>Stop <i /></button>
             : <button className="agent-send" type="submit" disabled={modelSaving || (!input.trim() && !upload)}>Send <span>↗</span></button>}
         </div>

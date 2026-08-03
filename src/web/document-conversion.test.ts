@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import JSZip from "jszip";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
-  DocumentConversionError,
   LocalDocumentConverter,
 } from "./document-conversion";
 
@@ -96,7 +95,7 @@ describe("local document conversion", () => {
       declaredMediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       bytes: await docxFixture(100_000),
       uploadedAt,
-    })).rejects.toMatchObject<DocumentConversionError>({
+    })).rejects.toMatchObject({
       code: "extraction_too_large",
     });
   });
@@ -115,7 +114,7 @@ describe("local document conversion", () => {
       declaredMediaType: "application/pdf",
       bytes: await pdfFixture(false),
       uploadedAt,
-    })).rejects.toMatchObject<DocumentConversionError>({ code: "image_only_pdf" });
+    })).rejects.toMatchObject({ code: "image_only_pdf" });
   });
 
   test("rejects unsupported types, mismatched signatures, and configured limits", async () => {
@@ -124,13 +123,13 @@ describe("local document conversion", () => {
       declaredMediaType: "text/plain",
       bytes: new TextEncoder().encode("Role"),
       uploadedAt,
-    })).rejects.toMatchObject<DocumentConversionError>({ code: "unsupported_file" });
+    })).rejects.toMatchObject({ code: "unsupported_file" });
     await expect(converter.convert({
       filename: "role.pdf",
       declaredMediaType: "application/pdf",
       bytes: new TextEncoder().encode("not a pdf"),
       uploadedAt,
-    })).rejects.toMatchObject<DocumentConversionError>({ code: "malformed_document" });
+    })).rejects.toMatchObject({ code: "malformed_document" });
     const tinyConverter = new LocalDocumentConverter({
       maxBytes: 2,
       maxCharacters: 50_000,
@@ -142,7 +141,7 @@ describe("local document conversion", () => {
       declaredMediaType: "text/markdown",
       bytes: new TextEncoder().encode("too long"),
       uploadedAt,
-    })).rejects.toMatchObject<DocumentConversionError>({ code: "upload_too_large" });
+    })).rejects.toMatchObject({ code: "upload_too_large" });
   });
 
   test("rejects provenance metadata that cannot be persisted", async () => {
@@ -151,7 +150,7 @@ describe("local document conversion", () => {
       declaredMediaType: "text/markdown",
       bytes: new TextEncoder().encode("# Role"),
       uploadedAt: "not-a-timestamp",
-    })).rejects.toMatchObject<DocumentConversionError>({
+    })).rejects.toMatchObject({
       code: "malformed_document",
     });
   });
