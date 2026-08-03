@@ -10,8 +10,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   non-persisting dry-run previews where available.
 - The agent window uses the candidate profile; reads complete current gigs,
   people, networking contacts, gig-person relationships, tasks, and registered
-  meetings and documents; updates existing gigs and contacts; and manages
-  documents.
+  meetings and documents; updates existing gigs and contacts; creates and
+  updates meetings; and manages documents.
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
   locally to Markdown, and attaches a staged reference to the user's next
   message so the agent can determine what to do without altering the source.
@@ -53,6 +53,6 @@ relationship types. User interfaces display document names rather than IDs.
 
 Agent tools cannot create or delete gigs, contacts, or tasks, delete managed documents,
 or access arbitrary files, history, email, calendars, or external
-services. Agent mutations are audited; gig and contact updates can be reverted
+services. Agent mutations are audited; gig, contact, and meeting updates can be reverted
 when no later edit would be overwritten. The agent verifies the intended change
 with the user before mutating records or documents.

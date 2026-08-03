@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-GigFinderAgent has fourteen read tools and five mutation tools.
+GigFinderAgent has fourteen read tools and seven mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -20,6 +20,8 @@ GigFinderAgent has fourteen read tools and five mutation tools.
 | `search_gigs_and_contacts` | Resolves company or person names to existing gigs and contacts, ignoring punctuation and case. |
 | `update_gig` | Updates mutable fields on one existing gig. |
 | `update_networking_contact` | Atomically updates mutable person and networking fields for one contact. |
+| `create_meeting` | Creates a meeting linked to one or more existing people and optionally one existing gig. |
+| `update_meeting` | Updates mutable fields and the complete participant list of one existing meeting. |
 | `create_document` | Creates a versioned document linked to existing gigs and/or people from inline content or an exact staged reference. |
 | `update_document` | Replaces a managed document's current content while preserving prior versions. |
 | `revert_change` | Reverts one eligible change unless a later revision exists. |
@@ -77,11 +79,21 @@ Meeting records expose `personIds` from the versioned participant join and a
 nullable `gigId`; missing links and meetings without participants return
 `consistency_error`.
 
-Gig and contact tools use structurally strict operation lists. Field and value
+Gig, contact, and meeting update tools use structurally strict operation lists. Field and value
 descriptions enumerate accepted domain values; the agent adapter translates
 operations into, and validates them against, the update schemas in
 `src/core/src/update-contracts.ts`. The CLI uses those core schemas directly.
 See [ADR 0001](decisions/0001-agent-update-contracts.md).
+
+`create_meeting` requires title, offset-bearing start and end timestamps, a
+valid IANA timezone, a domain-derived status, and one or more unique Person IDs. Nullable
+Gig ID, location, and description properties remain present for strict-schema
+compatibility. The server generates the Meeting ID and leaves external-calendar
+identifiers unset. `update_meeting` supports title, timestamps, timezone,
+status, participant Person IDs, Gig ID, location, and description. Setting
+`personIds` replaces the complete participant list; Gig ID, location, and
+description can be cleared. Meeting and participant changes are atomic.
+Meeting updates can be reverted when no later edit would be overwritten.
 
 Document tools use strict, domain-enum-backed schemas. Text creation accepts
 nonempty gig/person links, type, nullable title, media type, source description,
@@ -101,7 +113,7 @@ friendly `displayName`.
 The display name is the explicit title, otherwise the uploaded filename,
 otherwise a friendly label for the document type.
 
-Successful gig and contact updates return the persisted record and change ID.
+Successful gig, contact, and meeting mutations return the persisted record and change ID.
 The agent verifies the intended change with the user before invoking a mutation.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
 later-revision conflicts. Failures distinguish validation, not found,

@@ -5,6 +5,7 @@ import {
   contactStatuses,
   relationshipStrengths,
 } from "./network";
+import { meetingStatuses, meetingTimezoneSchema } from "./meetings";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must use YYYY-MM-DD.");
 const nullableText = z.string().trim().nullable();
@@ -136,5 +137,27 @@ export const networkingContactUpdateSchema = nonEmptyPatch({
     .describe("Complete replacement list of contact tags."),
 }, "Networking-contact update must contain at least one field.");
 
+export const meetingUpdateSchema = nonEmptyPatch({
+  title: z.string().trim().min(1).optional()
+    .describe("Meeting title."),
+  startsAt: z.string().datetime({ offset: true }).optional()
+    .describe("Meeting start as an ISO 8601 timestamp with an offset."),
+  endsAt: z.string().datetime({ offset: true }).optional()
+    .describe("Meeting end as an ISO 8601 timestamp with an offset."),
+  timezone: meetingTimezoneSchema.optional()
+    .describe("IANA timezone used to present the meeting time."),
+  status: z.enum(meetingStatuses).optional()
+    .describe("Current meeting status."),
+  personIds: z.array(z.string().trim().min(1)).min(1).optional()
+    .describe("Complete replacement list of participant Person IDs."),
+  gigId: z.string().trim().min(1).nullable().optional()
+    .describe("Related Gig ID, or null to clear it."),
+  location: nullableText.optional()
+    .describe("Meeting location, or null to clear it."),
+  description: nullableText.optional()
+    .describe("Meeting description or notes, or null to clear them."),
+}, "Meeting update must contain at least one field.");
+
 export type GigUpdate = z.infer<typeof gigUpdateSchema>;
 export type NetworkingContactUpdate = z.infer<typeof networkingContactUpdateSchema>;
+export type MeetingUpdate = z.infer<typeof meetingUpdateSchema>;

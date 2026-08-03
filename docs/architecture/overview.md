@@ -53,7 +53,8 @@ facade.
   transactions in `src/data/src/store.ts`.
 - Each mutable entity table in `src/data/src/schema.ts` has a companion
   `*_history` table; updates and deletes copy the prior revision there with its
-  operation and `change_id`.
+  operation and `change_id`. Reversible relationship additions also record a
+  `create` entry.
 - The `changes` table groups all records written by one transaction into one
   audited change.
 - Meeting attendees use versioned participant and participant-history tables;

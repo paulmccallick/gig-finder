@@ -15,6 +15,7 @@ import type {
   ManagedDocumentService,
   MeetingQueryInput,
   MeetingService,
+  MeetingUpdate,
   NetworkingContactQueryInput,
   NetworkingContactUpdate,
   PeopleQueryInput,
@@ -27,6 +28,7 @@ import type {
 import { DomainValidationError, MutationError } from "../core/src/errors";
 import {
   gigUpdateSchema,
+  meetingUpdateSchema,
   networkingContactUpdateSchema,
 } from "../core/src/update-contracts";
 import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
@@ -44,15 +46,24 @@ import {
 } from "../core/src/documents";
 import { stagedDocumentReferencePattern } from "../core/src/staged-documents";
 import { gigPersonRelationships } from "../core/src/people";
-import { meetingStatuses } from "../core/src/meetings";
+import { meetingStatuses, meetingTimezoneSchema } from "../core/src/meetings";
 import {
   contactChangesSchema,
   gigChangesSchema,
+  meetingChangesSchema,
 } from "./update-tool-schemas";
 
 const nonEmptyArray = <T extends readonly [string, ...string[]]>(values: T) =>
   z.array(z.enum(values)).min(1);
 const nonEmptyIdArray = z.array(z.string().trim().min(1).max(200)).min(1);
+const uniquePersonIds = nonEmptyIdArray.superRefine((ids, context) => {
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({
+      code: "custom",
+      message: "Participant Person IDs must be unique.",
+    });
+  }
+});
 
 const pageSchema = {
   offset: z.number().int().min(0).nullable()
@@ -166,6 +177,33 @@ const updateNetworkingContactInputSchema = z.object({
   id: getInputSchema.shape.id,
   changes: contactChangesSchema
     .describe("One or more explicit changes to mutable networking-contact fields."),
+}).strict();
+
+const createMeetingInputSchema = z.object({
+  title: z.string().trim().min(1)
+    .describe("Meeting title."),
+  startsAt: z.string().datetime({ offset: true })
+    .describe("Meeting start as an ISO 8601 timestamp with an offset."),
+  endsAt: z.string().datetime({ offset: true })
+    .describe("Meeting end as an ISO 8601 timestamp with an offset."),
+  timezone: meetingTimezoneSchema
+    .describe("IANA timezone used to present the meeting time."),
+  status: z.enum(meetingStatuses)
+    .describe("Meeting status: confirmed or completed."),
+  personIds: uniquePersonIds
+    .describe("One or more unique, exact durable Person IDs returned by a person or contact tool."),
+  gigId: z.string().trim().min(1).nullable()
+    .describe("Exact durable Gig ID returned by a gig tool, or null when the meeting is not gig-specific."),
+  location: z.string().trim().nullable()
+    .describe("Meeting location, or null when it is unknown or not applicable."),
+  description: z.string().trim().nullable()
+    .describe("Meeting description or notes, or null when none were supplied."),
+}).strict();
+
+const updateMeetingInputSchema = z.object({
+  id: getInputSchema.shape.id,
+  changes: meetingChangesSchema
+    .describe("One or more explicit changes to mutable meeting fields."),
 }).strict();
 
 const revertChangeInputSchema = z.object({
@@ -295,6 +333,7 @@ export interface GigFinderMutationCapabilities {
   networking: {
     update(context: ChangeContext, id: string, patch: NetworkingContactUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
+  meetings: Pick<MeetingService, "create" | "update">;
   changes: Pick<ChangeService, "revert">;
   documents: Pick<ManagedDocumentService, "create" | "update">;
 }
@@ -323,7 +362,13 @@ function gigReferencesForPerson(
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-function toolInvocationDetails(input: ToolInput) {
+function toolInvocationDetails(input: ToolInput, toolName: string) {
+  const meetingCreationFields = toolName === "create_meeting"
+    ? [
+        "title", "startsAt", "endsAt", "timezone", "status", "personIds",
+        "gigId", "location", "description",
+      ]
+    : [];
   const appliedFilters = Object.fromEntries(
     Object.entries(input)
       .filter(([key]) =>
@@ -332,6 +377,7 @@ function toolInvocationDetails(input: ToolInput) {
           "changes", "changeId", "links", "documentType", "documentId",
           "expectedVersion", "title", "mediaType", "sourceDescription", "content",
           "changeSummary", "sourceKind",
+          ...meetingCreationFields,
         ].includes(key)
       )
       .filter(([, value]) =>
@@ -380,6 +426,12 @@ function toolInvocationDetails(input: ToolInput) {
     ...(input.changes === undefined
       ? {}
       : { updateFields: input.changes.map(change => change.field) }),
+    ...(toolName !== "create_meeting"
+      ? {}
+      : {
+          participantIds: Array.isArray(input.personIds) ? input.personIds : [],
+          ...(typeof input.gigId === "string" ? { gigId: input.gigId } : {}),
+        }),
     filterMode: Object.keys(filters).length === 0 ? "unfiltered" : "filtered",
     appliedFilters: filters,
     ...(
@@ -423,6 +475,12 @@ function contactPatchFromOperations(
   changes: z.infer<typeof contactChangesSchema>,
 ): NetworkingContactUpdate {
   return networkingContactUpdateSchema.parse(changesToPatch(changes));
+}
+
+function meetingPatchFromOperations(
+  changes: z.infer<typeof meetingChangesSchema>,
+): MeetingUpdate {
+  return meetingUpdateSchema.parse(changesToPatch(changes));
 }
 
 function normalizeGigsInput(
@@ -604,7 +662,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
       event: "agent.tool.started",
       toolName,
       toolCallId: options.toolCallId,
-      ...toolInvocationDetails(input),
+      ...toolInvocationDetails(input, toolName),
     }, "Starting agent tool");
     try {
       const result = await execute(input, options);
@@ -613,7 +671,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         event: "agent.tool.completed",
         toolName,
         toolCallId: options.toolCallId,
-        ...toolInvocationDetails(input),
+        ...toolInvocationDetails(input, toolName),
         ...summary,
         durationMs: Math.round(performance.now() - startedAt),
       };
@@ -628,7 +686,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         event: "agent.tool.failed",
         toolName,
         toolCallId: options.toolCallId,
-        ...toolInvocationDetails(input),
+        ...toolInvocationDetails(input, toolName),
         durationMs: Math.round(performance.now() - startedAt),
         err: error,
       }, "Agent tool failed");
@@ -645,7 +703,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         return { status: "error", error: error.code, message: error.message };
       }
       const message = error instanceof Error ? error.message : "";
-      if (/^(Gig|Contact) not found:/.test(message)) {
+      if (/^(Gig|Contact|Meeting) not found:/.test(message)) {
         return { status: "error", error: "not_found", message };
       }
       return {
@@ -862,6 +920,47 @@ export function createGigFinderTools(
         }),
       ),
     }),
+    create_meeting: tool({
+      strict: true,
+      description: "Create one meeting linked to one or more existing people and optionally one existing gig. Supply exact durable IDs and report the resulting record and change ID to the user.",
+      inputSchema: createMeetingInputSchema,
+      execute: loggedExecution(
+        logger,
+        "create_meeting",
+        (input, { toolCallId }) => ({
+          status: "ok" as const,
+          ...mutations.meetings.create({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent created meeting (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, {
+            id: `meeting_${crypto.randomUUID()}`,
+            ...input,
+            externalCalendarId: null,
+            externalEventId: null,
+          }),
+        }),
+      ),
+    }),
+    update_meeting: tool({
+      strict: true,
+      description: "Update one existing meeting using explicit set or clear operations. Supply only desired changes and report the resulting record and change ID to the user.",
+      inputSchema: updateMeetingInputSchema,
+      execute: loggedExecution(
+        logger,
+        "update_meeting",
+        ({ id, changes }, { toolCallId }) => ({
+          status: "ok" as const,
+          ...mutations.meetings.update({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent updated meeting ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, id, meetingPatchFromOperations(changes)),
+        }),
+      ),
+    }),
     create_document: tool({
       strict: true,
       description: "Create a managed text document linked to existing gigs or people from inline conversation content or an exact staged-document reference. First resolve the links and intended action; ask one targeted question when required context remains ambiguous. Preserve supplied source content without rewriting it and report the document ID, version, and change ID.",
@@ -989,6 +1088,8 @@ export const gigFinderToolSchemas = {
   get_document: getDocumentInputSchema,
   update_gig: updateGigInputSchema,
   update_networking_contact: updateNetworkingContactInputSchema,
+  create_meeting: createMeetingInputSchema,
+  update_meeting: updateMeetingInputSchema,
   create_document: createDocumentInputSchema,
   update_document: updateDocumentInputSchema,
   revert_change: revertChangeInputSchema,

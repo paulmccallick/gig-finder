@@ -5,6 +5,7 @@ import {
   contactStatuses,
   relationshipStrengths,
 } from "../core/src/network";
+import { meetingStatuses } from "../core/src/meetings";
 
 const updateValueSchema = z.union([
   z.string(),
@@ -30,6 +31,11 @@ const contactUpdateFields = [
   "outreach.lastContactMethod", "outreach.lastContactSummary",
   "outreach.nextAction", "outreach.nextActionDue", "whyInteresting", "notes",
   "tags",
+] as const;
+
+const meetingUpdateFields = [
+  "title", "startsAt", "endsAt", "timezone", "status", "personIds",
+  "gigId", "location", "description",
 ] as const;
 
 const list = (values: readonly string[]) => values.join(", ");
@@ -68,6 +74,20 @@ const contactValueDescription = [
   "Use YYYY-MM-DD for date fields, a valid URL for linkedInProfileUrl,",
   "and a string array for notes or tags.",
   "For clear operations use null; only nullable fields can be cleared.",
+].join(" ");
+
+const meetingFieldDescription = [
+  "Exact mutable meeting field.",
+  `status values: ${list(meetingStatuses)}.`,
+  "personIds replaces the complete participant list.",
+].join(" ");
+
+const meetingValueDescription = [
+  "Value appropriate to the selected meeting field.",
+  `For status use one of: ${list(meetingStatuses)}.`,
+  "Use ISO 8601 timestamps with offsets for startsAt and endsAt,",
+  "an exact durable ID for gigId, and a string array of exact durable Person IDs for personIds.",
+  "For clear operations use null; only gigId, location, and description can be cleared.",
 ].join(" ");
 
 function operationListSchema<T extends readonly [string, ...string[]]>(
@@ -157,4 +177,14 @@ export const contactChangesSchema = operationListSchema(
   new Set(),
   contactFieldDescription,
   contactValueDescription,
+);
+
+export const meetingChangesSchema = operationListSchema(
+  meetingUpdateFields,
+  new Set([
+    "gigId", "location", "description",
+  ] satisfies typeof meetingUpdateFields[number][]),
+  new Set(),
+  meetingFieldDescription,
+  meetingValueDescription,
 );
