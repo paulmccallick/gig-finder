@@ -24,7 +24,11 @@ import type {
   TaskQueryInput,
   TaskUpdate,
 } from "../core/src";
-import { DomainValidationError, MutationError } from "../core/src/errors";
+import {
+  DomainValidationError,
+  MutationError,
+  PersistenceConsistencyError,
+} from "../core/src/errors";
 import {
   gigUpdateSchema,
   meetingUpdateSchema,
@@ -306,6 +310,7 @@ type ToolInput = {
   relatedEntity?: { type: string; id: string | null };
   links?: Array<{ entityType: string; entityId: string }>;
   documentType?: string;
+  description?: string | null;
   expectedVersion?: number;
   sourceKind?: "inline_content" | "staged_document";
   content?: string | null;
@@ -317,6 +322,7 @@ export interface ToolFailure {
   error:
     | "duplicate_change"
     | "not_found"
+    | "consistency_error"
     | "not_revertible"
     | "revision_conflict"
     | "validation_failed"
@@ -387,7 +393,7 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
           "id", "reference", "query", "offset", "limit", "relatedEntityId",
           "changes", "changeId", "links", "documentType", "documentId",
           "expectedVersion", "title", "mediaType", "sourceDescription", "content",
-          "changeSummary", "sourceKind",
+          "description", "changeSummary", "sourceKind",
           ...meetingCreationFields,
           ...taskCreationFields,
         ].includes(key)
@@ -717,6 +723,13 @@ function loggedExecution<TInput extends ToolInput, TResult>(
       }
       if (error instanceof MutationError) {
         return { status: "error", error: error.code, message: error.message };
+      }
+      if (error instanceof PersistenceConsistencyError) {
+        return {
+          status: "error",
+          error: error.code,
+          message: error.message,
+        };
       }
       const message = error instanceof Error ? error.message : "";
       if (/^(Gig|Meeting|Person|Task) not found:/.test(message)) {

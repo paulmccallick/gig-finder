@@ -37,6 +37,26 @@ test("configures the private Profile document directory", async () => {
   }).profileDocuments).toBe(path.join(directory, "override"));
 });
 
+test("rejects configured Profile document directories outside the context root", async () => {
+  directory = await mkdtemp(path.join(tmpdir(), "gig-finder-context-"));
+  const root = path.join(directory, "context");
+  await mkdir(root, { recursive: true });
+
+  for (const profileDocuments of ["../outside", path.join(directory, "absolute")]) {
+    await writeFile(path.join(root, "config.json"), JSON.stringify({
+      version: 1,
+      actor: "Example Candidate",
+      profileDocuments,
+    }));
+    expect(() => resolveGigFinderContext(directory, {}))
+      .toThrow(/profileDocuments must/);
+  }
+
+  expect(resolveGigFinderContext(directory, {
+    GIG_FINDER_PROFILE_DOCUMENTS: path.join(directory, "explicit-override"),
+  }).profileDocuments).toBe(path.join(directory, "explicit-override"));
+});
+
 test("discovers legacy private context without moving it", async () => {
   directory = await mkdtemp(path.join(tmpdir(), "gig-finder-context-"));
   const root = path.join(directory, "private-context");

@@ -110,8 +110,8 @@ nested JSON Schema unions. Person profile documents require exactly one Person
 link and may also link to Gigs. Profile context documents link only to Profile
 `candidate`, require a name, reject the Person-profile document type, and may
 store a description of up to 255 characters. Their names, IDs, types, versions,
-and descriptions are included in system context; content remains available on
-demand through `get_document`. Updates accept
+and descriptions are serialized as untrusted discovery metadata in system
+context; content remains available on demand through `get_document`. Updates accept
 an exact managed-document ID, expected current version, replacement content,
 and change summary. They return links, the document ID, current version,
 content hash, change ID, and whether content changed; identical content is a
@@ -146,7 +146,8 @@ read it with `get_document`, determine an appropriate action, and use
 `search_gigs_and_people` when names need resolution; that core service
 composes the existing Gig and Person list searches. Profile-owned uploads use
 the same flow and materialize as Markdown beneath the configured private
-Profile-document directory. If context is ambiguous,
+Profile-document directory. SQLite records the materialized version so failed
+writes can be retried without replaying the mutation. If context is ambiguous,
 the agent asks one targeted question. `create_document` resolves staged content
 server-side, preserving its filename, detected media type, source hash,
 converter/version, warnings, and upload time. Saved uploads cannot be changed

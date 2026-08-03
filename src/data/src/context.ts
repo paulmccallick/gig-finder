@@ -27,6 +27,18 @@ function optionalAbsolute(value: string | undefined) {
   return trimmed ? path.resolve(trimmed) : undefined;
 }
 
+function relativeContextPath(root: string, value: string, property: string) {
+  if (path.isAbsolute(value)) {
+    throw new Error(`${property} must be relative to the context root`);
+  }
+  const resolved = path.resolve(root, value);
+  const relative = path.relative(root, resolved);
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    throw new Error(`${property} must resolve to a directory within the context root`);
+  }
+  return resolved;
+}
+
 function hasDatabaseContents(filename: string) {
   try {
     return statSync(filename).size > 0;
@@ -98,7 +110,7 @@ export function resolveGigFinderContext(
     profile,
     profileDocuments: optionalAbsolute(environment.GIG_FINDER_PROFILE_DOCUMENTS)
       ?? (config.profileDocuments
-        ? path.resolve(root, config.profileDocuments)
+        ? relativeContextPath(root, config.profileDocuments, "profileDocuments")
         : path.join(root, "profile", "documents")),
     logs: optionalAbsolute(environment.LOG_DIRECTORY)
       ?? path.join(root, "logs"),

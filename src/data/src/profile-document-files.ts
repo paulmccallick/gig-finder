@@ -11,7 +11,6 @@ import type { ManagedDocumentRecord } from "../../core/src/documents";
 
 export interface ProfileDocumentMaterializer {
   write(document: ManagedDocumentRecord): void;
-  synchronize(documents: ManagedDocumentRecord[]): void;
 }
 
 export class LocalProfileDocumentFiles implements ProfileDocumentMaterializer {
@@ -38,9 +37,5 @@ export class LocalProfileDocumentFiles implements ProfileDocumentMaterializer {
     } finally {
       if (existsSync(temporary)) unlinkSync(temporary);
     }
-  }
-
-  synchronize(documents: ManagedDocumentRecord[]): void {
-    for (const document of documents) this.write(document);
   }
 }

@@ -121,6 +121,7 @@ export const managedDocuments = sqliteTable("managed_documents", {
   }).notNull(),
   sourceDescription: text("source_description"),
   filePath: text("file_path"),
+  materializedVersion: integer("materialized_version"),
   uploadProvenanceJson: text("upload_provenance_json"),
   currentVersion: integer("current_version").notNull(),
   createdAt: text("created_at").notNull(),
@@ -143,6 +144,10 @@ export const managedDocuments = sqliteTable("managed_documents", {
   check(
     "managed_documents_file_path_check",
     sql`${table.filePath} is null or (instr(${table.filePath}, '/') = 0 and instr(${table.filePath}, '\\') = 0 and ${table.filePath} like '%.md')`,
+  ),
+  check(
+    "managed_documents_materialized_version_check",
+    sql`${table.materializedVersion} is null or (${table.materializedVersion} > 0 and ${table.materializedVersion} <= ${table.currentVersion})`,
   ),
 ]);
 

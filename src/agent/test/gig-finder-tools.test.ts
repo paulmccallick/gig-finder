@@ -18,7 +18,10 @@ import {
   type TaskRecord,
   StagedDocumentService,
 } from "../../core/src";
-import { MutationError } from "../../core/src/errors";
+import {
+  MutationError,
+  PersistenceConsistencyError,
+} from "../../core/src/errors";
 import {
   createGigFinderTools,
   gigFinderToolSchemas,
@@ -769,6 +772,72 @@ describe("GigFinderAgent tools", () => {
     expect((result as { document?: object }).document).not.toHaveProperty("content");
   });
 
+  test("redacts Profile document descriptions from every tool log outcome", async () => {
+    const entries: Array<Record<string, unknown>> = [];
+    const capturingLogger = {
+      debug: (entry: Record<string, unknown>) => entries.push(entry),
+      warn: (entry: Record<string, unknown>) => entries.push(entry),
+      error: (entry: Record<string, unknown>) => entries.push(entry),
+    } as unknown as Logger;
+    const privateDescription = "Private details about the candidate's background";
+    const input = {
+      links: [{ entityType: "profile" as const, entityId: "candidate" }],
+      documentType: "notes" as const,
+      title: "Candidate context",
+      description: privateDescription,
+      sourceKind: "inline_content" as const,
+      content: "Private document content",
+      reference: null,
+      mediaType: "text/markdown" as const,
+      sourceDescription: "Private source description",
+    };
+    const baseMutations = {
+      gigs: { update: () => { throw new Error("not executed"); } },
+      people: { update: () => { throw new Error("not executed"); } },
+      tasks: taskMutations,
+      meetings: meetingMutations,
+      changes: { revert: () => { throw new Error("not executed"); } },
+    };
+    const successfulTools = createGigFinderTools(reader, capturingLogger, {
+      ...baseMutations,
+      documents: {
+        create: context => ({
+          document: managedDocument,
+          changeId: context.changeId ?? null,
+          changed: true,
+        }),
+        update: () => { throw new Error("not executed"); },
+      },
+    }, { actor: "Candidate", requestId: "request-log-success" });
+    const failingTools = createGigFinderTools(reader, capturingLogger, {
+      ...baseMutations,
+      documents: {
+        create: () => { throw new Error("simulated failure"); },
+        update: () => { throw new Error("not executed"); },
+      },
+    }, { actor: "Candidate", requestId: "request-log-failure" });
+    if (!("create_document" in successfulTools) || !("create_document" in failingTools)) {
+      throw new Error("Document mutation tools were not registered.");
+    }
+
+    await successfulTools.create_document.execute?.(
+      input,
+      { toolCallId: "document-success", messages: [], abortSignal: undefined, context: {} },
+    );
+    await failingTools.create_document.execute?.(
+      input,
+      { toolCallId: "document-failure", messages: [], abortSignal: undefined, context: {} },
+    );
+
+    expect(entries.map(entry => entry.event)).toEqual([
+      "agent.tool.started",
+      "agent.tool.completed",
+      "agent.tool.started",
+      "agent.tool.failed",
+    ]);
+    expect(JSON.stringify(entries)).not.toContain(privateDescription);
+  });
+
   test("updates documents by exact ID and expected version", async () => {
     let received:
       | { context: ChangeContext; input: unknown }
@@ -1266,6 +1335,27 @@ describe("GigFinderAgent tools", () => {
       status: "error",
       error: "duplicate_change",
       message: "Already applied",
+    });
+  });
+
+  test("returns a structured persistence consistency failure", async () => {
+    const tools = createGigFinderTools({
+      ...reader,
+      documents: {
+        list: async () => [],
+        get: async () => {
+          throw new PersistenceConsistencyError("Document link is inconsistent.");
+        },
+      },
+    }, logger);
+
+    expect(await tools.get_document.execute?.(
+      { reference: managedDocument.id },
+      { toolCallId: "call-inconsistent-document", messages: [], abortSignal: undefined, context: {} },
+    )).toEqual({
+      status: "error",
+      error: "consistency_error",
+      message: "Document link is inconsistent.",
     });
   });
 
