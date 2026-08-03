@@ -6,9 +6,47 @@ import {
   relationshipStrengths,
 } from "./people";
 import { meetingStatuses, meetingTimezoneSchema } from "./meetings";
+import { taskPriorities, taskStatuses, taskTypes } from "./tasks";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must use YYYY-MM-DD.");
 const nullableText = z.string().trim().nullable();
+
+export const taskRelatedEntityInputSchema = z.object({
+  type: z.enum(["gig", "person", "general"])
+    .describe("Whether the task relates to a Gig, Person, or the search generally."),
+  id: z.string().trim().min(1).nullable()
+    .describe("Exact durable Gig or Person ID, or null for a general task."),
+}).strict().superRefine((relatedEntity, context) => {
+  if (relatedEntity.type === "general" && relatedEntity.id !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["id"],
+      message: "A general task must use a null related-entity ID.",
+    });
+  }
+  if (relatedEntity.type !== "general" && relatedEntity.id === null) {
+    context.addIssue({
+      code: "custom",
+      path: ["id"],
+      message: `A ${relatedEntity.type} task requires an exact related-entity ID.`,
+    });
+  }
+});
+
+export const taskCreateSchema = z.object({
+  title: z.string().trim().min(1)
+    .describe("Concise task title."),
+  type: z.enum(taskTypes)
+    .describe(`Task type: ${taskTypes.join(", ")}.`),
+  priority: z.enum(taskPriorities).nullable()
+    .describe(`Task priority: ${taskPriorities.join(", ")}; use null for the medium default.`),
+  dueDate: date.nullable()
+    .describe("Due date in YYYY-MM-DD format, or null when the task has no due date."),
+  relatedEntity: taskRelatedEntityInputSchema
+    .describe("Existing record related to the task, or the general job search."),
+  notes: nullableText
+    .describe("Additional task notes, or null when none are needed."),
+}).strict();
 
 const nonEmptyPatch = <T extends z.ZodRawShape>(shape: T, message: string) =>
   z.object(shape).strict().refine(
@@ -158,6 +196,26 @@ export const meetingUpdateSchema = nonEmptyPatch({
     .describe("Meeting description or notes, or null to clear them."),
 }, "Meeting update must contain at least one field.");
 
+export const taskUpdateSchema = nonEmptyPatch({
+  title: z.string().trim().min(1).optional()
+    .describe("Concise task title."),
+  type: z.enum(taskTypes).optional()
+    .describe("Task type."),
+  status: z.enum(taskStatuses).optional()
+    .describe("Current task status."),
+  priority: z.enum(taskPriorities).optional()
+    .describe("Task priority."),
+  dueDate: date.nullable().optional()
+    .describe("Due date in YYYY-MM-DD format, or null to clear it."),
+  relatedEntity: taskRelatedEntityInputSchema.optional()
+    .describe("Complete replacement Gig, Person, or general relationship."),
+  notes: nullableText.optional()
+    .describe("Additional task notes, or null to clear them."),
+}, "Task update must contain at least one field.");
+
 export type GigUpdate = z.infer<typeof gigUpdateSchema>;
 export type PersonUpdate = z.infer<typeof personUpdateSchema>;
 export type MeetingUpdate = z.infer<typeof meetingUpdateSchema>;
+export type TaskCreate = z.infer<typeof taskCreateSchema>;
+export type TaskRelatedEntityInput = z.infer<typeof taskRelatedEntityInputSchema>;
+export type TaskUpdate = z.infer<typeof taskUpdateSchema>;

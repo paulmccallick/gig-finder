@@ -3,6 +3,8 @@ import {
   gigUpdateSchema,
   meetingUpdateSchema,
   personUpdateSchema,
+  taskCreateSchema,
+  taskUpdateSchema,
 } from "../src/update-contracts";
 
 describe("shared update contracts", () => {
@@ -86,6 +88,66 @@ describe("shared update contracts", () => {
       { personIds: [] },
     ]) {
       expect(meetingUpdateSchema.safeParse(patch).success).toBe(false);
+    }
+  });
+
+  test("accepts task creation and partial updates without caller-owned labels", () => {
+    expect(taskCreateSchema.parse({
+      title: "Follow up",
+      type: "networking_follow_up",
+      priority: null,
+      dueDate: "2026-08-05",
+      relatedEntity: { type: "person", id: "person-1" },
+      notes: null,
+    })).toEqual({
+      title: "Follow up",
+      type: "networking_follow_up",
+      priority: null,
+      dueDate: "2026-08-05",
+      relatedEntity: { type: "person", id: "person-1" },
+      notes: null,
+    });
+    expect(taskUpdateSchema.parse({
+      status: "completed",
+      dueDate: null,
+      relatedEntity: { type: "gig", id: "gig-1" },
+    })).toEqual({
+      status: "completed",
+      dueDate: null,
+      relatedEntity: { type: "gig", id: "gig-1" },
+    });
+  });
+
+  test("rejects invalid task values, relationships, and immutable fields", () => {
+    const creation = {
+      title: "Follow up",
+      type: "networking_follow_up",
+      priority: null,
+      dueDate: null,
+      relatedEntity: { type: "general", id: null },
+      notes: null,
+    };
+    for (const input of [
+      { ...creation, title: "" },
+      { ...creation, status: "open" },
+      { ...creation, type: "invalid" },
+      { ...creation, dueDate: "tomorrow" },
+      { ...creation, relatedEntity: { type: "general", id: "gig-1" } },
+      { ...creation, relatedEntity: { type: "gig", id: null } },
+    ]) {
+      expect(taskCreateSchema.safeParse(input).success).toBe(false);
+    }
+    for (const patch of [
+      {},
+      { id: "other" },
+      { createdAt: "2026-08-03" },
+      { updatedAt: "2026-08-03" },
+      { completedAt: "2026-08-03" },
+      { status: "invalid" },
+      { dueDate: "tomorrow" },
+      { relatedEntity: { type: "person", id: null } },
+    ]) {
+      expect(taskUpdateSchema.safeParse(patch).success).toBe(false);
     }
   });
 });

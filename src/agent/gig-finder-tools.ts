@@ -22,12 +22,15 @@ import type {
   StagedDocumentAccess,
   TaskDomainService,
   TaskQueryInput,
+  TaskUpdate,
 } from "../core/src";
 import { DomainValidationError, MutationError } from "../core/src/errors";
 import {
   gigUpdateSchema,
   meetingUpdateSchema,
   personUpdateSchema,
+  taskCreateSchema,
+  taskUpdateSchema,
 } from "../core/src/update-contracts";
 import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
 import {
@@ -49,6 +52,7 @@ import {
   personChangesSchema,
   gigChangesSchema,
   meetingChangesSchema,
+  taskChangesSchema,
 } from "./update-tool-schemas";
 
 const nonEmptyArray = <T extends readonly [string, ...string[]]>(values: T) =>
@@ -198,6 +202,14 @@ const updateMeetingInputSchema = z.object({
     .describe("One or more explicit changes to mutable meeting fields."),
 }).strict();
 
+const createTaskInputSchema = taskCreateSchema;
+
+const updateTaskInputSchema = z.object({
+  id: getInputSchema.shape.id,
+  changes: taskChangesSchema
+    .describe("One or more explicit changes to mutable task fields."),
+}).strict();
+
 const revertChangeInputSchema = z.object({
   changeId: z.string().trim().min(1)
     .describe("Exact change ID of the update to revert."),
@@ -288,6 +300,7 @@ type ToolInput = {
   query?: string | null;
   changeId?: string;
   changes?: Array<{ field: string }>;
+  relatedEntity?: { type: string; id: string | null };
   links?: Array<{ entityType: string; entityId: string }>;
   documentType?: string;
   expectedVersion?: number;
@@ -324,6 +337,7 @@ export interface GigFinderMutationCapabilities {
   people: {
     update(context: ChangeContext, id: string, patch: PersonUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
+  tasks: Pick<TaskDomainService, "createNew" | "update">;
   meetings: Pick<MeetingService, "create" | "update">;
   changes: Pick<ChangeService, "revert">;
   documents: Pick<ManagedDocumentService, "create" | "update">;
@@ -360,6 +374,9 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
         "gigId", "location", "description",
       ]
     : [];
+  const taskCreationFields = toolName === "create_task"
+    ? ["title", "type", "priority", "dueDate", "relatedEntity", "notes"]
+    : [];
   const appliedFilters = Object.fromEntries(
     Object.entries(input)
       .filter(([key]) =>
@@ -369,6 +386,7 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
           "expectedVersion", "title", "mediaType", "sourceDescription", "content",
           "changeSummary", "sourceKind",
           ...meetingCreationFields,
+          ...taskCreationFields,
         ].includes(key)
       )
       .filter(([, value]) =>
@@ -423,6 +441,14 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
           participantIds: Array.isArray(input.personIds) ? input.personIds : [],
           ...(typeof input.gigId === "string" ? { gigId: input.gigId } : {}),
         }),
+    ...(toolName !== "create_task" || input.relatedEntity === undefined
+      ? {}
+      : {
+          relatedEntity: {
+            type: input.relatedEntity.type,
+            id: input.relatedEntity.id,
+          },
+        }),
     filterMode: Object.keys(filters).length === 0 ? "unfiltered" : "filtered",
     appliedFilters: filters,
     ...(
@@ -439,7 +465,7 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
 }
 
 function changesToPatch(
-  changes: ReadonlyArray<{ field: string; value: string | number | string[] | null }>,
+  changes: ReadonlyArray<{ field: string; value: unknown }>,
 ): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   for (const { field, value } of changes) {
@@ -472,6 +498,12 @@ function meetingPatchFromOperations(
   changes: z.infer<typeof meetingChangesSchema>,
 ): MeetingUpdate {
   return meetingUpdateSchema.parse(changesToPatch(changes));
+}
+
+function taskPatchFromOperations(
+  changes: z.infer<typeof taskChangesSchema>,
+): TaskUpdate {
+  return taskUpdateSchema.parse(changesToPatch(changes));
 }
 
 function normalizeGigsInput(
@@ -684,7 +716,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         return { status: "error", error: error.code, message: error.message };
       }
       const message = error instanceof Error ? error.message : "";
-      if (/^(Gig|Meeting|Person) not found:/.test(message)) {
+      if (/^(Gig|Meeting|Person|Task) not found:/.test(message)) {
         return { status: "error", error: "not_found", message };
       }
       return {
@@ -888,6 +920,45 @@ export function createGigFinderTools(
         }),
       ),
     }),
+    create_task: tool({
+      strict: true,
+      description: "Create one task related to an existing Gig, an existing Person, or the general job search. Supply exact durable IDs where required and report the resulting record and change ID to the user.",
+      inputSchema: createTaskInputSchema,
+      execute: loggedExecution(
+        logger,
+        "create_task",
+        (input, { toolCallId }) => ({
+          status: "ok" as const,
+          ...mutations.tasks.createNew({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent created task (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, {
+            id: `task_${crypto.randomUUID()}`,
+            ...input,
+          }),
+        }),
+      ),
+    }),
+    update_task: tool({
+      strict: true,
+      description: "Update one existing task using explicit set or clear operations. Supply only desired changes and report the resulting record and change ID to the user.",
+      inputSchema: updateTaskInputSchema,
+      execute: loggedExecution(
+        logger,
+        "update_task",
+        ({ id, changes }, { toolCallId }) => ({
+          status: "ok" as const,
+          ...mutations.tasks.update({
+            actor: requestContext.actor,
+            source: "agent",
+            summary: `Agent updated task ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            changeId: `agent-tool:${toolCallId}`,
+          }, id, taskPatchFromOperations(changes)),
+        }),
+      ),
+    }),
     create_meeting: tool({
       strict: true,
       description: "Create one meeting linked to one or more existing people and optionally one existing gig. Supply exact durable IDs and report the resulting record and change ID to the user.",
@@ -1054,6 +1125,8 @@ export const gigFinderToolSchemas = {
   get_document: getDocumentInputSchema,
   update_gig: updateGigInputSchema,
   update_person: updatePersonInputSchema,
+  create_task: createTaskInputSchema,
+  update_task: updateTaskInputSchema,
   create_meeting: createMeetingInputSchema,
   update_meeting: updateMeetingInputSchema,
   create_document: createDocumentInputSchema,

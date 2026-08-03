@@ -6,6 +6,8 @@ import {
   relationshipStrengths,
 } from "../core/src/people";
 import { meetingStatuses } from "../core/src/meetings";
+import { taskPriorities, taskStatuses, taskTypes } from "../core/src/tasks";
+import { taskRelatedEntityInputSchema } from "../core/src/update-contracts";
 
 const updateValueSchema = z.union([
   z.string(),
@@ -36,6 +38,10 @@ const personUpdateFields = [
 const meetingUpdateFields = [
   "title", "startsAt", "endsAt", "timezone", "status", "personIds",
   "gigId", "location", "description",
+] as const;
+
+const taskUpdateFields = [
+  "title", "type", "status", "priority", "dueDate", "relatedEntity", "notes",
 ] as const;
 
 const list = (values: readonly string[]) => values.join(", ");
@@ -90,18 +96,43 @@ const meetingValueDescription = [
   "For clear operations use null; only gigId, location, and description can be cleared.",
 ].join(" ");
 
+const taskFieldDescription = [
+  "Exact mutable task field.",
+  `type values: ${list(taskTypes)}.`,
+  `status values: ${list(taskStatuses)}.`,
+  `priority values: ${list(taskPriorities)}.`,
+  "relatedEntity replaces the complete Gig, Person, or general relationship.",
+].join(" ");
+
+const taskValueDescription = [
+  "Value appropriate to the selected task field.",
+  `For type use one of: ${list(taskTypes)}.`,
+  `For status use one of: ${list(taskStatuses)}.`,
+  `For priority use one of: ${list(taskPriorities)}.`,
+  "Use YYYY-MM-DD for dueDate.",
+  "For relatedEntity use an object with type gig, person, or general and an exact ID; general uses a null ID.",
+  "For clear operations use null; only dueDate and notes can be cleared.",
+].join(" ");
+
+const taskUpdateValueSchema = z.union([
+  z.string(),
+  taskRelatedEntityInputSchema,
+  z.null(),
+]);
+
 function operationListSchema<T extends readonly [string, ...string[]]>(
   fields: T,
   clearable: ReadonlySet<T[number]>,
   clearOnly: ReadonlySet<T[number]>,
   fieldDescription: string,
   valueDescription: string,
+  valueSchema: z.ZodType = updateValueSchema,
 ) {
   return z.array(z.object({
     operation: z.enum(["set", "clear"])
       .describe("Use set to assign a value or clear to remove a nullable value."),
     field: z.enum(fields).describe(fieldDescription),
-    value: updateValueSchema.describe(valueDescription),
+    value: valueSchema.describe(valueDescription),
   }).strict().superRefine((change, context) => {
     if (change.operation === "clear" && change.value !== null) {
       context.addIssue({
@@ -187,4 +218,15 @@ export const meetingChangesSchema = operationListSchema(
   new Set(),
   meetingFieldDescription,
   meetingValueDescription,
+);
+
+export const taskChangesSchema = operationListSchema(
+  taskUpdateFields,
+  new Set([
+    "dueDate", "notes",
+  ] satisfies typeof taskUpdateFields[number][]),
+  new Set(),
+  taskFieldDescription,
+  taskValueDescription,
+  taskUpdateValueSchema,
 );

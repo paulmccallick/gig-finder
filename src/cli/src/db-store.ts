@@ -8,7 +8,7 @@ import type { GigSummary } from "../../core/src/gigs";
 import type { PersonCreateInput, PersonTouchInput } from "../../core/src/services";
 import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../../core/src/tasks";
 import type { GigTouchInput,TaskCreateInput } from "../../core/src/tracker-services";
-import type { GigUpdate, PersonUpdate } from "../../core/src/update-contracts";
+import type { GigUpdate, PersonUpdate, TaskUpdate } from "../../core/src/update-contracts";
 import type { GigFinderApplication } from "../../core/src/application";
 
 export interface CliRuntime{application:GigFinderApplication;actor:string}
@@ -27,9 +27,8 @@ export const touchGig=(paths:TrackerPaths,id:string,input:GigTouchInput,options:
 
 export const getTask=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.tasks.get(id));
 export const listTasks=(paths:TrackerPaths)=>withApplication(paths,app=>app.tasks.list());
-export const createTask=(paths:TrackerPaths,record:TaskRecord,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.create(context(paths,"CLI task create",record.createdAt),record,options));
-export const createTaskFromInput=(paths:TrackerPaths,input:TaskCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.createNew(context(paths,"CLI task create",input.date),input,options));
-export const updateTask=(paths:TrackerPaths,id:string,patch:Partial<TaskRecord>,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.update(context(paths,`CLI task update ${id}`,options.date),id,{...patch,updatedAt:options.date??pacificDate()},options));
+export const createTaskFromInput=(paths:TrackerPaths,input:TaskCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.createNew(context(paths,"CLI task create",options.date),input,options).record);
+export const updateTask=(paths:TrackerPaths,id:string,patch:TaskUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.update(context(paths,`CLI task update ${id}`,options.date),id,patch,options).record);
 export const completeTask=(paths:TrackerPaths,id:string,date:string,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.complete(context(paths,`CLI task complete ${id}`,date),id,date,options));
 
 export const getPerson=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.people.get(id));

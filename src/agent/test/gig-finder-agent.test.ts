@@ -7,6 +7,7 @@ import type {
   GigRecord,
   ManagedDocumentRecord,
   MeetingRecord,
+  TaskRecord,
 } from "../../core/src";
 import { StagedDocumentService } from "../../core/src";
 import { GigFinderAgent } from "../gig-finder-agent";
@@ -118,6 +119,10 @@ function documentMutations(
   return {
     gigs: { update: () => { throw new Error("not executed"); } },
     people: { update: () => { throw new Error("not executed"); } },
+    tasks: {
+      createNew: () => { throw new Error("not executed"); },
+      update: () => { throw new Error("not executed"); },
+    },
     meetings: {
       create: () => { throw new Error("not executed"); },
       update: () => { throw new Error("not executed"); },
@@ -452,6 +457,95 @@ describe("agent streaming", () => {
     });
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
       "agent-tool:create-meeting",
+    );
+  });
+
+  test("creates a task and returns its result to the model", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              {
+                type: "tool-call",
+                toolCallId: "create-task",
+                toolName: "create_task",
+                input: JSON.stringify({
+                  title: "Follow up with Jordan",
+                  type: "networking_follow_up",
+                  priority: "high",
+                  dueDate: "2026-08-05",
+                  relatedEntity: { type: "person", id: "person-jordan" },
+                  notes: null,
+                }),
+              },
+              {
+                type: "finish",
+                finishReason: { unified: "tool-calls", raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        },
+        {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "text-1" },
+              { type: "text-delta", id: "text-1", delta: "Created the follow-up task." },
+              { type: "text-end", id: "text-1" },
+              {
+                type: "finish",
+                finishReason: { unified: "stop", raw: undefined },
+                usage,
+              },
+            ],
+          }),
+        },
+      ],
+    });
+    let received: { context: ChangeContext; task: TaskRecord } | undefined;
+    const mutations = documentMutations(() => { throw new Error("not executed"); });
+    mutations.tasks = {
+      createNew: (context, input) => {
+        const task: TaskRecord = {
+          ...input,
+          status: "open",
+          priority: input.priority ?? "medium",
+          relatedEntity: { ...input.relatedEntity, label: "Jordan" },
+          createdAt: "2026-08-03",
+          updatedAt: "2026-08-03",
+          completedAt: null,
+        };
+        received = { context, task };
+        return { changeId: context.changeId ?? null, record: task };
+      },
+      update: () => { throw new Error("not executed"); },
+    };
+    const tools = createGigFinderTools(
+      readerWithGigs([]),
+      logger,
+      mutations,
+      { actor: "Candidate", requestId: "request-task" },
+    );
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
+      model,
+      logger,
+      tools,
+      canUpdateRecords: true,
+    });
+
+    expect(await agent.respond([
+      userMessage("Create the follow-up task we just agreed on."),
+    ]).text).toBe("Created the follow-up task.");
+    expect(received).toMatchObject({
+      context: { changeId: "agent-tool:create-task" },
+      task: { status: "open", priority: "high", relatedEntity: { id: "person-jordan" } },
+    });
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      "agent-tool:create-task",
     );
   });
 

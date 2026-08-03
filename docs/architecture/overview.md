@@ -49,6 +49,10 @@ agent tools receive only those narrow capabilities. Document lookup uses a
 separate shared document reader. There is no agent-specific domain context
 facade.
 
+Task creation and updates use the same core task service from the agent and
+CLI. The agent adapter supplies strict tool operations and audit identity; core
+validates relationships and lifecycle dates before generic persistence writes.
+
 - `src/entrypoints/` owns runtime composition. Entry points resolve local
   configuration, construct SQLite-backed application services, inject them into
   the CLI or web adapter, and close runtime resources.

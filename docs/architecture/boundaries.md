@@ -10,6 +10,8 @@
   they do not construct or import data adapters.
 - Agent tools and the CLI use the same domain services; caller-specific
   metadata stays in their adapters.
+- The task service validates Gig and Person links, derives relationship labels,
+  and owns creation defaults and status-transition dates for every client.
 - Filtering, joins, traversal, ordering, pagination, and consistency checks
   belong to caller-neutral core read services, not agent tools.
 - Meeting services compose participant IDs from the persistence join records;

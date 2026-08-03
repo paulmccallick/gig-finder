@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createDocument, createEvent, createGig, createGigPerson, createMeeting, createPerson, createTaskFromInput, getDocument, getGig, getMeeting, getPerson, getTask, listDocuments, listDocumentVersions, listEvents, listGigs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchGig, touchPerson, updateDocument, updateGig, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskPriority, type TaskRecord, type TaskType } from "./db-store";
+import { completeTask, createDocument, createEvent, createGig, createGigPerson, createMeeting, createPerson, createTaskFromInput, getDocument, getGig, getMeeting, getPerson, getTask, listDocuments, listDocumentVersions, listEvents, listGigs, listMeetings, listPeople, listTasks, pacificDate, syncArtifacts, touchGig, touchPerson, updateDocument, updateGig, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskRecord } from "./db-store";
 import type { BusinessEventInput,GigPersonData } from "../../core/src/models";
 import type { Meeting } from "../../core/src/meetings";
 import type { PersonStatus, Person, PersonCreateInput } from "../../core/src";
@@ -12,6 +12,8 @@ import {
 import {
   gigUpdateSchema,
   personUpdateSchema,
+  taskCreateSchema,
+  taskUpdateSchema,
 } from "../../core/src/update-contracts";
 
 export const cliUsage = `gig-finder — GigFinder CLI
@@ -27,7 +29,7 @@ Usage:
   gig-finder people add <id> --patch-file <path> [--dry-run]
   gig-finder people update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
   gig-finder people touch <id> --date YYYY-MM-DD --status <status> --method <method> --summary <text> [--next-action <text>] [--due YYYY-MM-DD|none]
-  gig-finder tasks add <id> --title <text> --type <type> --due <YYYY-MM-DD|none> --related-type <person|gig|general> --related-label <text> [--related-id <id>] [--priority <priority>] [--notes <text>] [--date YYYY-MM-DD] [--dry-run]
+  gig-finder tasks add <id> --title <text> --type <type> --due <YYYY-MM-DD|none> --related-type <person|gig|general> [--related-id <id>] [--priority <priority>] [--notes <text>] [--date YYYY-MM-DD] [--dry-run]
   gig-finder tasks update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
   gig-finder tasks complete <id> --date YYYY-MM-DD [--dry-run]
   gig-finder meetings get <id>
@@ -237,19 +239,23 @@ export async function runCli(args: string[], runtime: CliRuntime) {
     result = await createGig(paths, record, { dryRun });
   } else if (entity === "task" && command === "add") {
     const date = optional(flags, "date") ?? pacificDate();
-    const relatedType = required(flags, "related-type") as TaskRecord["relatedEntity"]["type"];
+    const input = taskCreateSchema.parse({
+      title: required(flags, "title"),
+      type: required(flags, "type"),
+      priority: optional(flags, "priority") ?? null,
+      dueDate: nullable(required(flags, "due")) ?? null,
+      relatedEntity: {
+        type: required(flags, "related-type"),
+        id: optional(flags, "related-id") ?? null,
+      },
+      notes: optional(flags, "notes") ?? null,
+    });
     result = await createTaskFromInput(paths, {
       id,
-      title: required(flags, "title"),
-      type: required(flags, "type") as TaskType,
-      priority: (optional(flags, "priority") ?? "medium") as TaskPriority,
-      dueDate: nullable(required(flags, "due")) ?? null,
-      relatedEntity: { type: relatedType, id: relatedType === "general" ? null : optional(flags, "related-id") ?? null, label: required(flags, "related-label") },
-      notes: optional(flags, "notes") ?? null,
-      date,
-    }, { dryRun });
+      ...input,
+    }, { dryRun, date });
   } else if (entity === "task" && command === "update") {
-    result = await updateTask(paths, id, await patchFrom(flags) as Partial<TaskRecord>, { dryRun, date: optional(flags, "date") });
+    result = await updateTask(paths, id, taskUpdateSchema.parse(await patchFrom(flags)), { dryRun, date: optional(flags, "date") });
   } else if (entity === "task" && command === "complete") {
     const date = required(flags, "date");
     result = await completeTask(paths, id, date, { dryRun, date });
