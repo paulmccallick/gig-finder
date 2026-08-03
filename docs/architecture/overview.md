@@ -32,6 +32,11 @@ flowchart LR
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
 - `src/web/` owns the Bun HTTP API and React dashboard.
 
+The React dashboard owns session-only agent layout and side-panel width. Changing
+between side-panel and full-screen layouts keeps one mounted agent session and
+does not change the agent or HTTP contracts. Full-screen layout places identity
+and controls in a full-height left rail.
+
 Gigs, people, networking contacts, gig-person relationships, tasks, and
 meetings expose caller-neutral query/read services from `GigFinderApplication`;
 agent tools receive only those narrow capabilities. Document lookup uses a
