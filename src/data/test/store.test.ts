@@ -570,7 +570,7 @@ describe("change idempotency and reversal", () => {
       actor: "Candidate",
       source: "agent" as const,
       summary: "Create follow-up",
-      occurredAt: "2026-08-01T09:00:00-07:00",
+      occurredAt: "2026-08-04T00:30:00.000Z",
       changeId: "agent-tool:create-task",
     };
     const input = {
@@ -586,8 +586,8 @@ describe("change idempotency and reversal", () => {
     expect(created).toMatchObject({
       changeId: "agent-tool:create-task",
       record: {
-        createdAt: "2026-08-01",
-        updatedAt: "2026-08-01",
+        createdAt: "2026-08-03",
+        updatedAt: "2026-08-03",
         relatedEntity: { label: "Company VP Engineering" },
       },
     });
@@ -596,15 +596,31 @@ describe("change idempotency and reversal", () => {
 
     const updated = app.tasks.update({
       ...createContext,
-      occurredAt: "2026-08-02T09:00:00-07:00",
+      occurredAt: "2026-08-05T00:30:00.000Z",
       changeId: "agent-tool:update-task",
     }, input.id, { status: "completed" });
     expect(updated).toMatchObject({
       changeId: "agent-tool:update-task",
-      record: { status: "completed", completedAt: "2026-08-02", updatedAt: "2026-08-02" },
+      record: { status: "completed", completedAt: "2026-08-04", updatedAt: "2026-08-04" },
     });
-    expect(database.query("SELECT change_id, revision FROM task_history WHERE id = ?").all(input.id))
-      .toEqual([{ change_id: "agent-tool:update-task", revision: 1 }]);
+    expect(database.query("SELECT change_id, operation, revision FROM task_history WHERE id = ?").all(input.id))
+      .toEqual([
+        { change_id: "agent-tool:create-task", operation: "create", revision: 1 },
+        { change_id: "agent-tool:update-task", operation: "update", revision: 1 },
+      ]);
+
+    const reversible = app.tasks.createNew({
+      ...createContext,
+      changeId: "agent-tool:create-reversible-task",
+    }, { ...input, id: "task-reversible" });
+    const reverted = app.changes.revert({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Undo task creation",
+      changeId: "change:revert-task-creation",
+    }, reversible.changeId!);
+    expect(reverted.affected).toEqual([{ entity: "task", id: "task-reversible" }]);
+    expect(app.tasks.get("task-reversible")).toBeNull();
   });
 
   test("reverts a gig update as a new audited revision", () => {

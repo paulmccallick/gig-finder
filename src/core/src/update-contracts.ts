@@ -7,8 +7,11 @@ import {
 } from "./people";
 import { meetingStatuses, meetingTimezoneSchema } from "./meetings";
 import { taskPriorities, taskStatuses, taskTypes } from "./tasks";
+import { isCalendarDate } from "./queries";
 
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must use YYYY-MM-DD.");
+const date = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Must use YYYY-MM-DD.")
+  .refine(isCalendarDate, "Must be a valid calendar date.");
 const nullableText = z.string().trim().nullable();
 
 export const taskRelatedEntityInputSchema = z.object({

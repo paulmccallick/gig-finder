@@ -132,6 +132,7 @@ describe("shared update contracts", () => {
       { ...creation, status: "open" },
       { ...creation, type: "invalid" },
       { ...creation, dueDate: "tomorrow" },
+      { ...creation, dueDate: "2026-02-31" },
       { ...creation, relatedEntity: { type: "general", id: "gig-1" } },
       { ...creation, relatedEntity: { type: "gig", id: null } },
     ]) {
@@ -145,6 +146,7 @@ describe("shared update contracts", () => {
       { completedAt: "2026-08-03" },
       { status: "invalid" },
       { dueDate: "tomorrow" },
+      { dueDate: "2026-02-31" },
       { relatedEntity: { type: "person", id: null } },
     ]) {
       expect(taskUpdateSchema.safeParse(patch).success).toBe(false);

@@ -94,7 +94,8 @@ Meeting updates can be reverted when no later edit would be overwritten.
 `create_task` requires a title, domain-derived type, nullable priority and due
 date, a complete Gig/Person/general relationship, and nullable notes. The
 server generates its ID and dates, defaults null priority to medium, and derives
-the relationship label from the linked record. `update_task` supports title,
+the relationship label from the linked record. Dates must be calendar-valid and
+task lifecycle dates use the Pacific business date. `update_task` supports title,
 type, status, priority, due date, relationship, and notes; due date and notes
 can be cleared. Completing a task records the server date, while reopening or
 canceling clears the completion date.
@@ -120,7 +121,7 @@ otherwise a friendly label for the document type.
 Successful Gig, Person, task, and meeting mutations return the persisted record and change ID.
 The agent verifies the intended change with the user before invoking a mutation.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
-later-revision conflicts. Failures distinguish validation, not found,
+later-revision conflicts. Task creations are also reversible. Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
 limited to 50,000 characters. Managed document reads return current content;
 their version history remains immutable.

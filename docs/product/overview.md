@@ -53,6 +53,6 @@ relationship types. User interfaces display document names rather than IDs.
 
 Agent tools cannot create or delete gigs or people, delete tasks or managed documents,
 or access arbitrary files, history, email, calendars, or external
-services. Agent mutations are audited; gig, person, task, and meeting updates can be reverted
+services. Agent mutations are audited; task creations and gig, person, task, and meeting updates can be reverted
 when no later edit would be overwritten. The agent verifies the intended change
 with the user before mutating records or documents.

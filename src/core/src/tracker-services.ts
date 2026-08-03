@@ -17,6 +17,7 @@ import type { ManagedDocumentService } from "./documents";
 import type { PeopleService } from "./services";
 import {
   hasMeaningfulFilters,
+  isCalendarDate,
   matchesQuery,
   normalizedQuery,
   pacificDate,
@@ -44,7 +45,9 @@ export const defaultTaskStatuses = [
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const assertDate = (value: unknown, label: string, nullable = false) => {
   if (nullable && value === null) return;
-  if (typeof value !== "string" || !datePattern.test(value)) throw new DomainValidationError(`${label} must use YYYY-MM-DD.`);
+  if (typeof value !== "string" || !datePattern.test(value) || !isCalendarDate(value)) {
+    throw new DomainValidationError(`${label} must be a valid calendar date in YYYY-MM-DD format.`);
+  }
 };
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 export function deepPatch<T>(current: T, patch: unknown): T {
@@ -86,7 +89,15 @@ function gigToData(r: GigSummary): GigData {
   return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId??null,stage:r.stage,outcome:r.outcome,statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextActionDescription:r.nextAction?.description??null,nextActionDue:r.nextAction?.due??null,fitRating:r.fit.rating,fitSummary:r.fit.summary??null,payCurrency:r.payRange?.currency??null,payMinimum:r.payRange?.minimum??null,payMaximum:r.payRange?.maximum??null,payPeriod:r.payRange?.period??null,payNotes:r.payRange?.notes??null,sourceUrl:r.sourceUrl??null,location:r.location??null,workArrangement:r.workArrangement??null,postedDate:r.postedDate??null,businessUnitTeam:r.businessUnitTeam??null,recruiterSource:r.recruiterSource??null,bonus:r.bonus??null,equity:r.equity??null,otherCompensation:r.otherCompensation??null,tagsJson:JSON.stringify(r.tags??[]),hasJobDescription:r.hasJobDescription??false,hasInterviewPrep:r.hasInterviewPrep??false};
 }
 
-const taskFromData=(t:TaskData&{createdAt:string;updatedAt:string}):TaskRecord=>({id:t.id,title:t.title,type:t.type as TaskRecord["type"],status:t.status as TaskRecord["status"],priority:t.priority as TaskRecord["priority"],dueDate:t.dueDate,relatedEntity:{type:t.relatedEntityType as TaskRecord["relatedEntity"]["type"],id:t.relatedEntityId,label:t.relatedEntityLabel},notes:t.notes,createdAt:t.createdAt.slice(0,10),updatedAt:t.updatedAt.slice(0,10),completedAt:t.completedAt});
+const taskBusinessDate = (value: string, label: string) => {
+  if (isCalendarDate(value)) return value;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) {
+    throw new DomainValidationError(`${label} must be a valid timestamp.`);
+  }
+  return pacificDate(instant);
+};
+const taskFromData=(t:TaskData&{createdAt:string;updatedAt:string}):TaskRecord=>({id:t.id,title:t.title,type:t.type as TaskRecord["type"],status:t.status as TaskRecord["status"],priority:t.priority as TaskRecord["priority"],dueDate:t.dueDate,relatedEntity:{type:t.relatedEntityType as TaskRecord["relatedEntity"]["type"],id:t.relatedEntityId,label:t.relatedEntityLabel},notes:t.notes,createdAt:taskBusinessDate(t.createdAt,`${t.id}.createdAt`),updatedAt:taskBusinessDate(t.updatedAt,`${t.id}.updatedAt`),completedAt:t.completedAt});
 const taskData=(t:TaskRecord):TaskData=>({id:t.id,title:t.title,type:t.type,status:t.status,priority:t.priority,dueDate:t.dueDate,relatedEntityType:t.relatedEntity.type,relatedEntityId:t.relatedEntity.id,relatedEntityLabel:t.relatedEntity.label,notes:t.notes,completedAt:t.completedAt});
 function validateTask(t:TaskRecord){
   if(!t.id||!t.title.trim())throw new DomainValidationError("Task id and title are required.");
@@ -130,7 +141,11 @@ export class GigDomainService {
 
 export class TaskDomainService {
   constructor(private p:Persistence,private gigs:Pick<GigDomainService,"get">,private people:Pick<PeopleService,"get">,private changes:ChangeExecutor){}
-  private date(context:ChangeContext){return context.occurredAt?.slice(0,10)??pacificDate()}
+  private mutation(context:ChangeContext){
+    const occurredAt=context.occurredAt??new Date().toISOString(),instant=new Date(occurredAt);
+    if(Number.isNaN(instant.getTime()))throw new DomainValidationError("Task change occurredAt must be a valid timestamp.");
+    return{context:{...context,occurredAt},date:pacificDate(instant)};
+  }
   private relatedEntity(input:TaskRelatedEntityInput):TaskRecord["relatedEntity"]{
     if(input.type==="general")return{type:"general",id:null,label:"General"};
     if(input.id===null)throw new DomainValidationError(`A ${input.type} task requires an exact related-entity ID.`);
@@ -161,26 +176,26 @@ export class TaskDomainService {
       .filter(task=>matchesQuery(query,[task.title,task.relatedEntity.label,task.notes]))
       .sort((a,b)=>compareTasks(a,b,today)||a.id.localeCompare(b.id)),input)
   }
-  private create(context:ChangeContext,t:TaskRecord,options:MutationOptions={}){validateTask(t);return this.changes.execute(context,t,options,u=>taskFromData(u.tasks.create(taskData(t))))}
+  private create(context:ChangeContext,t:TaskRecord,options:MutationOptions={}){validateTask(t);return this.changes.execute(context,t,options,u=>taskFromData(u.tasks.create(taskData(t),{reversible:true})))}
   createNew(context:ChangeContext,input:TaskCreateInput,options:MutationOptions={}){
-    const{id,...values}=input,parsed=taskCreateSchema.parse(values),date=this.date(context);
-    return this.create(context,{id,title:parsed.title,type:parsed.type,status:"open",priority:parsed.priority??"medium",dueDate:parsed.dueDate,relatedEntity:this.relatedEntity(parsed.relatedEntity),notes:parsed.notes,createdAt:date,updatedAt:date,completedAt:null},options)
+    const{id,...values}=input,parsed=taskCreateSchema.parse(values),mutation=this.mutation(context);
+    return this.create(mutation.context,{id,title:parsed.title,type:parsed.type,status:"open",priority:parsed.priority??"medium",dueDate:parsed.dueDate,relatedEntity:this.relatedEntity(parsed.relatedEntity),notes:parsed.notes,createdAt:mutation.date,updatedAt:mutation.date,completedAt:null},options)
   }
   update(context:ChangeContext,id:string,patch:TaskUpdate,options:MutationOptions={}){
     const parsed=taskUpdateSchema.parse(patch),current=this.get(id);
     if(!current)throw new Error(`Task not found: ${id}`);
     const{relatedEntity,...fields}=parsed;
-    const date=this.date(context),status=parsed.status??current.status;
+    const mutation=this.mutation(context),status=parsed.status??current.status;
     const completedAt=parsed.status===undefined
       ?current.completedAt
       :status==="completed"
-        ?current.status==="completed"&&current.completedAt!==null?current.completedAt:date
+        ?current.status==="completed"&&current.completedAt!==null?current.completedAt:mutation.date
         :null;
-    const updated:TaskRecord={...current,...fields,...(relatedEntity?{relatedEntity:this.relatedEntity(relatedEntity)}:{}),status,completedAt,updatedAt:date};
+    const updated:TaskRecord={...current,...fields,...(relatedEntity?{relatedEntity:this.relatedEntity(relatedEntity)}:{}),status,completedAt,updatedAt:mutation.date};
     validateTask(updated);
     const raw=this.p.tasks.get(id)!;
     const{id:_,...data}=taskData(updated);
-    return this.changes.execute(context,updated,options,u=>taskFromData(u.tasks.update(id,raw.revision,data)));
+    return this.changes.execute(mutation.context,updated,options,u=>taskFromData(u.tasks.update(id,raw.revision,data)));
   }
   complete(context:ChangeContext,id:string,date:string,options:MutationOptions={}){return this.update({...context,occurredAt:context.occurredAt??`${date}T12:00:00-07:00`},id,{status:"completed"},options).record}
 }
