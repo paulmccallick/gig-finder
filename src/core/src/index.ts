@@ -1,4 +1,5 @@
 export * from "./application";
+export * from "./application-settings";
 export * from "./changes";
 export * from "./document-reader";
 export * from "./documents";

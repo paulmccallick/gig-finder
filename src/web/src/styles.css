@@ -259,9 +259,17 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 .agent-orbit i:nth-child(1) { top: 3px; left: 20px; }
 .agent-orbit i:nth-child(2) { right: 4px; bottom: 9px; }
 .agent-orbit i:nth-child(3) { left: 5px; bottom: 8px; }
-.agent-header-actions { display: flex; align-items: center; gap: 10px; }
+.agent-header-actions { display: grid; grid-template-columns: auto auto; align-items: center; justify-items: end; gap: 6px; }
+.agent-model-control { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; color: var(--dim); text-transform: uppercase; font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+.agent-model-control select { width: 118px; min-height: 27px; padding: 0 22px 0 7px; color: var(--ink); border: 1px solid var(--line); border-radius: 0; background: #f6f7f3; font: 8px/1 "SFMono-Regular", Consolas, monospace; }
+.agent-model-control select:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+.agent-model-control select:disabled { color: var(--dim); cursor: wait; }
+.agent-model-error { grid-column: 1 / -1; max-width: 150px; color: var(--red); text-align: right; font: 7px/1.35 "SFMono-Regular", Consolas, monospace; }
 .agent-layout-controls { display: flex; align-items: center; padding: 3px; border: 1px solid var(--line); background: #f6f7f3; }
-.agent-panel.is-layout-full .agent-header-actions { flex-direction: column; align-items: stretch; }
+.agent-panel.is-layout-full .agent-header-actions { display: flex; flex-direction: column; align-items: stretch; }
+.agent-panel.is-layout-full .agent-model-control { display: grid; grid-template-columns: 1fr; justify-items: stretch; }
+.agent-panel.is-layout-full .agent-model-control select { width: 100%; }
+.agent-panel.is-layout-full .agent-model-error { max-width: none; text-align: left; }
 .agent-panel.is-layout-full .agent-layout-controls { flex-direction: column; }
 .agent-panel.is-layout-full .agent-layout-controls button,
 .agent-panel.is-layout-full .agent-header-actions > .icon-button { width: 100%; }
@@ -373,6 +381,8 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
   .agent-panel.is-layout-full .agent-identity { align-items: center; }
   .agent-panel.is-layout-full .agent-identity h2 { font-size: 16px; line-height: 1; writing-mode: vertical-rl; transform: rotate(180deg); overflow-wrap: normal; }
   .agent-panel.is-layout-full .agent-identity .eyebrow { display: none; }
+  .agent-panel.is-layout-full .agent-model-control span { display: none; }
+  .agent-panel.is-layout-full .agent-model-control select { width: 50px; padding-left: 4px; padding-right: 12px; font-size: 7px; }
   .agent-panel.is-layout-full .agent-messages,
   .agent-panel.is-layout-full .agent-composer { padding-left: 14px; padding-right: 14px; }
   .agent-panel.is-layout-full .agent-error { margin-left: 14px; margin-right: 14px; }

@@ -6,6 +6,7 @@ import {
   SqliteDocumentReadRepository,
   SqliteDocumentWriteRepository,
 } from "./document-store";
+import { SqliteApplicationSettingsRepository } from "./settings-store";
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
@@ -211,8 +212,8 @@ export class ChangeTransaction {
 }
 
 export class DataStore {
-  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly meetingParticipants: ReadRepository<MeetingParticipantData>; readonly documents: SqliteDocumentReadRepository;
-  constructor(private readonly database: Database) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.meetingParticipants = new ReadRepository(database, configs.meetingParticipants); this.documents = new SqliteDocumentReadRepository(database); }
+  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly meetingParticipants: ReadRepository<MeetingParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
+  constructor(private readonly database: Database) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.meetingParticipants = new ReadRepository(database, configs.meetingParticipants); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");

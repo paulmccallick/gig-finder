@@ -29,8 +29,12 @@ export interface DocumentWriteRepository extends DocumentReadRepository {
     changeSummary: string;
   }): ManagedDocumentRecord;
 }
+export interface ApplicationSettingsRepository {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
 export interface UnitOfWork{gigs:WriteRepository<GigData>;people:WriteRepository<PersonData>;gigPeople:WriteRepository<GigPersonData>;tasks:WriteRepository<TaskData>;meetings:WriteRepository<MeetingData>;meetingParticipants:ReversibleCreateRepository<MeetingParticipantData>;documents:DocumentWriteRepository;recordEvent(input:BusinessEventInput):string}
-export interface Persistence{gigs:ReadRepository<GigData>;people:ReadRepository<PersonData>;gigPeople:ReadRepository<GigPersonData>;tasks:ReadRepository<TaskData>;meetings:ReadRepository<MeetingData>;meetingParticipants:ReadRepository<MeetingParticipantData>;documents:DocumentReadRepository;change<T>(context:ChangeContext,action:(transaction:UnitOfWork)=>T):ChangeResult<T>;revertChange(context:ChangeContext,targetChangeId:string):ChangeResult<RevertedRecord[]>}
+export interface Persistence{gigs:ReadRepository<GigData>;people:ReadRepository<PersonData>;gigPeople:ReadRepository<GigPersonData>;tasks:ReadRepository<TaskData>;meetings:ReadRepository<MeetingData>;meetingParticipants:ReadRepository<MeetingParticipantData>;documents:DocumentReadRepository;settings:ApplicationSettingsRepository;change<T>(context:ChangeContext,action:(transaction:UnitOfWork)=>T):ChangeResult<T>;revertChange(context:ChangeContext,targetChangeId:string):ChangeResult<RevertedRecord[]>}
 export interface AuditPort{query(query:AuditQuery):Record<string,unknown>|Record<string,unknown>[]|null}
 export interface ArtifactPort{jobDescription(gigId:string):Promise<string>;interviewPrep(gigId:string):Promise<{name:string;content:string}[]>;jobDescriptionExists(gigId:string):Promise<boolean>;interviewPrepExists(gigId:string):Promise<boolean>;verify(expectations:{gigs:{id:string;hasJobDescription:boolean;hasInterviewPrep:boolean}[]}):Promise<ArtifactVerification>}
 export interface ArtifactVerification{ok:boolean;errors:string[];unregistered:string[]}

@@ -19,6 +19,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   opens as a resizable side panel and can expand to fill the application without
   resetting the active session. Full-screen mode uses a narrow left rail for
   agent identity and workspace controls.
+- The agent header selects GPT-5.6 Sol, Terra, or Luna. The saved choice applies
+  to the next request, survives restarts, and does not alter an active response.
 - Agent conversations last only for the current page load.
 
 ## Entities

@@ -37,6 +37,12 @@ between side-panel and full-screen layouts keeps one mounted agent session and
 does not change the agent or HTTP contracts. Full-screen layout places identity
 and controls in a full-height left rail.
 
+The core application owns the typed agent-model catalog and settings service.
+The web API reads and updates the selected model through that service, and each
+agent request resolves the setting before constructing its model. The generic
+`application_settings` table persists the preference; `CODEX_AGENT_MODEL`
+supplies a validated startup default only when no preference is stored.
+
 Gigs, people, gig-person relationships, tasks, and
 meetings expose caller-neutral query/read services from `GigFinderApplication`;
 agent tools receive only those narrow capabilities. Document lookup uses a
@@ -62,6 +68,8 @@ facade.
   snapshots rather than guessing historical attendees.
 - Managed documents and their immutable versions live in the document tables;
   legacy job-description and interview-prep files remain filesystem artifacts.
+- `application_settings` stores operator preferences outside entity revision
+  history; the core service validates values before the generic adapter writes.
 - Person identity, relationship, and outreach share `people` and
   `person_history`; migration 0013 coalesces legacy snapshots by Person ID and
   change ID before removing the separate networking tables.

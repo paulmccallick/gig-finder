@@ -26,6 +26,12 @@ export const changes = sqliteTable("changes", {
   status: text("status", { enum: ["committed"] }).notNull().default("committed"),
 });
 
+export const applicationSettings = sqliteTable("application_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 const gigFields = {
   id: text("id").notNull(),
   company: text("company").notNull(),
