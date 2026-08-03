@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-GigFinderAgent has twelve read tools and seven mutation tools.
+GigFinderAgent has twelve read tools and nine mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -18,6 +18,8 @@ GigFinderAgent has twelve read tools and seven mutation tools.
 | `search_gigs_and_people` | Resolves company or person names to existing gigs and people, ignoring punctuation and case. |
 | `update_gig` | Updates mutable fields on one existing gig. |
 | `update_person` | Updates mutable identity, relationship, and outreach fields on one Person. |
+| `create_task` | Creates a task related to an existing Gig, Person, or the general search. |
+| `update_task` | Updates mutable fields on one existing task. |
 | `create_meeting` | Creates a meeting linked to one or more existing people and optionally one existing gig. |
 | `update_meeting` | Updates mutable fields and the complete participant list of one existing meeting. |
 | `create_document` | Creates a versioned document linked to existing gigs and/or people from inline content or an exact staged reference. |
@@ -73,7 +75,7 @@ Meeting records expose `personIds` from the versioned participant join and a
 nullable `gigId`; missing links and meetings without participants return
 `consistency_error`.
 
-Gig, Person, and meeting update tools use structurally strict operation lists. Field and value
+Gig, Person, task, and meeting update tools use structurally strict operation lists. Field and value
 descriptions enumerate accepted domain values; the agent adapter translates
 operations into, and validates them against, the update schemas in
 `src/core/src/update-contracts.ts`. The CLI uses those core schemas directly.
@@ -88,6 +90,15 @@ status, participant Person IDs, Gig ID, location, and description. Setting
 `personIds` replaces the complete participant list; Gig ID, location, and
 description can be cleared. Meeting and participant changes are atomic.
 Meeting updates can be reverted when no later edit would be overwritten.
+
+`create_task` requires a title, domain-derived type, nullable priority and due
+date, a complete Gig/Person/general relationship, and nullable notes. The
+server generates its ID and dates, defaults null priority to medium, and derives
+the relationship label from the linked record. Dates must be calendar-valid and
+task lifecycle dates use the Pacific business date. `update_task` supports title,
+type, status, priority, due date, relationship, and notes; due date and notes
+can be cleared. Completing a task records the server date, while reopening or
+canceling clears the completion date.
 
 Document tools use strict, domain-enum-backed schemas. Text creation accepts
 nonempty gig/person links, type, nullable title, media type, source description,
@@ -107,10 +118,10 @@ friendly `displayName`.
 The display name is the explicit title, otherwise the uploaded filename,
 otherwise a friendly label for the document type.
 
-Successful Gig, Person, and meeting mutations return the persisted record and change ID.
+Successful Gig, Person, task, and meeting mutations return the persisted record and change ID.
 The agent verifies the intended change with the user before invoking a mutation.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
-later-revision conflicts. Failures distinguish validation, not found,
+later-revision conflicts. Task creations are also reversible. Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
 limited to 50,000 characters. Managed document reads return current content;
 their version history remains immutable.

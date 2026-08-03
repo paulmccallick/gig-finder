@@ -556,6 +556,72 @@ describe("change idempotency and reversal", () => {
       statusSummary: "Updated once",
     });
   });
+  test("task service persists audited server dates and rejects duplicate change IDs", () => {
+    const artifacts = {
+      jobDescription: async () => "",
+      interviewPrep: async () => [],
+      jobDescriptionExists: async () => false,
+      interviewPrepExists: async () => false,
+      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+    } satisfies ArtifactPort;
+    const app = new GigFinderApplication(store, new AuditReader(database), artifacts);
+    store.change(context("Create gig"), tx => tx.gigs.create(gig));
+    const createContext = {
+      actor: "Candidate",
+      source: "agent" as const,
+      summary: "Create follow-up",
+      occurredAt: "2026-08-04T00:30:00.000Z",
+      changeId: "agent-tool:create-task",
+    };
+    const input = {
+      id: "task-audited",
+      title: "Review role",
+      type: "application" as const,
+      priority: null,
+      dueDate: null,
+      relatedEntity: { type: "gig" as const, id: gig.id },
+      notes: null,
+    };
+    const created = app.tasks.createNew(createContext, input);
+    expect(created).toMatchObject({
+      changeId: "agent-tool:create-task",
+      record: {
+        createdAt: "2026-08-03",
+        updatedAt: "2026-08-03",
+        relatedEntity: { label: "Company VP Engineering" },
+      },
+    });
+    expect(() => app.tasks.createNew(createContext, { ...input, id: "task-duplicate" }))
+      .toThrow(new MutationError("duplicate_change", "Change has already been applied: agent-tool:create-task"));
+
+    const updated = app.tasks.update({
+      ...createContext,
+      occurredAt: "2026-08-05T00:30:00.000Z",
+      changeId: "agent-tool:update-task",
+    }, input.id, { status: "completed" });
+    expect(updated).toMatchObject({
+      changeId: "agent-tool:update-task",
+      record: { status: "completed", completedAt: "2026-08-04", updatedAt: "2026-08-04" },
+    });
+    expect(database.query("SELECT change_id, operation, revision FROM task_history WHERE id = ?").all(input.id))
+      .toEqual([
+        { change_id: "agent-tool:create-task", operation: "create", revision: 1 },
+        { change_id: "agent-tool:update-task", operation: "update", revision: 1 },
+      ]);
+
+    const reversible = app.tasks.createNew({
+      ...createContext,
+      changeId: "agent-tool:create-reversible-task",
+    }, { ...input, id: "task-reversible" });
+    const reverted = app.changes.revert({
+      actor: "Candidate",
+      source: "user_request",
+      summary: "Undo task creation",
+      changeId: "change:revert-task-creation",
+    }, reversible.changeId!);
+    expect(reverted.affected).toEqual([{ entity: "task", id: "task-reversible" }]);
+    expect(app.tasks.get("task-reversible")).toBeNull();
+  });
 
   test("reverts a gig update as a new audited revision", () => {
     store.change(context("Create gig"), tx => tx.gigs.create(gig));

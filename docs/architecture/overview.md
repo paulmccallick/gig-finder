@@ -49,6 +49,10 @@ agent tools receive only those narrow capabilities. Document lookup uses a
 separate shared document reader. There is no agent-specific domain context
 facade.
 
+Task creation and updates use the same core task service from the agent and
+CLI. The agent adapter supplies strict tool operations and audit identity; core
+validates relationships and lifecycle dates before generic persistence writes.
+
 - `src/entrypoints/` owns runtime composition. Entry points resolve local
   configuration, construct SQLite-backed application services, inject them into
   the CLI or web adapter, and close runtime resources.
@@ -59,8 +63,8 @@ facade.
   transactions in `src/data/src/store.ts`.
 - Each mutable entity table in `src/data/src/schema.ts` has a companion
   `*_history` table; updates and deletes copy the prior revision there with its
-  operation and `change_id`. Reversible relationship additions also record a
-  `create` entry.
+  operation and `change_id`. Reversible task and relationship creations also
+  record a `create` entry.
 - The `changes` table groups all records written by one transaction into one
   audited change.
 - Meeting attendees use versioned participant and participant-history tables;

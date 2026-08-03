@@ -8,7 +8,7 @@ import {
 } from "./AgentPanel";
 
 describe("agent dashboard refresh signal", () => {
-  test("recognizes successful update and revert tool output", () => {
+  test("recognizes successful task, update, and revert tool output", () => {
     const parts: UIMessage["parts"] = [{
       type: "dynamic-tool",
       toolName: "update_gig",
@@ -21,6 +21,21 @@ describe("agent dashboard refresh signal", () => {
       output: { status: "ok", changeId: "agent-tool:call-1" },
     }];
     expect(hasSuccessfulMutation(parts)).toBe(true);
+    expect(hasSuccessfulMutation([{
+      type: "dynamic-tool",
+      toolName: "create_task",
+      toolCallId: "call-task",
+      state: "output-available",
+      input: {
+        title: "Follow up",
+        type: "networking_follow_up",
+        priority: null,
+        dueDate: null,
+        relatedEntity: { type: "general", id: null },
+        notes: null,
+      },
+      output: { status: "ok", changeId: "agent-tool:call-task" },
+    }])).toBe(true);
     expect(hasSuccessfulMutation([{
       type: "dynamic-tool",
       toolName: "revert_change",

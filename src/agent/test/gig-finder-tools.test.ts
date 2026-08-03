@@ -7,12 +7,15 @@ import {
   gigPersonRelationships,
   meetingStatuses,
   pipelineStages,
+  taskPriorities,
+  taskStatuses,
   taskTypes,
   type ChangeContext,
   type Gig,
   type ManagedDocumentRecord,
   type MeetingRecord,
   type PersonRecord,
+  type TaskRecord,
   StagedDocumentService,
 } from "../../core/src";
 import { MutationError } from "../../core/src/errors";
@@ -36,6 +39,11 @@ const documentMutations = {
 
 const meetingMutations: GigFinderMutationCapabilities["meetings"] = {
   create: () => { throw new Error("not executed"); },
+  update: () => { throw new Error("not executed"); },
+};
+
+const taskMutations: GigFinderMutationCapabilities["tasks"] = {
+  createNew: () => { throw new Error("not executed"); },
   update: () => { throw new Error("not executed"); },
 };
 
@@ -126,6 +134,7 @@ const reader = {
 const mutations: GigFinderMutationCapabilities = {
   gigs: { update: () => { throw new Error("not executed"); } },
   people: { update: () => { throw new Error("not executed"); } },
+  tasks: taskMutations,
   meetings: meetingMutations,
   changes: { revert: () => { throw new Error("not executed"); } },
   documents: documentMutations,
@@ -224,6 +233,8 @@ describe("GigFinderAgent tools", () => {
       "get_document",
       "update_gig",
       "update_person",
+      "create_task",
+      "update_task",
       "create_meeting",
       "update_meeting",
       "create_document",
@@ -233,6 +244,8 @@ describe("GigFinderAgent tools", () => {
     if (!("update_gig" in tools)) throw new Error("Mutation tools were not registered.");
     expect(tools.update_gig.strict).toBe(true);
     expect(tools.update_person.strict).toBe(true);
+    expect(tools.create_task.strict).toBe(true);
+    expect(tools.update_task.strict).toBe(true);
     expect(tools.create_meeting.strict).toBe(true);
     expect(tools.update_meeting.strict).toBe(true);
     expect(tools.create_document.strict).toBe(true);
@@ -580,6 +593,37 @@ describe("GigFinderAgent tools", () => {
     );
   });
 
+  test("uses strict task schemas with domain enum values", () => {
+    const input = {
+      title: "Follow up",
+      type: "networking_follow_up" as const,
+      priority: null,
+      dueDate: "2026-08-05",
+      relatedEntity: { type: "person" as const, id: "person-1" },
+      notes: null,
+    };
+    expect(gigFinderToolSchemas.create_task.parse(input)).toEqual(input);
+    expect(gigFinderToolSchemas.create_task.safeParse({
+      ...input,
+      relatedEntity: { type: "general", id: "person-1" },
+    }).success).toBe(false);
+    expect(gigFinderToolSchemas.update_task.parse({
+      id: "task-1",
+      changes: [
+        { operation: "set", field: "status", value: "completed" },
+        { operation: "clear", field: "dueDate", value: null },
+      ],
+    }).changes).toHaveLength(2);
+    expect(gigFinderToolSchemas.update_task.safeParse({
+      id: "task-1",
+      changes: [{ operation: "clear", field: "status", value: null }],
+    }).success).toBe(false);
+    expect(gigFinderToolSchemas.update_task.safeParse({
+      id: "task-1",
+      changes: [{ operation: "set", field: "createdAt", value: "2026-08-05" }],
+    }).success).toBe(false);
+  });
+
   test("uses strict document schemas with domain enum values", () => {
     expect(gigFinderToolSchemas.create_document.parse({
       links: [{ entityType: "gig", entityId: "gig-1" }],
@@ -634,6 +678,7 @@ describe("GigFinderAgent tools", () => {
       {
         gigs: { update: () => { throw new Error("not executed"); } },
         people: { update: () => { throw new Error("not executed"); } },
+        tasks: taskMutations,
         meetings: meetingMutations,
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
@@ -711,6 +756,7 @@ describe("GigFinderAgent tools", () => {
       {
         gigs: { update: () => { throw new Error("not executed"); } },
         people: { update: () => { throw new Error("not executed"); } },
+        tasks: taskMutations,
         meetings: meetingMutations,
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
@@ -780,12 +826,16 @@ describe("GigFinderAgent tools", () => {
       gigFinderToolSchemas.update_person,
     );
     const meetingSchema = z.toJSONSchema(gigFinderToolSchemas.update_meeting);
-    const descriptions = JSON.stringify({ gigSchema, contactSchema, meetingSchema });
+    const taskSchema = z.toJSONSchema(gigFinderToolSchemas.update_task);
+    const descriptions = JSON.stringify({ gigSchema, contactSchema, meetingSchema, taskSchema });
     for (const value of [
       ...pipelineStages,
       ...fitRatings,
       ...personStatuses,
       ...meetingStatuses,
+      ...taskTypes,
+      ...taskStatuses,
+      ...taskPriorities,
     ]) {
       expect(descriptions).toContain(value);
     }
@@ -802,6 +852,7 @@ describe("GigFinderAgent tools", () => {
           throw new Error("not expected");
         } },
         people: { update: () => { throw new Error("not executed"); } },
+        tasks: taskMutations,
         meetings: meetingMutations,
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: documentMutations,
@@ -886,6 +937,7 @@ describe("GigFinderAgent tools", () => {
         };
       } },
       people: { update: () => { throw new Error("not executed"); } },
+      tasks: taskMutations,
       meetings: meetingMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
@@ -928,6 +980,121 @@ describe("GigFinderAgent tools", () => {
       status: "ok",
       changeId: "agent-tool:call-9",
     });
+  });
+
+  test("creates and updates tasks through the shared mutation boundary", async () => {
+    const entries: Array<Record<string, unknown>> = [];
+    const taskLogger = {
+      debug: (entry: Record<string, unknown>) => entries.push(entry),
+      warn: () => undefined,
+      error: () => undefined,
+    } as unknown as Logger;
+    let created: {
+      context: ChangeContext;
+      input: Parameters<GigFinderMutationCapabilities["tasks"]["createNew"]>[1];
+    } | undefined;
+    let updated: { context: ChangeContext; id: string; patch: unknown } | undefined;
+    const taskRecord = (input: Parameters<GigFinderMutationCapabilities["tasks"]["createNew"]>[1]): TaskRecord => ({
+      id: input.id,
+      title: input.title,
+      type: input.type,
+      status: "open",
+      priority: input.priority ?? "medium",
+      dueDate: input.dueDate,
+      relatedEntity: { ...input.relatedEntity, label: "Contact Person" },
+      notes: input.notes,
+      createdAt: "2026-08-03",
+      updatedAt: "2026-08-03",
+      completedAt: null,
+    });
+    const tools = createGigFinderTools(
+      reader,
+      taskLogger,
+      {
+        ...mutations,
+        tasks: {
+          createNew: (context, input) => {
+            created = { context, input };
+            return { changeId: context.changeId ?? null, record: taskRecord(input) };
+          },
+          update: (context, id, patch) => {
+            updated = { context, id, patch };
+            return {
+              changeId: context.changeId ?? null,
+              record: {
+                ...taskRecord({
+                  id,
+                  title: "Private follow-up",
+                  type: "networking_follow_up",
+                  priority: null,
+                  dueDate: null,
+                  relatedEntity: { type: "person", id: "person-1" },
+                  notes: null,
+                }),
+                status: "completed",
+                completedAt: "2026-08-03",
+              },
+            };
+          },
+        },
+      },
+      { actor: "Candidate", requestId: "request-task" },
+    );
+    if (!("create_task" in tools) || !("update_task" in tools)) {
+      throw new Error("Task mutation tools were not registered.");
+    }
+
+    const createdResult = await tools.create_task.execute?.({
+      title: "Private follow-up",
+      type: "networking_follow_up",
+      priority: null,
+      dueDate: "2026-08-05",
+      relatedEntity: { type: "person", id: "person-1" },
+      notes: "Private task notes",
+    }, { toolCallId: "call-create-task", messages: [], abortSignal: undefined, context: {} });
+
+    expect(created?.context).toEqual({
+      actor: "Candidate",
+      source: "agent",
+      summary: "Agent created task (request request-task, tool call-create-task)",
+      changeId: "agent-tool:call-create-task",
+    });
+    expect(created?.input.id).toMatch(/^task_[0-9a-f-]{36}$/);
+    expect(createdResult).toMatchObject({
+      status: "ok",
+      changeId: "agent-tool:call-create-task",
+    });
+
+    await tools.update_task.execute?.({
+      id: created!.input.id,
+      changes: [
+        { operation: "set", field: "status", value: "completed" },
+        { operation: "clear", field: "dueDate", value: null },
+        { operation: "set", field: "relatedEntity", value: { type: "gig", id: "gig-1" } },
+      ],
+    }, { toolCallId: "call-update-task", messages: [], abortSignal: undefined, context: {} });
+
+    expect(updated).toEqual({
+      context: {
+        actor: "Candidate",
+        source: "agent",
+        summary: `Agent updated task ${created!.input.id} (request request-task, tool call-update-task)`,
+        changeId: "agent-tool:call-update-task",
+      },
+      id: created!.input.id,
+      patch: {
+        status: "completed",
+        dueDate: null,
+        relatedEntity: { type: "gig", id: "gig-1" },
+      },
+    });
+    expect(entries[0]).toMatchObject({
+      toolName: "create_task",
+      relatedEntity: { type: "person", id: "person-1" },
+      appliedFilters: {},
+    });
+    expect(JSON.stringify(entries)).not.toContain("Private follow-up");
+    expect(JSON.stringify(entries)).not.toContain("Private task notes");
   });
 
   test("creates and updates meetings through the shared mutation boundary", async () => {
@@ -1053,6 +1220,7 @@ describe("GigFinderAgent tools", () => {
         throw new MutationError("duplicate_change", "Already applied");
       } },
       people: { update: () => { throw new Error("not executed"); } },
+      tasks: taskMutations,
       meetings: meetingMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
@@ -1087,6 +1255,7 @@ describe("GigFinderAgent tools", () => {
         );
       } },
       people: { update: () => { throw new Error("not executed"); } },
+      tasks: taskMutations,
       meetings: meetingMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
@@ -1117,6 +1286,7 @@ describe("GigFinderAgent tools", () => {
     const capturingMutations: GigFinderMutationCapabilities = {
       gigs: { update: () => { throw new Error("not executed"); } },
       people: { update: () => { throw new Error("not executed"); } },
+      tasks: taskMutations,
       meetings: meetingMutations,
       changes: { revert: (context, targetChangeId) => {
         received = { context, targetChangeId };
@@ -1194,6 +1364,7 @@ describe("GigFinderAgent tools", () => {
         record,
       }) },
       people: { update: () => { throw new Error("not executed"); } },
+      tasks: taskMutations,
       meetings: meetingMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
@@ -1324,6 +1495,8 @@ describe("GigFinderAgent tools", () => {
     for (const schema of [
       gigFinderToolSchemas.update_gig,
       gigFinderToolSchemas.update_person,
+      gigFinderToolSchemas.create_task,
+      gigFinderToolSchemas.update_task,
       gigFinderToolSchemas.create_meeting,
       gigFinderToolSchemas.update_meeting,
       gigFinderToolSchemas.create_document,

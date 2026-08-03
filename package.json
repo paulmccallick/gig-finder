@@ -11,7 +11,7 @@
     "dev:restart": "bun run src/web/restart-dev.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc --noEmit -p src/core/tsconfig.json && tsc --noEmit -p src/data/tsconfig.json && tsc --noEmit -p src/cli/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json && tsc --noEmit -p src/entrypoints/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "architecture": "depcruise src --config .dependency-cruiser.cjs",
     "test": "bun test src/core/test src/data/test src/cli/test src/agent/test src/web/src src/web/server",
     "check": "bun run lint && bun run typecheck && bun run architecture && bun run test",
