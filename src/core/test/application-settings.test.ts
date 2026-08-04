@@ -4,7 +4,7 @@ import {
   ApplicationSettingsService,
   defaultAgentModelId,
   parseAgentModelId,
-} from "../src/application-settings";
+} from "../application-settings";
 
 class MemorySettings {
   readonly values = new Map<string, string>();

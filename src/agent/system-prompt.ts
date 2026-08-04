@@ -1,5 +1,5 @@
 import type { CandidateProfile } from "./types";
-import type { ProfileDocumentContext } from "../core/src/documents";
+import type { ProfileDocumentContext } from "../core/documents";
 
 export const gigFinderAgentPolicyVersion = "1.0.0";
 

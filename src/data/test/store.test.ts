@@ -3,12 +3,12 @@ import type { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DataError, DataStore, loadLegacyMeetingParticipants, migrateDatabase, openDatabase, RevisionConflictError, validateDatabase } from "../src";
-import type { ChangeContext,GigData,MeetingData,MeetingParticipantData,PersonData,TaskData } from "../../core/src/models";
-import { GigFinderApplication } from "../../core/src/application";
-import type { ArtifactPort } from "../../core/src/ports";
-import { AuditReader } from "../src/audit";
-import { MutationError } from "../../core/src/errors";
+import { DataError, DataStore, loadLegacyMeetingParticipants, migrateDatabase, openDatabase, RevisionConflictError, validateDatabase } from "..";
+import type { ChangeContext,GigData,MeetingData,MeetingParticipantData,PersonData,TaskData } from "../../core/models";
+import { GigFinderApplication } from "../../core/application";
+import type { ArtifactPort } from "../../core/ports";
+import { AuditReader } from "../audit";
+import { MutationError } from "../../core/errors";
 
 let database: Database;
 let store: DataStore;
@@ -60,12 +60,12 @@ describe("migrations", () => {
     try {
       for (let index = 0; index <= 9; index += 1) {
         const filename = `${String(index).padStart(4, "0")}_`;
-        const entry = [...new Bun.Glob(`${filename}*.sql`).scanSync(path.resolve(import.meta.dir, "../drizzle"))][0];
+        const entry = [...new Bun.Glob(`${filename}*.sql`).scanSync(path.resolve(import.meta.dir, "../migrations"))][0];
         if (!entry) throw new Error(`Missing migration ${filename}`);
-        legacy.exec(await Bun.file(path.resolve(import.meta.dir, "../drizzle", entry)).text());
+        legacy.exec(await Bun.file(path.resolve(import.meta.dir, "../migrations", entry)).text());
       }
       legacy.exec("CREATE TABLE __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)");
-      const migrationNine = await Bun.file(path.resolve(import.meta.dir, "../drizzle/0009_orange_luke_cage.sql")).text();
+      const migrationNine = await Bun.file(path.resolve(import.meta.dir, "../migrations/0009_orange_luke_cage.sql")).text();
       legacy.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
         new Bun.CryptoHasher("sha256").update(migrationNine).digest("hex"),
         1785433687058,
@@ -132,9 +132,9 @@ describe("migrations", () => {
       let latestMigration = "";
       for (let index = 0; index <= 11; index += 1) {
         const prefix = `${String(index).padStart(4, "0")}_`;
-        const entry = [...new Bun.Glob(`${prefix}*.sql`).scanSync(path.resolve(import.meta.dir, "../drizzle"))][0];
+        const entry = [...new Bun.Glob(`${prefix}*.sql`).scanSync(path.resolve(import.meta.dir, "../migrations"))][0];
         if (!entry) throw new Error(`Missing migration ${prefix}`);
-        latestMigration = await Bun.file(path.resolve(import.meta.dir, "../drizzle", entry)).text();
+        latestMigration = await Bun.file(path.resolve(import.meta.dir, "../migrations", entry)).text();
         legacy.exec(latestMigration);
       }
       legacy.exec("CREATE TABLE __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)");

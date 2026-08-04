@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   StagedDocumentCapacityError,
   StagedDocumentService,
-} from "../src/staged-documents";
+} from "../staged-documents";
 
 const provenance = {
   originalFilename: "role.md",

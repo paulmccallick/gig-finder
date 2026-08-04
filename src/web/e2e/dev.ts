@@ -5,8 +5,8 @@ import type {
   GigData,
   PersonData,
   TaskData,
-} from "../../core/src/models";
-import { DataStore, migrateDatabase, openDatabase } from "../../data/src";
+} from "../../core/models";
+import { DataStore, migrateDatabase, openDatabase } from "../../data";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 const contextRoot = path.join(repoRoot, "tmp", "e2e-context");
@@ -108,13 +108,12 @@ database.close();
 
 const environment = {
   ...process.env,
-  API_PORT: apiPort,
+  PORT: apiPort,
   GIG_FINDER_CONTEXT_ROOT: contextRoot,
-  NODE_ENV: "test",
   AI_SDK_DEVTOOLS: "false",
   LOG_LEVEL: "error",
 };
-const api = Bun.spawn(["bun", "src/entrypoints/web.ts"], {
+const api = Bun.spawn(["bun", "src/web/server.ts"], {
   cwd: repoRoot,
   env: environment,
   stdout: "inherit",

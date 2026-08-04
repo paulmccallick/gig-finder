@@ -17,11 +17,12 @@ flowchart LR
   Tools --> Stage
   Tools --> Core
   CLI[CLI] --> Core
-  CLIEntry[CLI entry point] --> CLI
-  CLIEntry --> SQLite
-  WebEntry[Web entry point] --> API
-  WebEntry --> Agent
-  WebEntry --> SQLite
+  CLIApp[CLI app] --> CLI
+  CLIApp --> SQLite
+  WebServer[Web server] --> WebApp[Web app]
+  WebApp --> API
+  WebApp --> Agent
+  WebApp --> SQLite
   SQLite[(SQLite)] -->|implements persistence ports| Core
   Core --> Artifacts[Legacy filesystem artifacts]
 ```
@@ -30,7 +31,12 @@ flowchart LR
 - `src/data/` implements persistence, auditing, artifacts, and context paths.
 - `src/cli/` adapts commands to shared services.
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
-- `src/web/` owns the Bun HTTP API and React dashboard.
+- `src/web/` owns the Bun server, application assembly, HTTP API, and React
+  dashboard.
+- `src/operations/` contains executable database maintenance and context-copy
+  programs used by operators and deployment automation.
+- Each module keeps implementation files at its root and unit tests under
+  `test/`; `src/web/client/` contains browser-only React code.
 
 The React dashboard owns session-only agent layout and side-panel width. Changing
 between side-panel and full-screen layouts keeps one mounted agent session and
@@ -53,15 +59,14 @@ Task creation and updates use the same core task service from the agent and
 CLI. The agent adapter supplies strict tool operations and audit identity; core
 validates relationships and lifecycle dates before generic persistence writes.
 
-- `src/entrypoints/` owns runtime composition. Entry points resolve local
-  configuration, construct SQLite-backed application services, inject them into
-  the CLI or web adapter, and close runtime resources.
+- `src/web/server.ts` launches the server; `src/web/app.ts` assembles its
+  dependencies. `src/cli/app.ts` assembles and runs the CLI.
 
 ## Persistence and history
 
 - Mutable entities use revision numbers, soft deletion, and generic change
-  transactions in `src/data/src/store.ts`.
-- Each mutable entity table in `src/data/src/schema.ts` has a companion
+  transactions in `src/data/store.ts`.
+- Each mutable entity table in `src/data/schema.ts` has a companion
   `*_history` table; updates and deletes copy the prior revision there with its
   operation and `change_id`. Reversible task and relationship creations also
   record a `create` entry.
@@ -101,3 +106,28 @@ Meeting mappings, applies pending migrations, and validates the result.
 
 For local development, `bun run dev:restart` replaces any running API,
 dashboard, and AI SDK DevTools processes and supervises their replacements.
+
+## Build and deployment
+
+```mermaid
+flowchart LR
+  PR[Pull request] -->|validate| Actions[GitHub Actions]
+  Actions -->|main merge SHA| GHCR[GHCR multi-architecture image]
+  GHCR -->|manual deploy script| OrbStack[OrbStack container :3001]
+  OrbStack --> Context[External production context]
+  OrbStack -->|read-only| Codex[Codex credentials]
+```
+
+`.github/workflows/ci.yml` runs checks and builds on GitHub; successful `main`
+revisions publish immutable `sha-<commit>` and moving `latest` tags. The image
+uses the same `server.js` process as other hosts, supplying `HOST`, `PORT`,
+`STATIC_ROOT`, and `APP_REVISION`; it never runs Vite or source TypeScript.
+`bin/deploy-local.sh` pulls only an immutable tag, backs up and
+migrates the external SQLite database, replaces the container, verifies
+`/healthz`, and restores the database and prior container on failure.
+
+Development uses ports `5173` and `3101` with the ignored repository context.
+Production binds only `127.0.0.1:3001` on the host and requires context and
+Codex credential mounts outside the repository. Tests use synthetic isolated
+databases. `bin/bootstrap-production.sh` creates the initial verified production
+copy without changing the development database.

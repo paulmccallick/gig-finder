@@ -1,5 +1,5 @@
 const root = new URL("../../", import.meta.url).pathname;
-const developmentPorts = [3001, 5173, 4983] as const;
+const developmentPorts = [3101, 5173, 4983] as const;
 const shutdownTimeoutMs = 5_000;
 
 function listenersOn(port: number): number[] {
@@ -80,7 +80,6 @@ await stopExistingDevelopmentServers();
 
 const environment = {
   ...process.env,
-  NODE_ENV: "development",
   AI_SDK_DEVTOOLS: "true",
 };
 const app = Bun.spawn(["bun", "run", "dev"], {

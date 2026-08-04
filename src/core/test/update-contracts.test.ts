@@ -5,7 +5,7 @@ import {
   personUpdateSchema,
   taskCreateSchema,
   taskUpdateSchema,
-} from "../src/update-contracts";
+} from "../update-contracts";
 
 describe("shared update contracts", () => {
   test("accepts explicit partial and nested gig updates", () => {

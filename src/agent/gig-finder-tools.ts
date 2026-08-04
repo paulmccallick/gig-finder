@@ -23,36 +23,36 @@ import type {
   TaskDomainService,
   TaskQueryInput,
   TaskUpdate,
-} from "../core/src";
+} from "../core";
 import {
   DomainValidationError,
   MutationError,
   PersistenceConsistencyError,
-} from "../core/src/errors";
+} from "../core/errors";
 import {
   gigUpdateSchema,
   meetingUpdateSchema,
   personUpdateSchema,
   taskCreateSchema,
   taskUpdateSchema,
-} from "../core/src/update-contracts";
-import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
+} from "../core/update-contracts";
+import { fitRatings, outcomes, pipelineStages } from "../core/gigs";
 import {
   personPriorities,
   personStatuses,
   relationshipStrengths,
-} from "../core/src/people";
-import { taskPriorities, taskStatuses, taskTypes } from "../core/src/tasks";
+} from "../core/people";
+import { taskPriorities, taskStatuses, taskTypes } from "../core/tasks";
 import {
   documentMediaTypes,
   documentLinkEntityTypes,
   managedDocumentContentLimit,
   managedDocumentTypes,
   profileDocumentDescriptionLimit,
-} from "../core/src/documents";
-import { stagedDocumentReferencePattern } from "../core/src/staged-documents";
-import { gigPersonRelationships } from "../core/src/people";
-import { meetingStatuses, meetingTimezoneSchema } from "../core/src/meetings";
+} from "../core/documents";
+import { stagedDocumentReferencePattern } from "../core/staged-documents";
+import { gigPersonRelationships } from "../core/people";
+import { meetingStatuses, meetingTimezoneSchema } from "../core/meetings";
 import {
   personChangesSchema,
   gigChangesSchema,

@@ -1,13 +1,13 @@
 import { z } from "zod";
-import { fitRatings, outcomes, pipelineStages } from "../core/src/gigs";
+import { fitRatings, outcomes, pipelineStages } from "../core/gigs";
 import {
   personPriorities,
   personStatuses,
   relationshipStrengths,
-} from "../core/src/people";
-import { meetingStatuses } from "../core/src/meetings";
-import { taskPriorities, taskStatuses, taskTypes } from "../core/src/tasks";
-import { taskRelatedEntityInputSchema } from "../core/src/update-contracts";
+} from "../core/people";
+import { meetingStatuses } from "../core/meetings";
+import { taskPriorities, taskStatuses, taskTypes } from "../core/tasks";
+import { taskRelatedEntityInputSchema } from "../core/update-contracts";
 
 const updateValueSchema = z.union([
   z.string(),

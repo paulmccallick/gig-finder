@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProfileDocumentContext } from "../core/src/documents";
+import type { ProfileDocumentContext } from "../core/documents";
 
 export const candidateProfileSchema = z.object({
   version: z.string().min(1),
@@ -30,7 +30,7 @@ export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 export interface GigFinderAgentOptions {
   profile: CandidateProfile;
   model: import("ai").LanguageModel;
-  logger?: import("pino").Logger;
+  logger: import("pino").Logger;
   tools?: import("./gig-finder-tools").GigFinderTools;
   canUpdateRecords?: boolean;
   profileDocuments?: ProfileDocumentContext[];

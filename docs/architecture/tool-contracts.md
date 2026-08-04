@@ -78,7 +78,7 @@ nullable `gigId`; missing links and meetings without participants return
 Gig, Person, task, and meeting update tools use structurally strict operation lists. Field and value
 descriptions enumerate accepted domain values; the agent adapter translates
 operations into, and validates them against, the update schemas in
-`src/core/src/update-contracts.ts`. The CLI uses those core schemas directly.
+`src/core/update-contracts.ts`. The CLI uses those core schemas directly.
 See [ADR 0001](decisions/0001-agent-update-contracts.md).
 
 `create_meeting` requires title, offset-bearing start and end timestamps, a

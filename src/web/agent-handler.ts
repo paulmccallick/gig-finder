@@ -14,12 +14,11 @@ import {
   type GigFinderToolExtensions,
 } from "../agent/gig-finder-tools";
 import type { GigFinderMutationCapabilities } from "../agent/gig-finder-tools";
-import { logger as defaultLogger } from "../observability/logger";
 import {
   defaultAgentModelId,
   type AgentModelId,
-} from "../core/src/application-settings";
-import type { ProfileDocumentContext } from "../core/src/documents";
+} from "../core/application-settings";
+import type { ProfileDocumentContext } from "../core/documents";
 
 type ModelFactory = (modelId: AgentModelId) => Promise<LanguageModel>;
 type ModelSelector = () => AgentModelId;
@@ -29,7 +28,7 @@ export interface AgentHandlerOptions {
   profileDocuments?: () => ProfileDocumentContext[];
   modelFactory?: ModelFactory;
   selectModel?: ModelSelector;
-  logger?: Logger;
+  logger: Logger;
   reads?: GigFinderReadCapabilities;
   mutations?: GigFinderMutationCapabilities;
   actor?: string;
@@ -114,7 +113,7 @@ export function createAgentHandler({
   profileDocuments = () => [],
   modelFactory = createCodexLanguageModel,
   selectModel = () => defaultAgentModelId,
-  logger = defaultLogger,
+  logger,
   reads,
   mutations,
   actor = "GigFinderAgent",

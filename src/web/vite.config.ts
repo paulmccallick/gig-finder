@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
-const apiPort = Number(process.env.API_PORT ?? 3001);
+const apiPort = Number(process.env.PORT ?? 3101);
 
 export default defineConfig({
   root: fileURLToPath(new URL("./", import.meta.url)),
@@ -17,7 +17,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: fileURLToPath(new URL("../../dist", import.meta.url)),
+    outDir: fileURLToPath(new URL("../../dist/client", import.meta.url)),
     emptyOutDir: true,
   },
 });

@@ -3,7 +3,6 @@ import {
   streamText,
   type ModelMessage,
 } from "ai";
-import { logger as defaultLogger } from "../observability/logger";
 import { buildGigFinderInstructions } from "./system-prompt";
 import type { GigFinderAgentOptions } from "./types";
 
@@ -27,7 +26,7 @@ export class GigFinderAgent {
       startedAt: number;
     } | null = null;
     let wasAborted = false;
-    const log = this.options.logger ?? defaultLogger;
+    const log = this.options.logger;
     const model = this.options.model;
     const modelIdentity = typeof model === "string"
       ? { provider: "registry", modelId: model }

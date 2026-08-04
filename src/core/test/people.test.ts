@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { comparePeople, personIsOverdue, type Person } from "../src/people";
+import { comparePeople, personIsOverdue, type Person } from "../people";
 
 const person = (overrides: Partial<Person> = {}): Person => ({
   id: "person", name: "Person", company: "Company", title: "Leader", linkedInProfileUrl: null,

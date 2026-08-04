@@ -9,8 +9,8 @@ import {
 import type {
   UploadedDocumentProvenance,
   UploadedSourceMediaType,
-} from "../core/src";
-import { uploadedDocumentProvenanceSchema } from "../core/src";
+} from "../core";
+import { uploadedDocumentProvenanceSchema } from "../core";
 
 export interface ConvertedUpload {
   markdown: string;

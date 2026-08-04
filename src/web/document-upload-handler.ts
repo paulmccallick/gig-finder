@@ -1,7 +1,7 @@
 import {
   StagedDocumentCapacityError,
   type StagedDocumentService,
-} from "../core/src";
+} from "../core";
 import {
   DocumentConversionError,
   type DocumentConverter,
