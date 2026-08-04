@@ -68,7 +68,7 @@ jobs:
           set -eu
           context_root="${RUNNER_TEMP}/gig-finder-smoke"
           mkdir -p "${context_root}/profile" "${context_root}/codex"
-          cp src/web/test-fixtures/candidate-profile.json "${context_root}/profile/candidate-profile.json"
+          cp src/web/test/fixtures/candidate-profile.json "${context_root}/profile/candidate-profile.json"
           chmod -R a+rwX "${context_root}"
           docker run --rm \
             -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \

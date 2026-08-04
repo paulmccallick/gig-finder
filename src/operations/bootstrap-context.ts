@@ -5,7 +5,7 @@ import {
   createVerifiedBackup,
   resolveGigFinderContext,
   verifyBackup,
-} from "../data/src";
+} from "../data";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
 

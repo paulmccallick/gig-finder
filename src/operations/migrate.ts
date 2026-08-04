@@ -6,7 +6,7 @@ import {
   openDatabase,
   resolveGigFinderContext,
   validateDatabase,
-} from "../data/src";
+} from "../data";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const context = resolveGigFinderContext(repoRoot);

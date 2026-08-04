@@ -1,10 +1,10 @@
 import { describe,expect,test } from "bun:test";
-import { GigFinderApplication } from "../src/application";
-import { ChangeExecutor } from "../src/changes";
-import { DomainValidationError,MutationError,OptimisticConcurrencyError } from "../src/errors";
-import type { ArtifactPort,ArtifactVerification,AuditPort,DocumentWriteRepository,Persistence,ReadRepository,UnitOfWork } from "../src/ports";
-import type { ChangeContext,EntityRecord,GigData,GigPersonData,MeetingData,MeetingParticipantData,PersonData,TaskData } from "../src/models";
-import { documentDisplayName,type DocumentLinkEntityType,type ManagedDocumentData,type ManagedDocumentRecord,type ManagedDocumentVersionData } from "../src/documents";
+import { GigFinderApplication } from "../application";
+import { ChangeExecutor } from "../changes";
+import { DomainValidationError,MutationError,OptimisticConcurrencyError } from "../errors";
+import type { ArtifactPort,ArtifactVerification,AuditPort,DocumentWriteRepository,Persistence,ReadRepository,UnitOfWork } from "../ports";
+import type { ChangeContext,EntityRecord,GigData,GigPersonData,MeetingData,MeetingParticipantData,PersonData,TaskData } from "../models";
+import { documentDisplayName,type DocumentLinkEntityType,type ManagedDocumentData,type ManagedDocumentRecord,type ManagedDocumentVersionData } from "../documents";
 
 const metadata={revision:1,isDeleted:false,createdAt:"2026-07-22T12:00:00-07:00",updatedAt:"2026-07-22T12:00:00-07:00"};
 class Repo<T extends{id:string}> implements ReadRepository<T>{rows=new Map<string,EntityRecord<T>>();get(id:string){return this.rows.get(id)??null}list(){return[...this.rows.values()]}create(record:T){const value={...record,...metadata};this.rows.set(record.id,value);return value}update(id:string,revision:number,patch:Partial<Omit<T,"id">>){const current=this.get(id)!;const value={...current,...patch,revision:revision+1,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(id,value);return value}touch(id:string,revision:number){return this.update(id,revision,{})}delete(id:string){return this.rows.get(id)!}restore(id:string){return this.rows.get(id)!}}

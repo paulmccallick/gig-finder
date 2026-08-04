@@ -1,4 +1,4 @@
-import { DomainValidationError } from "../core/src";
+import { DomainValidationError } from "../core";
 import { WebRequestError } from "./agent-handler";
 
 export interface WebError {

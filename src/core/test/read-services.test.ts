@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GigFinderApplication } from "../src/application";
+import { GigFinderApplication } from "../application";
 import type {
   ArtifactPort,
   ArtifactVerification,
@@ -8,7 +8,7 @@ import type {
   Persistence,
   ReadRepository,
   UnitOfWork,
-} from "../src/ports";
+} from "../ports";
 import type {
   ChangeContext,
   EntityRecord,
@@ -18,13 +18,13 @@ import type {
   MeetingParticipantData,
   PersonData,
   TaskData,
-} from "../src/models";
+} from "../models";
 import type {
   DocumentLinkEntityType,
   ManagedDocumentData,
   ManagedDocumentRecord,
   ManagedDocumentVersionData,
-} from "../src/documents";
+} from "../documents";
 
 const metadata = {
   revision: 1,

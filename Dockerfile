@@ -23,7 +23,7 @@ LABEL org.opencontainers.image.source="https://github.com/paulmccallick/gig-find
 
 WORKDIR /app
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/data/drizzle ./dist/drizzle
+COPY --from=build /app/src/data/migrations ./dist/server/migrations
 
 USER bun
 EXPOSE 3001/tcp

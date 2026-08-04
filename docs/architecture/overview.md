@@ -35,6 +35,8 @@ flowchart LR
   dashboard.
 - `src/operations/` contains executable database maintenance and context-copy
   programs used by operators and deployment automation.
+- Each module keeps implementation files at its root and unit tests under
+  `test/`; `src/web/client/` contains browser-only React code.
 
 The React dashboard owns session-only agent layout and side-panel width. Changing
 between side-panel and full-screen layouts keeps one mounted agent session and
@@ -63,8 +65,8 @@ validates relationships and lifecycle dates before generic persistence writes.
 ## Persistence and history
 
 - Mutable entities use revision numbers, soft deletion, and generic change
-  transactions in `src/data/src/store.ts`.
-- Each mutable entity table in `src/data/src/schema.ts` has a companion
+  transactions in `src/data/store.ts`.
+- Each mutable entity table in `src/data/schema.ts` has a companion
   `*_history` table; updates and deletes copy the prior revision there with its
   operation and `change_id`. Reversible task and relationship creations also
   record a `create` entry.

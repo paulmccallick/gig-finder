@@ -6,19 +6,19 @@ import {
   candidateProfileId,
   ManagedDocumentService,
   type ManagedDocumentData,
-} from "../../core/src/documents";
+} from "../../core/documents";
 import {
   MutationError,
   PersistenceConsistencyError,
-} from "../../core/src/errors";
-import type { ChangeContext, GigData, PersonData } from "../../core/src/models";
+} from "../../core/errors";
+import type { ChangeContext, GigData, PersonData } from "../../core/models";
 import {
   DataStore,
   LocalProfileDocumentFiles,
   migrateDatabase,
   openDatabase,
   RevisionConflictError,
-} from "../src";
+} from "..";
 
 let database: Database;
 let store: DataStore;
@@ -305,7 +305,7 @@ describe("managed document persistence", () => {
         );
       `);
       const migration = await Bun.file(
-        new URL("../drizzle/0008_shocking_triton.sql", import.meta.url),
+        new URL("../migrations/0008_shocking_triton.sql", import.meta.url),
       ).text();
       legacy.exec("PRAGMA foreign_keys = OFF");
       for (const statement of migration.split("--> statement-breakpoint")) {

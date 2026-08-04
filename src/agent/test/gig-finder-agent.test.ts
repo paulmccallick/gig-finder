@@ -8,8 +8,8 @@ import type {
   ManagedDocumentRecord,
   MeetingRecord,
   TaskRecord,
-} from "../../core/src";
-import { StagedDocumentService } from "../../core/src";
+} from "../../core";
+import { StagedDocumentService } from "../../core";
 import { GigFinderAgent } from "../gig-finder-agent";
 import {
   createGigFinderTools,

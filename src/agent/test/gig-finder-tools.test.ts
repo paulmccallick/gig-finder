@@ -17,11 +17,11 @@ import {
   type PersonRecord,
   type TaskRecord,
   StagedDocumentService,
-} from "../../core/src";
+} from "../../core";
 import {
   MutationError,
   PersistenceConsistencyError,
-} from "../../core/src/errors";
+} from "../../core/errors";
 import {
   createGigFinderTools,
   gigFinderToolSchemas,

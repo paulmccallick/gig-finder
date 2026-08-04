@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { GigData, PersonData } from "../../core/src/models";
+import type { GigData, PersonData } from "../../core/models";
 import {
   DataStore,
   migrateDatabase,
   openDatabase,
-} from "../../data/src";
+} from "../../data";
 
 let directory = "";
 const executable = path.resolve(import.meta.dir, "../../../bin/gig-finder");

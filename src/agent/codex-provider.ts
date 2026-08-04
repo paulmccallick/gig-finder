@@ -6,7 +6,7 @@ import {
   defaultAgentModelId,
   parseAgentModelId,
   type AgentModelId,
-} from "../core/src/application-settings";
+} from "../core/application-settings";
 
 interface CodexAuth {
   tokens?: {

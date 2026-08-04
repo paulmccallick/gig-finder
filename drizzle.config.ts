@@ -2,8 +2,8 @@ import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   dialect: "sqlite",
-  schema: "./src/data/src/schema.ts",
-  out: "./src/data/drizzle",
+  schema: "./src/data/schema.ts",
+  out: "./src/data/migrations",
   dbCredentials: {
     url: process.env.GIG_FINDER_DB
       ?? process.env.GIG_FINDER_DATABASE

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { GigRecord } from "../src/gigs";
-import type { PersonRecord } from "../src/people";
-import type { GigQueryInput, PeopleQueryInput } from "../src/queries";
-import { SearchContextService } from "../src/context-search";
+import type { GigRecord } from "../gigs";
+import type { PersonRecord } from "../people";
+import type { GigQueryInput, PeopleQueryInput } from "../queries";
+import { SearchContextService } from "../context-search";
 
 const gig = (company: string, id = "gig-1"): GigRecord => ({
   id,

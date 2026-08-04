@@ -5,8 +5,8 @@ import type {
   GigData,
   PersonData,
   TaskData,
-} from "../../core/src/models";
-import { DataStore, migrateDatabase, openDatabase } from "../../data/src";
+} from "../../core/models";
+import { DataStore, migrateDatabase, openDatabase } from "../../data";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 const contextRoot = path.join(repoRoot, "tmp", "e2e-context");

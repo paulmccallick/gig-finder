@@ -17,8 +17,8 @@ import type { GigFinderMutationCapabilities } from "../agent/gig-finder-tools";
 import {
   defaultAgentModelId,
   type AgentModelId,
-} from "../core/src/application-settings";
-import type { ProfileDocumentContext } from "../core/src/documents";
+} from "../core/application-settings";
+import type { ProfileDocumentContext } from "../core/documents";
 
 type ModelFactory = (modelId: AgentModelId) => Promise<LanguageModel>;
 type ModelSelector = () => AgentModelId;

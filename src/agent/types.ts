@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProfileDocumentContext } from "../core/src/documents";
+import type { ProfileDocumentContext } from "../core/documents";
 
 export const candidateProfileSchema = z.object({
   version: z.string().min(1),

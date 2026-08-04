@@ -1,6 +1,6 @@
 import type { Logger } from "pino";
-import type { GigFinderApplication } from "../core/src/application";
-import { parseAgentModelId } from "../core/src/application-settings";
+import type { GigFinderApplication } from "../core/application";
+import { parseAgentModelId } from "../core/application-settings";
 import { toWebError } from "./error-response";
 import { WebRequestError } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";

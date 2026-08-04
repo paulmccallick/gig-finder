@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveGigFinderContext } from "../src/context";
-import { listManagedBackups } from "../src/maintenance";
+import { resolveGigFinderContext } from "../context";
+import { listManagedBackups } from "../maintenance";
 
 let directory = "";
 

@@ -1,6 +1,6 @@
 import path from "node:path";
-import { openLocalApplication, resolveGigFinderContext } from "../data/src";
-import { cliUsage, runCli } from "./src/cli";
+import { openLocalApplication, resolveGigFinderContext } from "../data";
+import { cliUsage, runCli } from "./cli";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const args = process.argv.slice(2);

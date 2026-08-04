@@ -4,14 +4,14 @@ import {
   defaultAgentModelId,
   parseAgentModelId,
   type AgentModelId,
-} from "../core/src/application-settings";
-import { managedDocumentContentLimit } from "../core/src/documents";
-import { StagedDocumentService } from "../core/src/staged-documents";
+} from "../core/application-settings";
+import { managedDocumentContentLimit } from "../core/documents";
+import { StagedDocumentService } from "../core/staged-documents";
 import {
   openLocalApplication,
   resolveGigFinderContext,
   type GigFinderContextPaths,
-} from "../data/src";
+} from "../data";
 import { registerAiSdkDevTools } from "../observability/devtools";
 import { createApplicationLogger } from "../observability/logger";
 import { createAgentHandler } from "./agent-handler";
