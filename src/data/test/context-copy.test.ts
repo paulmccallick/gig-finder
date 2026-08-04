@@ -20,7 +20,7 @@ afterEach(async () => {
 test("copies an isolated context from a verified database copy", async () => {
   const applicationRoot = path.join(directory, "repository");
   const sourceRoot = path.join(applicationRoot, "context");
-  const productionRoot = path.join(directory, "production");
+  const productionRoot = path.join(applicationRoot, "production");
   const sourceDatabase = path.join(sourceRoot, "data", "gig-finder.sqlite");
   await mkdir(path.dirname(sourceDatabase), { recursive: true });
   await mkdir(path.join(sourceRoot, "profile"), { recursive: true });

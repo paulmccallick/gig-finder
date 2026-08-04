@@ -35,7 +35,8 @@
 - Private context never belongs in application source control.
 - CI builds only repository source and synthetic fixtures; it never receives
   private context or Codex credentials.
-- Production data is an external mounted context owned by the host. The image
-  owns runtime code, bundled assets, and migrations but no mutable user data.
+- Production data is a gitignored `production/` context mounted from the host.
+  The image owns runtime code, bundled assets, and migrations but no mutable
+  user data.
 - The web process accepts flat host configuration and has no environment modes;
   Docker and local scripts choose values and enforce deployment safeguards.

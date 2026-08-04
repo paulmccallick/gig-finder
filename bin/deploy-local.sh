@@ -1,9 +1,11 @@
 #!/bin/sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 image_name=${GIG_FINDER_IMAGE:-ghcr.io/paulmccallick/gig-finder}
 container_name=${GIG_FINDER_CONTAINER_NAME:-gig-finder}
-production_root=${GIG_FINDER_PRODUCTION_ROOT:-}
+production_root=${GIG_FINDER_PRODUCTION_ROOT:-"${repo_root}/production"}
 codex_home=${GIG_FINDER_CODEX_HOME:-}
 docker_bin=${DOCKER_BIN:-docker}
 curl_bin=${CURL_BIN:-curl}
@@ -32,12 +34,6 @@ production_root=$(CDPATH= cd -- "${production_root}" && pwd -P)
 codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
 [ -f "${production_root}/data/gig-finder.sqlite" ] \
   || fail "production database does not exist; run bin/bootstrap-production.sh first"
-
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-repo_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
-case "${production_root}/" in
-  "${repo_root}/"*) fail "production root must be outside the repository" ;;
-esac
 
 "${docker_bin}" info >/dev/null 2>&1 || fail "Docker is unavailable; start OrbStack"
 

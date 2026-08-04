@@ -39,12 +39,11 @@ Merges to `main` are validated by `.github/workflows/ci.yml` and published to
 `ghcr.io/paulmccallick/gig-finder` as `sha-<merge-sha>`. After the first image
 is published, make its GitHub package public once.
 
-Create the isolated production context once:
+Create the isolated, gitignored `production/` context once:
 
 ```bash
-export GIG_FINDER_PRODUCTION_ROOT=/absolute/path/to/gig-finder-production
-mkdir -p "$GIG_FINDER_PRODUCTION_ROOT"
-bin/bootstrap-production.sh context "$GIG_FINDER_PRODUCTION_ROOT"
+mkdir -p production
+bin/bootstrap-production.sh
 ```
 
 Deploy a successful merge through OrbStack:

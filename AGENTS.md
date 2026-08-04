@@ -23,7 +23,8 @@ published, deployed locally, and verified.
 - Use the ignored repository-local `tmp/` directory for temporary files; do
   not use `/private/tmp`.
 - Never add real personal information, credentials, job-search records,
-  documents, logs, SQLite files, or backups to this repository.
+  documents, logs, SQLite files, or backups to source control; runtime copies
+  belong only in ignored `context/` or `production/` directories.
 - Use synthetic fixtures in tests and examples.
 - Add regression tests for changed documented behavior.
 - Run `bun run check` and `bun run build` for application changes.

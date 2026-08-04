@@ -29,9 +29,8 @@ export async function copyContext(
     }
     throw error;
   }
-  const relativeTarget = path.relative(path.resolve(applicationRoot), targetRoot);
-  if (relativeTarget === "" || (!relativeTarget.startsWith(`..${path.sep}`) && relativeTarget !== "..")) {
-    throw new Error("Target context root must be outside the repository.");
+  if (sourceRoot === targetRoot) {
+    throw new Error("Source and target context roots must be different.");
   }
   const source = resolveGigFinderContext(applicationRoot, {
     GIG_FINDER_CONTEXT_ROOT: sourceRoot,

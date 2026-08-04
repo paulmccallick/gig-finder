@@ -9,6 +9,7 @@
 .research
 .worktrees
 context
+production
 dist
 logs
 node_modules

@@ -114,7 +114,7 @@ flowchart LR
   PR[Pull request] -->|validate| Actions[GitHub Actions]
   Actions -->|main merge SHA| GHCR[GHCR multi-architecture image]
   GHCR -->|manual deploy script| OrbStack[OrbStack container :3001]
-  OrbStack --> Context[External production context]
+  OrbStack --> Context[Ignored production/ context]
   OrbStack -->|read-only| Codex[Codex credentials]
 ```
 
@@ -123,11 +123,12 @@ revisions publish immutable `sha-<commit>` and moving `latest` tags. The image
 uses the same `server.js` process as other hosts, supplying `HOST`, `PORT`,
 `STATIC_ROOT`, and `APP_REVISION`; it never runs Vite or source TypeScript.
 `bin/deploy-local.sh` pulls only an immutable tag, backs up and
-migrates the external SQLite database, replaces the container, verifies
+migrates the SQLite database under the ignored `production/` context, replaces the container, verifies
 `/healthz`, and restores the database and prior container on failure.
 
 Development uses ports `5173` and `3101` with the ignored repository context.
-Production binds only `127.0.0.1:3001` on the host and requires context and
-Codex credential mounts outside the repository. Tests use synthetic isolated
-databases. `bin/bootstrap-production.sh` creates the initial verified production
-copy without changing the development database.
+Production binds only `127.0.0.1:3001` on the host and mounts the separate,
+gitignored `production/` context. Codex credentials remain outside the repository
+and are mounted read-only. Tests use synthetic isolated databases.
+`bin/bootstrap-production.sh` creates the initial verified production copy
+without changing the development database.

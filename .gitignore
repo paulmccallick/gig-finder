@@ -9,6 +9,9 @@
 # Private user workspace. This is an independent local repository.
 context/
 
+# Private production runtime mounted into the local container.
+production/
+
 # Temporary files
 tmp/
 temp/

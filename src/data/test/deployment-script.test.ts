@@ -55,7 +55,7 @@ async function runDeployment(options: {
   failure?: "migrate" | "health";
   oldContainer?: boolean;
 } = {}) {
-  const productionRoot = path.join(directory, "production");
+  const productionRoot = path.join(directory, "repository", "production");
   const codexHome = path.join(directory, "codex");
   const deployScript = path.join(directory, "repository", "bin", "deploy-local.sh");
   const dockerPath = path.join(directory, "docker");
@@ -130,7 +130,9 @@ describe("local production deployment", () => {
     expect(backup).toBeLessThan(migrate);
     expect(migrate).toBeLessThan(validate);
     expect(validate).toBeLessThan(start);
-    expect(result.log).toContain("-v " + path.join(directory, "production") + ":/var/lib/gig-finder");
+    expect(result.log).toContain(
+      "-v " + path.join(directory, "repository", "production") + ":/var/lib/gig-finder",
+    );
     expect(result.log).toContain("-v " + path.join(directory, "codex") + ":/run/codex:ro");
     expect(result.stdout + result.stderr).not.toContain(path.join(directory, "codex"));
   });
