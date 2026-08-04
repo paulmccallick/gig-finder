@@ -51,6 +51,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
       - name: Set up Docker Buildx
@@ -69,6 +73,7 @@ jobs:
           context_root="${RUNNER_TEMP}/gig-finder-smoke"
           mkdir -p "${context_root}/profile" "${context_root}/codex"
           cp src/web/test/fixtures/candidate-profile.json "${context_root}/profile/candidate-profile.json"
+          bun src/web/test/pdf-fixture.ts "${context_root}/upload.pdf"
           chmod -R a+rwX "${context_root}"
           docker run --rm \
             -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
@@ -83,15 +88,24 @@ jobs:
             -p 127.0.0.1:3001:3001 \
             gig-finder-smoke:${REVISION})"
           trap 'docker stop "${container_id}" >/dev/null 2>&1 || true' EXIT
+          healthy=false
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:3001/healthz | grep -q "${REVISION}" \
               && curl --fail --silent http://127.0.0.1:3001/ | grep -q "GigFinder"; then
-              exit 0
+              healthy=true
+              break
             fi
             sleep 1
           done
-          docker logs "${container_id}"
-          exit 1
+          if [ "${healthy}" != true ]; then
+            docker logs "${container_id}"
+            exit 1
+          fi
+          upload_response="$(curl --fail --silent \
+            -F "file=@${context_root}/upload.pdf;type=application/pdf" \
+            http://127.0.0.1:3001/api/agent/documents)"
+          printf '%s\n' "${upload_response}" | grep -q '"reference"'
+          printf '%s\n' "${upload_response}" | grep -q '"detectedMediaType":"application/pdf"'
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
