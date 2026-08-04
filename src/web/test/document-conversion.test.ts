@@ -4,6 +4,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   LocalDocumentConverter,
 } from "../document-conversion";
+import { syntheticTextPdf } from "./pdf-fixture";
 
 const converter = new LocalDocumentConverter({
   maxBytes: 1_000_000,
@@ -104,7 +105,7 @@ describe("local document conversion", () => {
     const result = await converter.convert({
       filename: "role.pdf",
       declaredMediaType: "application/pdf",
-      bytes: await pdfFixture(),
+      bytes: syntheticTextPdf("Director Role - lead the platform organization."),
       uploadedAt,
     });
     expect(result.markdown).toContain("Director Role");

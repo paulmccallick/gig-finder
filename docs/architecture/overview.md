@@ -125,7 +125,8 @@ flowchart LR
 `.github/workflows/ci.yml` runs checks and builds on GitHub; successful `main`
 revisions publish immutable `sha-<commit>` and moving `latest` tags. The image
 uses the same `server.js` process as other hosts, supplying `HOST`, `PORT`,
-`STATIC_ROOT`, and `APP_REVISION`; it never runs Vite or source TypeScript.
+`STATIC_ROOT`, and `APP_REVISION`; it includes the version-matched PDF.js worker
+required for server-side PDF conversion and never runs Vite or source TypeScript.
 `bin/deploy-local.sh` synchronizes the candidate profile, configuration, legacy
 artifacts, and required migration mapping from `context/`; pulls only an
 immutable tag; backs up and migrates the production SQLite database; replaces the container; verifies
