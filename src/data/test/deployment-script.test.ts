@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../../..");
@@ -65,6 +65,7 @@ async function runDeployment(options: {
   const logRoot = path.join(directory, "var", "log", "gig-finder");
   const backupRoot = path.join(directory, "var", "backups", "gig-finder");
   const configFile = path.join(directory, "etc", "gig-finder", "config.json");
+  const actualConfigRoot = path.join(directory, "private", "etc");
   const codexHome = path.join(directory, "codex");
   const deployScript = path.join(directory, "repository", "bin", "deploy-local.sh");
   const dockerPath = path.join(directory, "docker");
@@ -77,11 +78,13 @@ async function runDeployment(options: {
   await mkdir(sourceRoot, { recursive: true });
   await mkdir(logRoot, { recursive: true });
   await mkdir(backupRoot, { recursive: true });
-  await mkdir(path.dirname(configFile), { recursive: true });
+  await mkdir(path.join(actualConfigRoot, "gig-finder"), { recursive: true });
+  await symlink(actualConfigRoot, path.join(directory, "etc"), "dir");
   await mkdir(codexHome, { recursive: true });
   await mkdir(path.dirname(deployScript), { recursive: true });
   await writeFile(path.join(productionRoot, "data", "gig-finder.sqlite"), "fixture");
   await writeFile(configFile, '{}\n');
+  const canonicalConfigFile = await realpath(configFile);
   await Promise.all([
     writeFile(deployScript, await readFile(deployScriptSource)),
     writeFile(dockerPath, fakeDocker),
@@ -129,7 +132,18 @@ async function runDeployment(options: {
     readFile(logPath, "utf8"),
     readFile(syncLogPath, "utf8"),
   ]);
-  return { stdout, stderr, exitCode, log, syncLog, productionRoot, logRoot, backupRoot, configFile };
+  return {
+    stdout,
+    stderr,
+    exitCode,
+    log,
+    syncLog,
+    productionRoot,
+    logRoot,
+    backupRoot,
+    configFile,
+    canonicalConfigFile,
+  };
 }
 
 beforeEach(async () => {
@@ -163,8 +177,9 @@ describe("local production deployment", () => {
     expect(result.log).toContain("-v " + result.logRoot + ":/var/log/gig-finder");
     expect(result.log).toContain("-v " + result.backupRoot + ":/var/backups/gig-finder");
     expect(result.log).toContain(
-      "-v " + result.configFile + ":/etc/gig-finder/config.json:ro",
+      "-v " + result.canonicalConfigFile + ":/etc/gig-finder/config.json:ro",
     );
+    expect(result.log).not.toContain("-v " + result.configFile + ":/etc/gig-finder/config.json:ro");
     expect(result.syncLog).toContain(result.productionRoot);
     expect(result.log).toContain("-v " + path.join(directory, "codex") + ":/run/codex:ro");
     expect(result.stdout + result.stderr).not.toContain(path.join(directory, "codex"));
