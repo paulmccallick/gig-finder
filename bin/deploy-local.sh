@@ -5,8 +5,13 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 image_name=${GIG_FINDER_IMAGE:-ghcr.io/paulmccallick/gig-finder}
 container_name=${GIG_FINDER_CONTAINER_NAME:-gig-finder}
-production_root=${GIG_FINDER_PRODUCTION_ROOT:-"${repo_root}/production"}
+source_root=${GIG_FINDER_SOURCE_CONTEXT_ROOT:-"${repo_root}/context"}
+state_root=${GIG_FINDER_PRODUCTION_ROOT:-/var/lib/gig-finder}
+log_root=${GIG_FINDER_LOG_ROOT:-/var/log/gig-finder}
+backup_root=${GIG_FINDER_BACKUP_ROOT:-/var/backups/gig-finder}
+config_file=${GIG_FINDER_CONFIG:-/etc/gig-finder/config.json}
 codex_home=${GIG_FINDER_CODEX_HOME:-}
+sync_bin=${GIG_FINDER_SYNC_BIN:-"${repo_root}/bin/sync-production-inputs"}
 docker_bin=${DOCKER_BIN:-docker}
 curl_bin=${CURL_BIN:-curl}
 sleep_bin=${SLEEP_BIN:-sleep}
@@ -20,20 +25,44 @@ fail() {
 if ! printf '%s\n' "${tag}" | grep -Eq '^sha-[0-9a-fA-F]{40}$'; then
   fail "provide an immutable image tag in the form sha-<40-character-commit-sha>"
 fi
-case "${production_root}" in
+case "${state_root}" in
   /*) ;;
   *) fail "GIG_FINDER_PRODUCTION_ROOT must be an absolute path" ;;
+esac
+case "${log_root}" in
+  /*) ;;
+  *) fail "GIG_FINDER_LOG_ROOT must be an absolute path" ;;
+esac
+case "${backup_root}" in
+  /*) ;;
+  *) fail "GIG_FINDER_BACKUP_ROOT must be an absolute path" ;;
+esac
+case "${config_file}" in
+  /*) ;;
+  *) fail "GIG_FINDER_CONFIG must be an absolute path" ;;
 esac
 case "${codex_home}" in
   /*) ;;
   *) fail "GIG_FINDER_CODEX_HOME must be an absolute path" ;;
 esac
-[ -d "${production_root}" ] || fail "production root does not exist: ${production_root}"
+[ -d "${source_root}" ] || fail "source context does not exist: ${source_root}"
+[ -d "${state_root}" ] || fail "production state root does not exist: ${state_root}"
+[ -d "${log_root}" ] || fail "production log root does not exist: ${log_root}"
+[ -d "${backup_root}" ] || fail "production backup root does not exist: ${backup_root}"
+[ -d "$(dirname -- "${config_file}")" ] || fail "production configuration root does not exist"
 [ -d "${codex_home}" ] || fail "Codex credential directory does not exist: ${codex_home}"
-production_root=$(CDPATH= cd -- "${production_root}" && pwd -P)
+source_root=$(CDPATH= cd -- "${source_root}" && pwd -P)
+state_root=$(CDPATH= cd -- "${state_root}" && pwd -P)
+log_root=$(CDPATH= cd -- "${log_root}" && pwd -P)
+backup_root=$(CDPATH= cd -- "${backup_root}" && pwd -P)
 codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
-[ -f "${production_root}/data/gig-finder.sqlite" ] \
+[ -f "${state_root}/data/gig-finder.sqlite" ] \
   || fail "production database does not exist; run bin/bootstrap-production.sh first"
+[ -x "${sync_bin}" ] || fail "production input synchronizer is unavailable: ${sync_bin}"
+
+echo "Synchronizing production profile, configuration, and artifacts..."
+"${sync_bin}" "${source_root}" "${state_root}" "${config_file}"
+[ -f "${config_file}" ] || fail "production configuration was not created"
 
 "${docker_bin}" info >/dev/null 2>&1 || fail "Docker is unavailable; start OrbStack"
 
@@ -57,7 +86,13 @@ fi
 maintenance() {
   "${docker_bin}" run --rm \
     -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
-    -v "${production_root}:/var/lib/gig-finder" \
+    -e GIG_FINDER_CONFIG=/etc/gig-finder/config.json \
+    -e LOG_DIRECTORY=/var/log/gig-finder \
+    -e GIG_FINDER_BACKUP_ROOT=/var/backups/gig-finder \
+    -v "${state_root}:/var/lib/gig-finder" \
+    -v "${log_root}:/var/log/gig-finder" \
+    -v "${backup_root}:/var/backups/gig-finder" \
+    -v "${config_file}:/etc/gig-finder/config.json:ro" \
     "${image}" bun dist/server/maintenance.js "$@"
 }
 
@@ -110,8 +145,14 @@ if ! new_container_id=$("${docker_bin}" run --detach \
   --restart unless-stopped \
   -p 127.0.0.1:3001:3001 \
   -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
+  -e GIG_FINDER_CONFIG=/etc/gig-finder/config.json \
+  -e LOG_DIRECTORY=/var/log/gig-finder \
+  -e GIG_FINDER_BACKUP_ROOT=/var/backups/gig-finder \
   -e CODEX_HOME=/run/codex \
-  -v "${production_root}:/var/lib/gig-finder" \
+  -v "${state_root}:/var/lib/gig-finder" \
+  -v "${log_root}:/var/log/gig-finder" \
+  -v "${backup_root}:/var/backups/gig-finder" \
+  -v "${config_file}:/etc/gig-finder/config.json:ro" \
   -v "${codex_home}:/run/codex:ro" \
   "${image}"); then
   rollback || true

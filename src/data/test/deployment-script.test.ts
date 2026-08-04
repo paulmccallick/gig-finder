@@ -27,7 +27,7 @@ case "$1" in
   run)
     case "$*" in
       *'maintenance.js backup'*)
-        echo '{"command":"backup","ok":true,"backup":{"path":"/var/lib/gig-finder/backups/test.sqlite"}}'
+        echo '{"command":"backup","ok":true,"backup":{"path":"/var/backups/gig-finder/test.sqlite"}}'
         ;;
       *'maintenance.js migrate'*)
         if [ "$FAKE_FAILURE" = migrate ]; then exit 9; fi
@@ -51,32 +51,50 @@ const fakeSleep = `#!/bin/sh
 exit 0
 `;
 
+const fakeSync = `#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$FAKE_SYNC_LOG"
+`;
+
 async function runDeployment(options: {
   failure?: "migrate" | "health";
   oldContainer?: boolean;
 } = {}) {
-  const productionRoot = path.join(directory, "repository", "production");
+  const sourceRoot = path.join(directory, "repository", "context");
+  const productionRoot = path.join(directory, "var", "lib", "gig-finder");
+  const logRoot = path.join(directory, "var", "log", "gig-finder");
+  const backupRoot = path.join(directory, "var", "backups", "gig-finder");
+  const configFile = path.join(directory, "etc", "gig-finder", "config.json");
   const codexHome = path.join(directory, "codex");
   const deployScript = path.join(directory, "repository", "bin", "deploy-local.sh");
   const dockerPath = path.join(directory, "docker");
   const curlPath = path.join(directory, "curl");
   const sleepPath = path.join(directory, "sleep");
+  const syncPath = path.join(directory, "sync");
   const logPath = path.join(directory, "docker.log");
+  const syncLogPath = path.join(directory, "sync.log");
   await mkdir(path.join(productionRoot, "data"), { recursive: true });
+  await mkdir(sourceRoot, { recursive: true });
+  await mkdir(logRoot, { recursive: true });
+  await mkdir(backupRoot, { recursive: true });
+  await mkdir(path.dirname(configFile), { recursive: true });
   await mkdir(codexHome, { recursive: true });
   await mkdir(path.dirname(deployScript), { recursive: true });
   await writeFile(path.join(productionRoot, "data", "gig-finder.sqlite"), "fixture");
+  await writeFile(configFile, '{}\n');
   await Promise.all([
     writeFile(deployScript, await readFile(deployScriptSource)),
     writeFile(dockerPath, fakeDocker),
     writeFile(curlPath, fakeCurl),
     writeFile(sleepPath, fakeSleep),
+    writeFile(syncPath, fakeSync),
   ]);
   await Promise.all([
     chmod(deployScript, 0o755),
     chmod(dockerPath, 0o755),
     chmod(curlPath, 0o755),
     chmod(sleepPath, 0o755),
+    chmod(syncPath, 0o755),
   ]);
 
   const child = Bun.spawn([deployScript, `sha-${revision}`], {
@@ -84,11 +102,17 @@ async function runDeployment(options: {
     env: {
       ...process.env,
       GIG_FINDER_PRODUCTION_ROOT: productionRoot,
+      GIG_FINDER_SOURCE_CONTEXT_ROOT: sourceRoot,
+      GIG_FINDER_LOG_ROOT: logRoot,
+      GIG_FINDER_BACKUP_ROOT: backupRoot,
+      GIG_FINDER_CONFIG: configFile,
       GIG_FINDER_CODEX_HOME: codexHome,
+      GIG_FINDER_SYNC_BIN: syncPath,
       DOCKER_BIN: dockerPath,
       CURL_BIN: curlPath,
       SLEEP_BIN: sleepPath,
       FAKE_DOCKER_LOG: logPath,
+      FAKE_SYNC_LOG: syncLogPath,
       FAKE_REVISION: revision,
       FAKE_FAILURE: options.failure ?? "",
       FAKE_OLD_CONTAINER: options.oldContainer ? "true" : "false",
@@ -101,8 +125,11 @@ async function runDeployment(options: {
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const log = await readFile(logPath, "utf8");
-  return { stdout, stderr, exitCode, log };
+  const [log, syncLog] = await Promise.all([
+    readFile(logPath, "utf8"),
+    readFile(syncLogPath, "utf8"),
+  ]);
+  return { stdout, stderr, exitCode, log, syncLog, productionRoot, logRoot, backupRoot, configFile };
 }
 
 beforeEach(async () => {
@@ -131,8 +158,14 @@ describe("local production deployment", () => {
     expect(migrate).toBeLessThan(validate);
     expect(validate).toBeLessThan(start);
     expect(result.log).toContain(
-      "-v " + path.join(directory, "repository", "production") + ":/var/lib/gig-finder",
+      "-v " + result.productionRoot + ":/var/lib/gig-finder",
     );
+    expect(result.log).toContain("-v " + result.logRoot + ":/var/log/gig-finder");
+    expect(result.log).toContain("-v " + result.backupRoot + ":/var/backups/gig-finder");
+    expect(result.log).toContain(
+      "-v " + result.configFile + ":/etc/gig-finder/config.json:ro",
+    );
+    expect(result.syncLog).toContain(result.productionRoot);
     expect(result.log).toContain("-v " + path.join(directory, "codex") + ":/run/codex:ro");
     expect(result.stdout + result.stderr).not.toContain(path.join(directory, "codex"));
   });
@@ -143,7 +176,7 @@ describe("local production deployment", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("migration or validation failed");
     expect(result.log).toContain("stop gig-finder");
-    expect(result.log).toContain("maintenance.js restore /var/lib/gig-finder/backups/test.sqlite");
+    expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("start gig-finder");
     expect(result.log).not.toContain("run --detach");
   });
@@ -152,8 +185,8 @@ describe("local production deployment", () => {
     const result = await runDeployment({ failure: "health", oldContainer: true });
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("restoring /var/lib/gig-finder/backups/test.sqlite");
-    expect(result.log).toContain("maintenance.js restore /var/lib/gig-finder/backups/test.sqlite");
+    expect(result.stderr).toContain("restoring /var/backups/gig-finder/test.sqlite");
+    expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("rename gig-finder-previous-");
     expect(result.log).toContain("start gig-finder");
   });

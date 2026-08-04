@@ -6,6 +6,7 @@ import {
   resolveGigFinderContext,
   verifyBackup,
 } from "../data";
+import { syncProductionInputs } from "./production-inputs";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
 
@@ -13,6 +14,7 @@ export async function copyContext(
   sourceRootArgument: string,
   targetRootArgument: string,
   applicationRoot = repositoryRoot,
+  locations: { backupRoot?: string; configFile?: string } = {},
 ) {
   if (!path.isAbsolute(sourceRootArgument) || !path.isAbsolute(targetRootArgument)) {
     throw new Error("Source and target context roots must be absolute.");
@@ -44,8 +46,10 @@ export async function copyContext(
   }
 
   await mkdir(path.dirname(targetDatabase), { recursive: true });
-  await mkdir(path.join(targetRoot, "backups"), { recursive: true });
-  for (const relative of ["config.json", "profile", "artifacts", path.join("data", "migration")]) {
+  const backupRoot = path.resolve(locations.backupRoot ?? path.join(targetRoot, "backups"));
+  const configFile = path.resolve(locations.configFile ?? path.join(targetRoot, "config.json"));
+  await mkdir(backupRoot, { recursive: true });
+  for (const relative of ["profile"]) {
     const sourcePath = path.join(sourceRoot, relative);
     try {
       await stat(sourcePath);
@@ -60,27 +64,39 @@ export async function copyContext(
   }
   const recoveryBackup = await createManagedBackup(
     source.database,
-    path.join(targetRoot, "backups"),
+    backupRoot,
   );
   const database = await createVerifiedBackup(source.database, targetDatabase);
+  const inputs = await syncProductionInputs(
+    sourceRoot,
+    targetRoot,
+    configFile,
+    applicationRoot,
+  );
   const verified = verifyBackup(targetDatabase);
   return {
     copied: true as const,
     sourceDatabase: source.database,
     targetDatabase,
     recoveryBackup: recoveryBackup.path,
+    inputs,
     database,
     recordCounts: verified.validation.counts,
   };
 }
 
 if (import.meta.main) {
-  const [sourceRootArgument, targetRootArgument] = process.argv.slice(2);
-  if (!sourceRootArgument || !targetRootArgument) {
-    throw new Error("Usage: bootstrap-context <source-context-root> <target-context-root>");
+  const [sourceRootArgument, targetRootArgument, backupRoot, configFile] = process.argv.slice(2);
+  if (!sourceRootArgument || !targetRootArgument || !backupRoot || !configFile) {
+    throw new Error(
+      "Usage: bootstrap-context <source-context-root> <state-root> <backup-root> <config-file>",
+    );
   }
   console.log(JSON.stringify(
-    await copyContext(sourceRootArgument, targetRootArgument),
+    await copyContext(sourceRootArgument, targetRootArgument, repositoryRoot, {
+      backupRoot,
+      configFile,
+    }),
     null,
     2,
   ));

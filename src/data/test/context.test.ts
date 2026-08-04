@@ -38,6 +38,30 @@ test("configures the private Profile document directory", async () => {
   }).profileDocuments).toBe(path.join(directory, "override"));
 });
 
+test("reads production configuration independently from mutable state", async () => {
+  directory = await mkdtemp(path.join(tmpdir(), "gig-finder-context-"));
+  const root = path.join(directory, "state");
+  const config = path.join(directory, "etc", "config.json");
+  await mkdir(path.dirname(config), { recursive: true });
+  await writeFile(config, JSON.stringify({
+    version: 1,
+    actor: "Production Operator",
+    profile: "profile/deployed.json",
+  }));
+
+  const context = resolveGigFinderContext(directory, {
+    GIG_FINDER_CONTEXT_ROOT: root,
+    GIG_FINDER_CONFIG: config,
+    LOG_DIRECTORY: path.join(directory, "logs"),
+    GIG_FINDER_BACKUP_ROOT: path.join(directory, "backups"),
+  });
+
+  expect(context.profile).toBe(path.join(root, "profile/deployed.json"));
+  expect(context.logs).toBe(path.join(directory, "logs"));
+  expect(context.backups).toBe(path.join(directory, "backups"));
+  expect(context.actor).toBe("Production Operator");
+});
+
 test("rejects configured Profile document directories outside the context root", async () => {
   directory = await mkdtemp(path.join(tmpdir(), "gig-finder-context-"));
   const root = path.join(directory, "context");

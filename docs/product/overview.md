@@ -24,9 +24,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - The agent header selects GPT-5.6 Sol, Terra, or Luna. The saved choice applies
   to the next request, survives restarts, and does not alter an active response.
 - Agent conversations last only for the current page load.
-- Development uses `context/`; production uses a separate gitignored
-  `production/` context and a locally deployed container built from the exact
-  revision merged to GitHub.
+- Development uses `context/`; production uses isolated Unix state,
+  configuration, log, and backup paths mounted into a local container built
+  from the exact revision merged to GitHub.
 
 ## Entities
 

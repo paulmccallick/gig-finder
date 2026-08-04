@@ -47,8 +47,7 @@ function hasDatabaseContents(filename: string) {
   }
 }
 
-function readContextConfig(root: string): GigFinderContextConfig {
-  const filename = path.join(root, "config.json");
+function readContextConfig(filename: string): GigFinderContextConfig {
   try {
     const parsed = JSON.parse(readFileSync(filename, "utf8")) as Partial<GigFinderContextConfig>;
     if (parsed.version !== 1) throw new Error("version must be 1");
@@ -86,7 +85,9 @@ export function resolveGigFinderContext(
   const root = optionalAbsolute(environment.GIG_FINDER_CONTEXT_ROOT)
     ?? optionalAbsolute(environment.JOB_SEARCH_CONTEXT_ROOT)
     ?? path.join(applicationRoot, "context");
-  const config = readContextConfig(root);
+  const config = readContextConfig(
+    optionalAbsolute(environment.GIG_FINDER_CONFIG) ?? path.join(root, "config.json"),
+  );
   const configuredProfile = config.profile ? path.resolve(root, config.profile) : undefined;
   const candidateProfile = path.join(root, "profile", "candidate-profile.json");
   const legacyProfile = path.join(root, "profile", "job-search-profile.json");
