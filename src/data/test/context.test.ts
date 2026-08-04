@@ -18,6 +18,7 @@ test("uses GigFinder context names for a new workspace", async () => {
   expect(context.database).toBe(path.join(directory, "context/data/gig-finder.sqlite"));
   expect(context.profile).toBe(path.join(directory, "context/profile/candidate-profile.json"));
   expect(context.profileDocuments).toBe(path.join(directory, "context/profile/documents"));
+  expect(context.logs).toBe(path.join(directory, "context/logs"));
 });
 
 test("configures the private Profile document directory", async () => {

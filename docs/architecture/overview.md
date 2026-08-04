@@ -131,4 +131,5 @@ Production binds only `127.0.0.1:3001` on the host and mounts the separate,
 gitignored `production/` context. Codex credentials remain outside the repository
 and are mounted read-only. Tests use synthetic isolated databases.
 `bin/bootstrap-production.sh` creates the initial verified production copy
-without changing the development database.
+without changing the development database. Structured application logs persist
+at `production/logs/server.log` and can be inspected directly from the host.

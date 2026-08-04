@@ -55,7 +55,9 @@ bin/deploy-local.sh sha-<40-character-merge-sha>
 
 The deploy script pulls the immutable image, creates a verified backup, runs
 migrations, replaces the container, and rolls back automatically when health
-verification fails. Open <http://127.0.0.1:3001/>.
+verification fails. Application logs remain directly available on the host at
+`production/logs/server.log`; container access is not required. Open
+<http://127.0.0.1:3001/>.
 
 ## Documentation
 
