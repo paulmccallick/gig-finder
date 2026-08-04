@@ -4,7 +4,7 @@ import path from "node:path";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../../..");
 const temporaryRoot = path.join(repositoryRoot, "tmp");
-const entrypoint = path.join(repositoryRoot, "src", "entrypoints", "maintenance.ts");
+const entrypoint = path.join(repositoryRoot, "src", "operations", "maintenance.ts");
 let directory = "";
 
 beforeEach(async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
+import pino from "pino";
 import {
   agentLimits,
   createAgentHandler,
@@ -10,6 +11,8 @@ import {
 import { testCandidateProfile } from "../agent/test/fixtures";
 import { DomainValidationError } from "../core/src";
 import { toWebError } from "./error-response";
+
+const logger = pino({ enabled: false });
 
 const userMessage = (text: string): UIMessage => ({
   id: "message-1",
@@ -119,6 +122,7 @@ describe("agent web adapter", () => {
   test("serves the POST contract through an injected model", async () => {
     const handler = createAgentHandler({
       profile: testCandidateProfile,
+      logger,
       modelFactory: async () => mockModel("This is a deterministic response."),
     });
     const response = await handler(new Request("http://localhost/api/agent/messages", {
@@ -135,6 +139,7 @@ describe("agent web adapter", () => {
     const selectedModels: string[] = [];
     const handler = createAgentHandler({
       profile: testCandidateProfile,
+      logger,
       modelFactory: async modelId => {
         selectedModels.push(modelId);
         return mockModel();
@@ -154,6 +159,7 @@ describe("agent web adapter", () => {
     let modelCreated = false;
     const handler = createAgentHandler({
       profile: testCandidateProfile,
+      logger,
       modelFactory: async () => {
         modelCreated = true;
         return mockModel();

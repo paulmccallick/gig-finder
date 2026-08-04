@@ -1,14 +1,9 @@
 import { registerTelemetry } from "ai";
 
-export async function registerDevelopmentTelemetry(
-  environment: NodeJS.ProcessEnv = process.env,
+export async function registerAiSdkDevTools(
+  enabled: boolean,
 ) {
-  if (
-    environment.NODE_ENV !== "development"
-    || environment.AI_SDK_DEVTOOLS !== "true"
-  ) {
-    return false;
-  }
+  if (!enabled) return false;
 
   const { DevToolsTelemetry } = await import("@ai-sdk/devtools");
   registerTelemetry(DevToolsTelemetry());

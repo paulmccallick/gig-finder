@@ -80,7 +80,6 @@ await stopExistingDevelopmentServers();
 
 const environment = {
   ...process.env,
-  NODE_ENV: "development",
   AI_SDK_DEVTOOLS: "true",
 };
 const app = Bun.spawn(["bun", "run", "dev"], {

@@ -1,6 +1,6 @@
 import path from "node:path";
-import { cliUsage, runCli } from "../cli/src/cli";
 import { openLocalApplication, resolveGigFinderContext } from "../data/src";
+import { cliUsage, runCli } from "./src/cli";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const args = process.argv.slice(2);
@@ -11,7 +11,11 @@ if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
 }
 
 const context = resolveGigFinderContext(repoRoot);
-const local = openLocalApplication({database:context.database,artifacts:context.artifacts,profileDocuments:context.profileDocuments});
+const local = openLocalApplication({
+  database: context.database,
+  artifacts: context.artifacts,
+  profileDocuments: context.profileDocuments,
+});
 
 try {
   await runCli(args, {

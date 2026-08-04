@@ -17,5 +17,5 @@ fi
 }
 source_root=$(CDPATH= cd -- "${source_root}" && pwd -P)
 
-exec bun run "${repo_root}/src/entrypoints/bootstrap-production.ts" \
+exec bun run "${repo_root}/src/operations/bootstrap-context.ts" \
   "${source_root}" "${production_root}"

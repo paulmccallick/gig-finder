@@ -8,6 +8,8 @@
   `src/data`.
 - CLI and browser dashboard code depend only on core application contracts;
   they do not construct or import data adapters.
+- `src/web/app.ts` and `src/cli/app.ts` are the explicit composition roots that
+  construct data adapters for their respective clients.
 - Agent tools and the CLI use the same domain services; caller-specific
   metadata stays in their adapters.
 - The task service validates Gig and Person links, derives relationship labels,
@@ -35,3 +37,5 @@
   private context or Codex credentials.
 - Production data is an external mounted context owned by the host. The image
   owns runtime code, bundled assets, and migrations but no mutable user data.
+- The web process accepts flat host configuration and has no environment modes;
+  Docker and local scripts choose values and enforce deployment safeguards.

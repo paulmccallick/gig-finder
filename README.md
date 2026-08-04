@@ -20,6 +20,10 @@ Open <http://127.0.0.1:5173/>.
 Development uses API port `3101`; the production container reserves host port
 `3001`.
 
+The web process reads `HOST`, `PORT`, optional `STATIC_ROOT`, and optional
+`APP_REVISION`. Local scripts and containers supply those values; the
+application has no production or development mode.
+
 Useful checks:
 
 ```bash

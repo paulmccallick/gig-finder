@@ -9,7 +9,7 @@ import {
   migrateDatabase,
   openDatabase,
 } from "../data/src";
-import { createWebHandler } from "./server";
+import { createWebHandler } from "./request-handler";
 
 const artifacts: ArtifactPort = {
   jobDescription: async () => "",
@@ -93,7 +93,7 @@ describe("agent model settings API", () => {
   });
 });
 
-describe("production health", () => {
+describe("application health", () => {
   test("reports revision and database readiness", async () => {
     const application = new GigFinderApplication(
       new DataStore(database),

@@ -9,48 +9,48 @@ import {
 
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
 
-export async function bootstrapProduction(
+export async function copyContext(
   sourceRootArgument: string,
-  productionRootArgument: string,
+  targetRootArgument: string,
   applicationRoot = repositoryRoot,
 ) {
-  if (!path.isAbsolute(sourceRootArgument) || !path.isAbsolute(productionRootArgument)) {
-    throw new Error("Source and production context roots must be absolute.");
+  if (!path.isAbsolute(sourceRootArgument) || !path.isAbsolute(targetRootArgument)) {
+    throw new Error("Source and target context roots must be absolute.");
   }
   const sourceRoot = await realpath(path.resolve(sourceRootArgument));
-  let productionRoot: string;
+  let targetRoot: string;
   try {
-    productionRoot = await realpath(path.resolve(productionRootArgument));
+    targetRoot = await realpath(path.resolve(targetRootArgument));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      throw new Error("Production context root must exist before bootstrapping.", {
+      throw new Error("Target context root must exist before copying.", {
         cause: error,
       });
     }
     throw error;
   }
-  const relativeProduction = path.relative(path.resolve(applicationRoot), productionRoot);
-  if (relativeProduction === "" || (!relativeProduction.startsWith(`..${path.sep}`) && relativeProduction !== "..")) {
-    throw new Error("Production context root must be outside the repository.");
+  const relativeTarget = path.relative(path.resolve(applicationRoot), targetRoot);
+  if (relativeTarget === "" || (!relativeTarget.startsWith(`..${path.sep}`) && relativeTarget !== "..")) {
+    throw new Error("Target context root must be outside the repository.");
   }
   const source = resolveGigFinderContext(applicationRoot, {
     GIG_FINDER_CONTEXT_ROOT: sourceRoot,
   });
-  const targetDatabase = path.join(productionRoot, "data", "gig-finder.sqlite");
+  const targetDatabase = path.join(targetRoot, "data", "gig-finder.sqlite");
   try {
     await stat(targetDatabase);
-    throw new Error(`Production database already exists: ${targetDatabase}`);
+    throw new Error(`Target database already exists: ${targetDatabase}`);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
 
   await mkdir(path.dirname(targetDatabase), { recursive: true });
-  await mkdir(path.join(productionRoot, "backups"), { recursive: true });
+  await mkdir(path.join(targetRoot, "backups"), { recursive: true });
   for (const relative of ["config.json", "profile", "artifacts", path.join("data", "migration")]) {
     const sourcePath = path.join(sourceRoot, relative);
     try {
       await stat(sourcePath);
-      await cp(sourcePath, path.join(productionRoot, relative), {
+      await cp(sourcePath, path.join(targetRoot, relative), {
         recursive: true,
         errorOnExist: true,
         force: false,
@@ -61,14 +61,14 @@ export async function bootstrapProduction(
   }
   const recoveryBackup = await createManagedBackup(
     source.database,
-    path.join(productionRoot, "backups"),
+    path.join(targetRoot, "backups"),
   );
   const database = await createVerifiedBackup(source.database, targetDatabase);
   const verified = verifyBackup(targetDatabase);
   return {
-    bootstrapped: true as const,
+    copied: true as const,
     sourceDatabase: source.database,
-    productionDatabase: targetDatabase,
+    targetDatabase,
     recoveryBackup: recoveryBackup.path,
     database,
     recordCounts: verified.validation.counts,
@@ -76,12 +76,12 @@ export async function bootstrapProduction(
 }
 
 if (import.meta.main) {
-  const [sourceRootArgument, productionRootArgument] = process.argv.slice(2);
-  if (!sourceRootArgument || !productionRootArgument) {
-    throw new Error("Usage: bootstrap-production <source-context-root> <production-context-root>");
+  const [sourceRootArgument, targetRootArgument] = process.argv.slice(2);
+  if (!sourceRootArgument || !targetRootArgument) {
+    throw new Error("Usage: bootstrap-context <source-context-root> <target-context-root>");
   }
   console.log(JSON.stringify(
-    await bootstrapProduction(sourceRootArgument, productionRootArgument),
+    await copyContext(sourceRootArgument, targetRootArgument),
     null,
     2,
   ));

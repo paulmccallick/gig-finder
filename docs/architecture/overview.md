@@ -17,11 +17,12 @@ flowchart LR
   Tools --> Stage
   Tools --> Core
   CLI[CLI] --> Core
-  CLIEntry[CLI entry point] --> CLI
-  CLIEntry --> SQLite
-  WebEntry[Web entry point] --> API
-  WebEntry --> Agent
-  WebEntry --> SQLite
+  CLIApp[CLI app] --> CLI
+  CLIApp --> SQLite
+  WebServer[Web server] --> WebApp[Web app]
+  WebApp --> API
+  WebApp --> Agent
+  WebApp --> SQLite
   SQLite[(SQLite)] -->|implements persistence ports| Core
   Core --> Artifacts[Legacy filesystem artifacts]
 ```
@@ -30,7 +31,10 @@ flowchart LR
 - `src/data/` implements persistence, auditing, artifacts, and context paths.
 - `src/cli/` adapts commands to shared services.
 - `src/agent/` owns agent policy, profile composition, model runtime, and tools.
-- `src/web/` owns the Bun HTTP API and React dashboard.
+- `src/web/` owns the Bun server, application assembly, HTTP API, and React
+  dashboard.
+- `src/operations/` contains executable database maintenance and context-copy
+  programs used by operators and deployment automation.
 
 The React dashboard owns session-only agent layout and side-panel width. Changing
 between side-panel and full-screen layouts keeps one mounted agent session and
@@ -53,9 +57,8 @@ Task creation and updates use the same core task service from the agent and
 CLI. The agent adapter supplies strict tool operations and audit identity; core
 validates relationships and lifecycle dates before generic persistence writes.
 
-- `src/entrypoints/` owns runtime composition. Entry points resolve local
-  configuration, construct SQLite-backed application services, inject them into
-  the CLI or web adapter, and close runtime resources.
+- `src/web/server.ts` launches the server; `src/web/app.ts` assembles its
+  dependencies. `src/cli/app.ts` assembles and runs the CLI.
 
 ## Persistence and history
 
@@ -114,9 +117,10 @@ flowchart LR
 ```
 
 `.github/workflows/ci.yml` runs checks and builds on GitHub; successful `main`
-revisions publish immutable `sha-<commit>` and moving `latest` tags. Production
-uses built dashboard assets and bundled Bun entry points—never Vite or source
-TypeScript. `bin/deploy-local.sh` pulls only an immutable tag, backs up and
+revisions publish immutable `sha-<commit>` and moving `latest` tags. The image
+uses the same `server.js` process as other hosts, supplying `HOST`, `PORT`,
+`STATIC_ROOT`, and `APP_REVISION`; it never runs Vite or source TypeScript.
+`bin/deploy-local.sh` pulls only an immutable tag, backs up and
 migrates the external SQLite database, replaces the container, verifies
 `/healthz`, and restores the database and prior container on failure.
 

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
-const apiPort = Number(process.env.API_PORT ?? 3101);
+const apiPort = Number(process.env.PORT ?? 3101);
 
 export default defineConfig({
   root: fileURLToPath(new URL("./", import.meta.url)),

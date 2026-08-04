@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-exec bun "$ROOT/src/entrypoints/cli.ts" "$@"
+exec bun "$ROOT/src/cli/app.ts" "$@"

@@ -30,7 +30,7 @@ export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 export interface GigFinderAgentOptions {
   profile: CandidateProfile;
   model: import("ai").LanguageModel;
-  logger?: import("pino").Logger;
+  logger: import("pino").Logger;
   tools?: import("./gig-finder-tools").GigFinderTools;
   canUpdateRecords?: boolean;
   profileDocuments?: ProfileDocumentContext[];

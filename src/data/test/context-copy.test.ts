@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { bootstrapProduction } from "../../entrypoints/bootstrap-production";
+import { copyContext } from "../../operations/bootstrap-context";
 import { migrateDatabase, openDatabase, verifyBackup } from "../src";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../../..");
@@ -17,7 +17,7 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-test("bootstraps an isolated production context from a verified database copy", async () => {
+test("copies an isolated context from a verified database copy", async () => {
   const applicationRoot = path.join(directory, "repository");
   const sourceRoot = path.join(applicationRoot, "context");
   const productionRoot = path.join(directory, "production");
@@ -31,11 +31,11 @@ test("bootstraps an isolated production context from a verified database copy", 
   migrateDatabase(database);
   database.close();
 
-  const result = await bootstrapProduction(sourceRoot, productionRoot, applicationRoot);
+  const result = await copyContext(sourceRoot, productionRoot, applicationRoot);
 
-  expect(result.bootstrapped).toBe(true);
-  expect(result.productionDatabase).toBe(path.join(productionRoot, "data", "gig-finder.sqlite"));
-  expect(verifyBackup(result.productionDatabase).validation.ok).toBe(true);
+  expect(result.copied).toBe(true);
+  expect(result.targetDatabase).toBe(path.join(productionRoot, "data", "gig-finder.sqlite"));
+  expect(verifyBackup(result.targetDatabase).validation.ok).toBe(true);
   expect(verifyBackup(result.recoveryBackup).validation.ok).toBe(true);
   expect(result.recordCounts.gigs).toBe(0);
 });

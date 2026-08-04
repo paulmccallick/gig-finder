@@ -9,7 +9,7 @@ afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-describe("production static files", () => {
+describe("static dashboard files", () => {
   test("serves assets and falls back to the SPA without handling API paths", async () => {
     const temporaryRoot = path.resolve(import.meta.dir, "../../tmp");
     await mkdir(temporaryRoot, { recursive: true });

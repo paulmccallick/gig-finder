@@ -1,12 +1,11 @@
 const root = new URL("../../", import.meta.url).pathname;
 const apiPort = process.env.DEV_API_PORT ?? "3101";
 
-const api = Bun.spawn(["bun", "--watch", "src/entrypoints/web.ts"], {
+const api = Bun.spawn(["bun", "--watch", "src/web/server.ts"], {
   cwd: root,
   env: {
     ...process.env,
-    API_PORT: apiPort,
-    NODE_ENV: "development",
+    PORT: apiPort,
     AI_SDK_DEVTOOLS: process.env.AI_SDK_DEVTOOLS ?? "true",
   },
   stdout: "inherit",
@@ -17,7 +16,7 @@ const client = Bun.spawn(
   ["bun", "x", "vite", "--config", "src/web/vite.config.ts", "--host", "127.0.0.1"],
   {
     cwd: root,
-    env: { ...process.env, API_PORT: apiPort },
+    env: { ...process.env, PORT: apiPort },
     stdout: "inherit",
     stderr: "inherit",
   },

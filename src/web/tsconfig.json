@@ -19,5 +19,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client", "bun"]
   },
-  "include": ["src", "server.ts", "e2e", "vite.config.ts", "playwright.config.ts", "../core/src", "../agent", "../../context"]
+  "include": ["src", "*.ts", "e2e", "../core/src", "../agent", "../../context"]
 }
