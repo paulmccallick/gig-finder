@@ -3,6 +3,7 @@ import type { GigFinderApplication } from "../core/src/application";
 import { parseAgentModelId } from "../core/src/application-settings";
 import { toWebError } from "./error-response";
 import { WebRequestError } from "./agent-handler";
+import type { StaticFileHandler } from "./static-files";
 
 const agentIdleTimeoutSeconds = 120;
 const documentUploadTimeoutSeconds = 60;
@@ -14,6 +15,13 @@ export interface WebHandlerDependencies {
   uploadHandler(request: Request): Promise<Response>;
   discardStagedDocument(reference: string): boolean;
   requestLogger(requestId: string): Logger;
+  healthCheck?: () => {
+    ok: boolean;
+    revision: string;
+    integrity: string;
+    foreignKeyViolations: number;
+  };
+  staticFiles?: StaticFileHandler;
 }
 
 interface RequestTimeoutController {
@@ -41,7 +49,7 @@ async function updateAgentModel(
   return gigFinder.settings.setAgentModel(modelId);
 }
 
-export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardStagedDocument,requestLogger}:WebHandlerDependencies) {
+export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardStagedDocument,requestLogger,healthCheck,staticFiles}:WebHandlerDependencies) {
   return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -69,7 +77,23 @@ export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardSt
 
     let response: Response;
     try {
-      if (url.pathname === "/api/agent/messages") {
+      if (url.pathname === "/healthz") {
+        if (request.method !== "GET") {
+          response = json({ error: "Method not allowed" }, 405);
+        } else if (!healthCheck) {
+          response = json({ status: "unavailable" }, 503);
+        } else {
+          const health = healthCheck();
+          response = json({
+            status: health.ok ? "ok" : "error",
+            revision: health.revision,
+            database: {
+              integrity: health.integrity,
+              foreignKeyViolations: health.foreignKeyViolations,
+            },
+          }, health.ok ? 200 : 503);
+        }
+      } else if (url.pathname === "/api/agent/messages") {
         response = request.method === "POST"
           ? await agentHandler(new Request(request, { headers: new Headers([...request.headers, ["x-request-id", requestId]]) }))
           : json({ error: "Method not allowed" }, 405);
@@ -106,7 +130,7 @@ export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardSt
           const id=decodeURIComponent(match[1]??"");const gig=gigFinder.gigs.get(id);
           response = gig?json({jobDescription:await gigFinder.gigs.description(id),sourceUrl:gig.sourceUrl,artifactDirectory:`artifacts/gigs/${id}/`}):json({error:"Gig not found"},404);
         } else {
-          response = json({ error: "Not found" }, 404);
+          response = await staticFiles?.(request) ?? json({ error: "Not found" }, 404);
         }
       }
     } catch (error) {

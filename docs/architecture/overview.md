@@ -101,3 +101,27 @@ Meeting mappings, applies pending migrations, and validates the result.
 
 For local development, `bun run dev:restart` replaces any running API,
 dashboard, and AI SDK DevTools processes and supervises their replacements.
+
+## Build and deployment
+
+```mermaid
+flowchart LR
+  PR[Pull request] -->|validate| Actions[GitHub Actions]
+  Actions -->|main merge SHA| GHCR[GHCR multi-architecture image]
+  GHCR -->|manual deploy script| OrbStack[OrbStack container :3001]
+  OrbStack --> Context[External production context]
+  OrbStack -->|read-only| Codex[Codex credentials]
+```
+
+`.github/workflows/ci.yml` runs checks and builds on GitHub; successful `main`
+revisions publish immutable `sha-<commit>` and moving `latest` tags. Production
+uses built dashboard assets and bundled Bun entry points—never Vite or source
+TypeScript. `bin/deploy-local.sh` pulls only an immutable tag, backs up and
+migrates the external SQLite database, replaces the container, verifies
+`/healthz`, and restores the database and prior container on failure.
+
+Development uses ports `5173` and `3101` with the ignored repository context.
+Production binds only `127.0.0.1:3001` on the host and requires context and
+Codex credential mounts outside the repository. Tests use synthetic isolated
+databases. `bin/bootstrap-production.sh` creates the initial verified production
+copy without changing the development database.

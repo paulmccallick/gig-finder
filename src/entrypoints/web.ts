@@ -17,8 +17,11 @@ import {
 } from "../core/src/application-settings";
 import { LocalDocumentConverter } from "../web/document-conversion";
 import { createDocumentUploadHandler } from "../web/document-upload-handler";
+import { createStaticFileHandler } from "../web/static-files";
+import { resolveGigFinderRuntime } from "./runtime";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
+const runtime = resolveGigFinderRuntime(repoRoot);
 const devToolsEnabled = await registerDevelopmentTelemetry();
 const context = resolveGigFinderContext(repoRoot);
 const defaultAgentModel = parseAgentModelId(
@@ -38,7 +41,6 @@ const local = openLocalApplication({
   }, "Profile document materialization remains pending"),
 });
 const gigFinder = local.application;
-const port = Number(process.env.API_PORT ?? 3001);
 const positiveInteger = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -77,8 +79,8 @@ const agentHandler = createAgentHandler({
   selectModel: () => gigFinder.settings.get().agentModel,
 });
 const server = Bun.serve({
-  port,
-  hostname: "127.0.0.1",
+  port: runtime.port,
+  hostname: runtime.hostname,
   maxRequestBodySize: uploadLimits.maxBytes + 1_000_000,
   fetch: createWebHandler({
     gigFinder,
@@ -86,6 +88,18 @@ const server = Bun.serve({
     uploadHandler,
     discardStagedDocument: reference => stagedDocuments.discard(reference),
     requestLogger,
+    healthCheck: () => {
+      const validation = local.validate();
+      return {
+        ok: validation.ok,
+        revision: runtime.revision,
+        integrity: validation.integrity,
+        foreignKeyViolations: validation.foreignKeyViolations,
+      };
+    },
+    staticFiles: runtime.staticRoot
+      ? createStaticFileHandler(runtime.staticRoot)
+      : undefined,
   }),
 });
 
@@ -102,7 +116,9 @@ process.once("SIGTERM", () => void stop());
 
 logger.info({
   event: "server.started",
-  address: `http://127.0.0.1:${port}`,
+  address: `http://${runtime.hostname}:${runtime.port}`,
+  runtime: runtime.mode,
+  revision: runtime.revision,
   logFile: activeLogFile,
   logLevel: configuredLogLevel,
   aiSdkDevTools: devToolsEnabled,

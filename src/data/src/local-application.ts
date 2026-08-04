@@ -8,6 +8,7 @@ import {
   type AgentModelId,
 } from "../../core/src/application-settings";
 import { LocalProfileDocumentFiles } from "./profile-document-files";
+import { validateDatabase } from "./maintenance";
 
 export interface LocalApplicationPaths { database: string; artifacts: string; profileDocuments?: string }
 export interface LocalApplicationOptions {
@@ -25,5 +26,9 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
     options.onProfileDocumentMaterializationFailure,
   );
   store.synchronizeProfileDocuments();
-  return {application:new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId),close:()=>database.close()};
+  return {
+    application:new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId),
+    validate:()=>validateDatabase(database),
+    close:()=>database.close(),
+  };
 }

@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "candidate": {
+    "displayName": "Jordan Example",
+    "profession": "Product leadership",
+    "functionalFocus": ["Product development"],
+    "experienceLevel": "Experienced leader",
+    "yearsOfExperience": "More than ten years",
+    "industryExperience": ["Business software"],
+    "currentSituation": "Conducting a synthetic test search.",
+    "careerHorizon": "Long term"
+  },
+  "targets": {
+    "primaryRoles": ["Director of Product"],
+    "conditionalRoles": [],
+    "companyPreferences": ["Stable companies"],
+    "locationPreferences": ["Remote"]
+  },
+  "strengths": ["Building teams"],
+  "bestFitDomains": ["Product development"],
+  "poorFit": ["Unrelated roles"],
+  "decisionRules": ["Use synthetic data only"]
+}

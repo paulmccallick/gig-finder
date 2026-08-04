@@ -31,3 +31,7 @@
   owns its HTTP contract and control, while data stores only generic key/value
   settings.
 - Private context never belongs in application source control.
+- CI builds only repository source and synthetic fixtures; it never receives
+  private context or Codex credentials.
+- Production data is an external mounted context owned by the host. The image
+  owns runtime code, bundled assets, and migrations but no mutable user data.

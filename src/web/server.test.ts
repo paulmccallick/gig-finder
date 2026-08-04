@@ -92,3 +92,37 @@ describe("agent model settings API", () => {
     expect(await persisted.json()).toEqual({ agentModel: "gpt-5.6-sol" });
   });
 });
+
+describe("production health", () => {
+  test("reports revision and database readiness", async () => {
+    const application = new GigFinderApplication(
+      new DataStore(database),
+      new AuditReader(database),
+      artifacts,
+    );
+    const handler = createWebHandler({
+      gigFinder: application,
+      agentHandler: async () => new Response(null),
+      uploadHandler: async () => new Response(null),
+      discardStagedDocument: () => false,
+      requestLogger: () => logger,
+      healthCheck: () => ({
+        ok: true,
+        revision: "a".repeat(40),
+        integrity: "ok",
+        foreignKeyViolations: 0,
+      }),
+    });
+
+    const response = await handler(
+      new Request("http://localhost/healthz"),
+      requestServer,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "ok",
+      revision: "a".repeat(40),
+      database: { integrity: "ok", foreignKeyViolations: 0 },
+    });
+  });
+});

@@ -9,14 +9,13 @@ Project](https://github.com/users/paulmccallick/projects/5).
 
 ## GitHub workflow
 
-- The GitHub Project is the workflow source of truth for issue defintion and status.
-- Statuses are backlog, grooming, development, and done
-  - grroming means issue details and implementation are being defined
-  - development meands it is currently in progress
-  - done means the user has signed off on the issue
-- move issues to the correct status when working with the user
-- always create a feature branch when working on an issue.
-- always create a PR when done with the development of an issue
+The GitHub Project is the source of truth. Use Backlog for unrefined work,
+Grooming while defining requirements, Development while implementing or
+verifying, and Done only after user sign-off. Ask before moving an issue to its
+next status. Create feature branches from `main`; changes to `main` require a
+pull request linked with `Closes #<issue>`. A merge closes the issue and hides
+it from the board. Production changes are done only after their merge image is
+published, deployed locally, and verified.
 
 ## Development rules
 
@@ -29,8 +28,8 @@ Project](https://github.com/users/paulmccallick/projects/5).
 - Add regression tests for changed documented behavior.
 - Run `bun run check` and `bun run build` for application changes.
 - Run `bun run test:e2e` for dashboard behavior changes.
-- Definition of done: all required checks pass, and any issues found by those
-  checks are fixed as part of the change.
+- Definition of done: required checks pass, their findings are fixed, and
+  production-affecting changes are published, deployed, and verified.
 - Limit scope to the requested feature
 - Apply SOLID principles
 - Be pragmatic - avoid unecessary obfuscation
