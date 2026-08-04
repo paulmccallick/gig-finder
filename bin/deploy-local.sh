@@ -55,6 +55,8 @@ source_root=$(CDPATH= cd -- "${source_root}" && pwd -P)
 state_root=$(CDPATH= cd -- "${state_root}" && pwd -P)
 log_root=$(CDPATH= cd -- "${log_root}" && pwd -P)
 backup_root=$(CDPATH= cd -- "${backup_root}" && pwd -P)
+config_root=$(CDPATH= cd -- "$(dirname -- "${config_file}")" && pwd -P)
+config_file="${config_root}/$(basename "${config_file}")"
 codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
 [ -f "${state_root}/data/gig-finder.sqlite" ] \
   || fail "production database does not exist; run bin/bootstrap-production.sh first"
