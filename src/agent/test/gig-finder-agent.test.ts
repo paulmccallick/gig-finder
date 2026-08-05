@@ -13,9 +13,11 @@ import { StagedDocumentService } from "../../core";
 import { GigFinderAgent } from "../gig-finder-agent";
 import {
   createGigFinderTools,
+  gigFinderToolSchemas,
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
 } from "../gig-finder-tools";
+import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 import { testCandidateProfile } from "./fixtures";
 import {
   buildGigFinderInstructions,
@@ -256,6 +258,49 @@ describe("GigFinderAgent instructions", () => {
 });
 
 describe("agent streaming", () => {
+  test("sends the complete strict tool registry through the AI SDK model boundary", async () => {
+    const model = mockModel("Tool registry accepted.");
+    const mutations: GigFinderMutationCapabilities = {
+      ...documentMutations(() => { throw new Error("not executed"); }),
+      gigs: {
+        createNew: () => { throw new Error("not executed"); },
+        update: () => { throw new Error("not executed"); },
+      },
+      people: {
+        createNew: () => { throw new Error("not executed"); },
+        update: () => { throw new Error("not executed"); },
+      },
+      gigPeople: { createNew: () => { throw new Error("not executed"); } },
+    };
+    const tools = createGigFinderTools(
+      readerWithGigs([]),
+      logger,
+      mutations,
+      { actor: "Candidate", requestId: "request-schema-boundary" },
+      { contextSearch: { search: () => ({ gigs: [], people: [], truncated: false }) } },
+    );
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
+      model,
+      logger,
+      tools,
+      canUpdateRecords: true,
+    });
+
+    expect(await agent.respond([userMessage("Review my pipeline.")]).text).toBe(
+      "Tool registry accepted.",
+    );
+    const modelTools = model.doStreamCalls[0]?.tools ?? [];
+    expect(modelTools.map(tool => tool.name).sort()).toEqual(
+      Object.keys(gigFinderToolSchemas).sort(),
+    );
+    for (const definition of modelTools) {
+      if (definition.type !== "function") continue;
+      expect(definition).toMatchObject({ strict: true });
+      validateStrictToolJsonSchema(definition.name, definition.inputSchema);
+    }
+  });
+
   test("streams UI messages without registering tools", async () => {
     const model = mockModel();
     const logEntries: Array<{ level: string; data: Record<string, unknown> }> = [];

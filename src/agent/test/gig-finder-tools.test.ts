@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 import {
   personStatuses,
   fitRatings,
+  gigInputSchema,
   gigPersonRelationships,
   meetingStatuses,
   pipelineStages,
@@ -28,6 +29,7 @@ import {
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
 } from "../gig-finder-tools";
+import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 
 const logger = {
   debug: () => undefined,
@@ -264,6 +266,33 @@ describe("GigFinderAgent tools", () => {
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
+  });
+
+  test("keeps read-only and mutation-enabled runtime tools in exact registry parity", () => {
+    const extensions = {
+      contextSearch: {
+        search: () => ({ gigs: [], people: [], truncated: false }),
+      },
+    };
+    const readOnly = createGigFinderTools(reader, logger, undefined, undefined, extensions);
+    const writable = createGigFinderTools(
+      reader,
+      logger,
+      mutations,
+      { actor: "Candidate", requestId: "request-parity" },
+      extensions,
+    );
+    const mutationNames = new Set([
+      "create_gig", "update_gig", "update_person", "create_person",
+      "create_gig_person_relationship", "create_task", "update_task",
+      "create_meeting", "update_meeting", "create_document", "update_document",
+      "revert_change",
+    ]);
+    const registryNames = Object.keys(gigFinderToolSchemas);
+    expect(Object.keys(readOnly).sort()).toEqual(
+      registryNames.filter(name => !mutationNames.has(name)).sort(),
+    );
+    expect(Object.keys(writable).sort()).toEqual(registryNames.sort());
   });
 
   test("reads standalone people and traversable gig-person relationships", async () => {
@@ -1621,35 +1650,33 @@ describe("GigFinderAgent tools", () => {
     }
   });
 
-  test("generates strict-compatible mutation schemas at every object level", () => {
-    const assertStrictObjects = (node: unknown) => {
-      if (!node || typeof node !== "object") return;
-      const schema = node as Record<string, unknown>;
-      if (schema.type === "object") {
-        const properties = schema.properties as Record<string, unknown>;
-        expect(schema.additionalProperties).toBe(false);
-        expect((schema.required as string[]).sort()).toEqual(
-          Object.keys(properties).sort(),
-        );
-      }
-      for (const value of Object.values(schema)) {
-        if (Array.isArray(value)) value.forEach(assertStrictObjects);
-        else assertStrictObjects(value);
-      }
-    };
-    for (const schema of [
-      gigFinderToolSchemas.update_gig,
-      gigFinderToolSchemas.update_person,
-      gigFinderToolSchemas.create_task,
-      gigFinderToolSchemas.update_task,
-      gigFinderToolSchemas.create_meeting,
-      gigFinderToolSchemas.update_meeting,
-      gigFinderToolSchemas.create_document,
-      gigFinderToolSchemas.update_document,
-    ]) {
-      const jsonSchema = z.toJSONSchema(schema);
-      assertStrictObjects(jsonSchema);
+  test("generates strict-compatible schemas for the complete registry", () => {
+    for (const [name, schema] of Object.entries(gigFinderToolSchemas)) {
+      expect(() => validateStrictToolJsonSchema(name, z.toJSONSchema(schema)))
+        .not.toThrow();
     }
+  });
+
+  test("keeps create_gig nested values strict while adapting optional domain fields", () => {
+    const jsonSchema = z.toJSONSchema(gigFinderToolSchemas.create_gig);
+    const properties = jsonSchema.properties as Record<string, Record<string, unknown>>;
+    const nextActionSchema = properties.nextAction;
+    expect(nextActionSchema).toBeDefined();
+    const nextAction = (nextActionSchema?.anyOf as Array<Record<string, unknown>>)
+      .find(branch => branch.type === "object");
+    expect(nextAction).toMatchObject({
+      additionalProperties: false,
+      required: ["description", "due"],
+    });
+    expect(jsonSchema.required).toContain("nextAction");
+    expect(gigInputSchema.safeParse({
+      company: "Synthetic Co",
+      title: "Engineering Director",
+    }).success).toBe(true);
+    expect(gigFinderToolSchemas.create_gig.safeParse({
+      company: "Synthetic Co",
+      title: "Engineering Director",
+    }).success).toBe(false);
   });
 
   test("generates a Codex-compatible flat document source schema", () => {
