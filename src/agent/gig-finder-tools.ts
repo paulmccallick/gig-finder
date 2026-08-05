@@ -958,7 +958,7 @@ export function createGigFinderTools(
     ...readTools,
     ...(mutations.gigs.createNew ? { create_gig: tool({
       strict: true,
-      description: "Create one new pipeline Gig after explicit user confirmation. Resolve duplicates first and report the persisted record and change ID.",
+      description: "Create one new pipeline Gig after explicit user confirmation. Resolve duplicates first and confirm the created gig by its friendly details.",
       inputSchema: createGigInputSchema,
       execute: loggedExecution(logger, "create_gig", (input, { toolCallId }) => ({
         status: "ok" as const,
@@ -972,7 +972,7 @@ export function createGigFinderTools(
     }) } : {}),
     update_gig: tool({
       strict: true,
-      description: "Update one existing gig using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and report the resulting record and change ID to the user.",
+      description: "Update one existing gig using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and confirm the friendly action summary.",
       inputSchema: updateGigInputSchema,
       execute: loggedExecution(
         logger,
@@ -990,7 +990,7 @@ export function createGigFinderTools(
     }),
     update_person: tool({
       strict: true,
-      description: "Update one existing person using explicit set or clear operations. Supply only desired identity, relationship, or outreach changes; use dot paths for nested fields and report the resulting record and change ID.",
+      description: "Update one existing person using explicit set or clear operations. Supply only desired identity, relationship, or outreach changes; use dot paths for nested fields and confirm the friendly action summary.",
       inputSchema: updatePersonInputSchema,
       execute: loggedExecution(
         logger,
@@ -1007,7 +1007,7 @@ export function createGigFinderTools(
       ),
     }),
     ...(mutations.people.createNew?{create_person: tool({
-      strict:true, description:"Create one canonical Person after explicit user confirmation. Resolve duplicates first and report the persisted record and change ID.",
+      strict:true, description:"Create one canonical Person after explicit user confirmation. Resolve duplicates first and confirm the created person by name.",
       inputSchema:createPersonInputSchema,
       execute:loggedExecution(logger,"create_person",(input,{toolCallId})=>({status:"ok" as const,...mutations.people.createNew!({actor:requestContext.actor,source:"agent",summary:`Agent created person (request ${requestContext.requestId}, tool ${toolCallId})`,changeId:`agent-tool:${toolCallId}`},entityIdForToolCall("person",toolCallId),input)})),
     })}:{}),
@@ -1018,7 +1018,7 @@ export function createGigFinderTools(
     })}:{}),
     create_task: tool({
       strict: true,
-      description: "Create one task related to an existing Gig, an existing Person, or the general job search. Supply exact durable IDs where required and report the resulting record and change ID to the user.",
+      description: "Create one task related to an existing Gig, an existing Person, or the general job search. Supply exact durable IDs where required and confirm the created task by title.",
       inputSchema: createTaskInputSchema,
       execute: loggedExecution(
         logger,
@@ -1042,7 +1042,7 @@ export function createGigFinderTools(
     }),
     update_task: tool({
       strict: true,
-      description: "Update one existing task using explicit set or clear operations. Supply only desired changes and report the resulting record and change ID to the user.",
+      description: "Update one existing task using explicit set or clear operations. Supply only desired changes and confirm the friendly action summary.",
       inputSchema: updateTaskInputSchema,
       execute: loggedExecution(
         logger,
@@ -1060,7 +1060,7 @@ export function createGigFinderTools(
     }),
     create_meeting: tool({
       strict: true,
-      description: "Create one meeting linked to one or more existing people and optionally one existing gig. Supply exact durable IDs and report the resulting record and change ID to the user.",
+      description: "Create one meeting linked to one or more existing people and optionally one existing gig. Supply exact durable IDs and confirm the meeting using friendly participant and opportunity details.",
       inputSchema: createMeetingInputSchema,
       execute: loggedExecution(
         logger,
@@ -1083,7 +1083,7 @@ export function createGigFinderTools(
     }),
     update_meeting: tool({
       strict: true,
-      description: "Update one existing meeting using explicit set or clear operations. Supply only desired changes and report the resulting record and change ID to the user.",
+      description: "Update one existing meeting using explicit set or clear operations. Supply only desired changes and confirm the friendly action summary.",
       inputSchema: updateMeetingInputSchema,
       execute: loggedExecution(
         logger,
@@ -1101,7 +1101,7 @@ export function createGigFinderTools(
     }),
     create_document: tool({
       strict: true,
-      description: "Create a managed text document linked to existing Gigs, People, or the candidate Profile from inline conversation content or an exact staged-document reference. Profile context documents require a name and description when known, and link only to Profile candidate. First resolve the intended ownership; preserve supplied source content without rewriting it and report the document ID, version, and change ID.",
+      description: "Create a managed text document linked to existing Gigs, People, or the candidate Profile from inline conversation content or an exact staged-document reference. Profile context documents require a name and description when known, and link only to Profile candidate. First resolve the intended ownership; preserve supplied source content without rewriting it and confirm the document by its friendly name and action summary.",
       inputSchema: createDocumentInputSchema,
       execute: loggedExecution(
         logger,
@@ -1172,7 +1172,7 @@ export function createGigFinderTools(
     }),
     update_document: tool({
       strict: true,
-      description: "Replace the content of one managed text document using its exact ID and current version. The prior content remains an immutable version; report whether a new version was created and its change ID.",
+      description: "Replace the content of one managed text document using its exact ID and current version. The prior content remains an immutable version; confirm by friendly document name whether a new version was created.",
       inputSchema: updateDocumentInputSchema,
       execute: loggedExecution(
         logger,

@@ -27,6 +27,12 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   to the next request, survives restarts, and does not alter an active response.
 - The agent supports multiple durable conversations, reopens the most recently
   active one, and lists the 20 most recently active conversations for switching.
+- From submission through completion, the agent panel shows concise, accessible
+  activity such as thinking, searching, reading, saving, and updating. It
+  presents only provider-emitted reasoning, tool activity, and answer text in
+  stream order, and restored conversations retain completed reasoning. Normal
+  activity and responses use friendly names and action summaries rather than
+  tool payloads or internal record, document, change, and call identifiers.
 - Development uses `context/`; production uses isolated Unix state,
   configuration, log, and backup paths mounted into a local container built
   from the exact revision merged to GitHub.

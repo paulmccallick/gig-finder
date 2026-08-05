@@ -293,6 +293,10 @@ describe("GigFinderAgent tools", () => {
       registryNames.filter(name => !mutationNames.has(name)).sort(),
     );
     expect(Object.keys(writable).sort()).toEqual(registryNames.sort());
+    for (const [name, registeredTool] of Object.entries(writable)) {
+      if (!mutationNames.has(name)) continue;
+      expect(registeredTool.description).not.toMatch(/report .*(?:change|document|record) ID/i);
+    }
   });
 
   test("reads standalone people and traversable gig-person relationships", async () => {
