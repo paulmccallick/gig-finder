@@ -260,6 +260,10 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 .agent-orbit i:nth-child(2) { right: 4px; bottom: 9px; }
 .agent-orbit i:nth-child(3) { left: 5px; bottom: 8px; }
 .agent-header-actions { display: grid; grid-template-columns: auto auto; align-items: center; justify-items: end; gap: 6px; }
+.agent-conversation-control { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; }
+.agent-conversation-control select { width: min(220px, 26vw); min-height: 28px; padding: 0 22px 0 7px; border: 1px solid var(--line); background: #f6f7f3; color: var(--ink); font: 9px/1 "SFMono-Regular", Consolas, monospace; }
+.agent-conversation-control button { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: 8px/1 "SFMono-Regular", Consolas, monospace; text-transform: uppercase; }
+.agent-conversation-control select:disabled,.agent-conversation-control button:disabled { color: var(--dim); cursor: wait; }
 .agent-model-control { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; color: var(--dim); text-transform: uppercase; font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
 .agent-model-control select { width: 118px; min-height: 27px; padding: 0 22px 0 7px; color: var(--ink); border: 1px solid var(--line); border-radius: 0; background: #f6f7f3; font: 8px/1 "SFMono-Regular", Consolas, monospace; }
 .agent-model-control select:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
@@ -267,6 +271,8 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 .agent-model-error { grid-column: 1 / -1; max-width: 150px; color: var(--red); text-align: right; font: 7px/1.35 "SFMono-Regular", Consolas, monospace; }
 .agent-layout-controls { display: flex; align-items: center; padding: 3px; border: 1px solid var(--line); background: #f6f7f3; }
 .agent-panel.is-layout-full .agent-header-actions { display: flex; flex-direction: column; align-items: stretch; }
+.agent-panel.is-layout-full .agent-conversation-control { flex-direction: column; align-items: stretch; }
+.agent-panel.is-layout-full .agent-conversation-control select { width: 100%; }
 .agent-panel.is-layout-full .agent-model-control { display: grid; grid-template-columns: 1fr; justify-items: stretch; }
 .agent-panel.is-layout-full .agent-model-control select { width: 100%; }
 .agent-panel.is-layout-full .agent-model-error { max-width: none; text-align: left; }

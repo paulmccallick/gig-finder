@@ -159,6 +159,8 @@ const getInputSchema = z.object({
 const getDocumentInputSchema = z.object({
   reference: z.string().trim().min(1)
     .describe("Exact registered reference returned by a detail tool or staged reference supplied by the web application."),
+  version: z.number().int().positive().nullable()
+    .describe("Specific managed-document version to retrieve, or null for the current version or a non-versioned reference."),
 }).strict();
 
 const searchGigsAndPeopleInputSchema = z.object({
@@ -877,9 +879,9 @@ export function createGigFinderTools(
       execute: loggedExecution(
         logger,
         "get_document",
-        async ({ reference }) => {
+        async ({ reference, version }) => {
           const staged = extensions?.stagedDocuments?.get(reference);
-          if (!staged) return await reads.documents.get(reference);
+          if (!staged) return await reads.documents.get(reference, version);
           return {
             status: "ok" as const,
             record: {

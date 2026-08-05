@@ -9,6 +9,7 @@ import {
 } from "../core/application-settings";
 import { LocalProfileDocumentFiles } from "./profile-document-files";
 import { validateDatabase } from "./maintenance";
+import { SqliteConversationRepository } from "./conversation-store";
 
 export interface LocalApplicationPaths { database: string; artifacts: string; profileDocuments?: string }
 export interface LocalApplicationOptions {
@@ -28,6 +29,7 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
   store.synchronizeProfileDocuments();
   return {
     application:new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId),
+    conversations:new SqliteConversationRepository(database),
     validate:()=>validateDatabase(database),
     close:()=>database.close(),
   };

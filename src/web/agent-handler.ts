@@ -1,45 +1,89 @@
 import {
-  convertToModelMessages,
-  safeValidateUIMessages,
-  type LanguageModel,
+  createUIMessageStreamResponse,
   type UIMessage,
+  type UIMessageChunk,
 } from "ai";
 import type { Logger } from "pino";
-import { createCodexLanguageModel } from "../agent/codex-provider";
-import { GigFinderAgent } from "../agent/gig-finder-agent";
-import type { CandidateProfile } from "../agent/types";
 import {
-  createGigFinderTools,
-  type GigFinderReadCapabilities,
-  type GigFinderToolExtensions,
-} from "../agent/gig-finder-tools";
-import type { GigFinderMutationCapabilities } from "../agent/gig-finder-tools";
-import {
-  defaultAgentModelId,
-  type AgentModelId,
-} from "../core/application-settings";
-import type { ProfileDocumentContext } from "../core/documents";
+  ConversationService,
+  ConversationValidationError,
+  type ConversationMessage,
+  type ConversationPart,
+  type ConversationStreamEvent,
+} from "../core/conversation-service";
 
-type ModelFactory = (modelId: AgentModelId) => Promise<LanguageModel>;
-type ModelSelector = () => AgentModelId;
-
-export interface AgentHandlerOptions {
-  profile: CandidateProfile;
-  profileDocuments?: () => ProfileDocumentContext[];
-  modelFactory?: ModelFactory;
-  selectModel?: ModelSelector;
-  logger: Logger;
-  reads?: GigFinderReadCapabilities;
-  mutations?: GigFinderMutationCapabilities;
-  actor?: string;
-  toolExtensions?: GigFinderToolExtensions;
+function toolName(part: UIMessage["parts"][number]) {
+  if (part.type === "dynamic-tool") return part.toolName;
+  return part.type.startsWith("tool-") ? part.type.slice(5) : null;
 }
 
-export const agentLimits = {
-  maxMessages: 20,
-  maxTextCharacters: 8_000,
-  maxTotalCharacters: 24_000,
-} as const;
+export function toConversationMessage(message: unknown): ConversationMessage | unknown {
+  if (!message || typeof message !== "object" || !("parts" in message)) return message;
+  const value = message as UIMessage;
+  const parts: ConversationPart[] = [];
+  for (const part of value.parts) {
+    if (part.type === "text" || part.type === "reasoning") {
+      parts.push({ type: part.type, text: part.text });
+      continue;
+    }
+    if (part.type === "step-start") {
+      parts.push({ type: "step-start" });
+      continue;
+    }
+    const name = toolName(part);
+    if (!name || !("toolCallId" in part) || !("state" in part)) continue;
+    if (part.state === "output-available") parts.push({
+      type: "tool", toolName: name, toolCallId: part.toolCallId,
+      state: part.state, input: part.input, output: part.output,
+      providerExecuted: part.providerExecuted,
+    });
+    else if (part.state === "output-error") parts.push({
+      type: "tool", toolName: name, toolCallId: part.toolCallId,
+      state: part.state, input: part.input, errorText: part.errorText,
+      providerExecuted: part.providerExecuted,
+    });
+    else if (part.state === "input-available") parts.push({
+      type: "tool", toolName: name, toolCallId: part.toolCallId,
+      state: part.state, input: part.input, providerExecuted: part.providerExecuted,
+    });
+  }
+  return {
+    id: value.id,
+    role: value.role,
+    parts,
+  };
+}
+
+export function toUIMessage(message: ConversationMessage): UIMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    parts: message.parts.map(part => {
+      if (part.type !== "tool") return part;
+      return {
+        type: `tool-${part.toolName}`,
+        toolCallId: part.toolCallId,
+        state: part.state,
+        input: part.input,
+        ...(part.state === "output-available" ? { output: part.output } : {}),
+        ...(part.state === "output-error" ? { errorText: part.errorText ?? "Tool failed." } : {}),
+        providerExecuted: part.providerExecuted,
+      };
+    }) as UIMessage["parts"],
+  };
+}
+
+function toUIStream(stream: ReadableStream<ConversationStreamEvent>) {
+  return stream.pipeThrough(new TransformStream<ConversationStreamEvent, UIMessageChunk>({
+    transform(event, controller) {
+      if (event.type === "start") {
+        controller.enqueue({ type: "start", messageId: event.messageId });
+      } else {
+        controller.enqueue(event as UIMessageChunk);
+      }
+    },
+  }));
+}
 
 export class WebRequestError extends Error {
   constructor(
@@ -51,139 +95,68 @@ export class WebRequestError extends Error {
   }
 }
 
-function textCharacters(messages: UIMessage[]) {
-  return messages.reduce((total, message) => total + message.parts.reduce(
-    (messageTotal, part) => messageTotal + (part.type === "text" ? part.text.length : 0),
-    0,
-  ), 0);
+export interface AgentApi {
+  messages(request: Request): Promise<Response>;
+  list(): Response;
+  load(id: string): Response;
 }
 
-export async function validateAgentMessages(value: unknown): Promise<UIMessage[]> {
-  if (!Array.isArray(value)) throw new WebRequestError("Messages must be an array.", 400);
-  if (value.length === 0) throw new WebRequestError("At least one message is required.", 400);
-  if (value.length > agentLimits.maxMessages) {
-    throw new WebRequestError(`A conversation is limited to ${agentLimits.maxMessages} messages.`, 400);
-  }
-  const sanitized = value.map((message) => {
-    if (
-      typeof message !== "object"
-      || message === null
-      || !("role" in message)
-      || message.role !== "assistant"
-      || !("parts" in message)
-      || !Array.isArray(message.parts)
-    ) return message;
-    return {
-      ...message,
-      parts: message.parts.filter((part: unknown) => {
-        if (typeof part !== "object" || part === null || !("type" in part)) return true;
-        return typeof part.type !== "string"
-          || (!part.type.startsWith("tool-") && part.type !== "dynamic-tool");
-      }),
-    };
-  });
-  const validation = await safeValidateUIMessages({ messages: sanitized });
-  if (!validation.success) throw new WebRequestError("The conversation contains invalid messages.", 400);
-  for (const message of validation.data) {
-    if (message.role !== "user" && message.role !== "assistant") {
-      throw new WebRequestError("Only user and assistant messages are accepted.", 400);
-    }
-    if (message.parts.some(part => part.type !== "text" && part.type !== "step-start")) {
-      throw new WebRequestError("Only text messages and stream step markers are supported.", 400);
-    }
-    if (message.parts.some(part => part.type === "text" && part.text.length > agentLimits.maxTextCharacters)) {
-      throw new WebRequestError(`A message is limited to ${agentLimits.maxTextCharacters} characters.`, 400);
-    }
-  }
-  if (textCharacters(validation.data) > agentLimits.maxTotalCharacters) {
-    throw new WebRequestError("The active conversation is too long. Start a new session.", 400);
-  }
-  return validation.data;
-}
-
-export function safeAgentError(error: unknown) {
-  const message = error instanceof Error ? error.message : "";
-  if (/codex authentication/i.test(message)) return message;
-  if (/unsupported codex model/i.test(message)) return message;
-  return "The GigFinderAgent could not complete that response. Please try again.";
-}
-
-export function createAgentHandler({
-  profile,
-  profileDocuments = () => [],
-  modelFactory = createCodexLanguageModel,
-  selectModel = () => defaultAgentModelId,
-  logger,
-  reads,
-  mutations,
-  actor = "GigFinderAgent",
-  toolExtensions,
-}: AgentHandlerOptions) {
-  return async (request: Request) => {
-    const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
-    const requestStartedAt = performance.now();
-    const contentLength = Number(request.headers.get("content-length") ?? 0);
-    if (contentLength > 128_000) throw new WebRequestError("Request body is too large.", 413);
-
-    let body: { messages?: unknown };
-    try {
-      body = await request.json() as { messages?: unknown };
-    } catch (error) {
-      throw new WebRequestError("Request body must be valid JSON.", 400, { cause: error });
-    }
-
-    const uiMessages = await validateAgentMessages(body.messages);
-    const agentLogger = logger.child({ requestId });
-    request.signal.addEventListener("abort", () => {
-      agentLogger.warn({
-        event: "agent.request.aborted",
-        latencyMs: Math.round(performance.now() - requestStartedAt),
-        err: request.signal.reason,
-      }, "Agent request signal aborted");
-    }, { once: true });
-    const selectedModel = selectModel();
-    agentLogger.debug({
-      event: "agent.model.selected",
-      modelId: selectedModel,
-    }, "Selected agent model");
-    const agent = new GigFinderAgent({
-      profile,
-      model: await modelFactory(selectedModel),
-      logger: agentLogger,
-      tools: reads
-        ? createGigFinderTools(
-          reads,
-          agentLogger,
-          mutations,
-          { actor, requestId },
-          toolExtensions,
-        )
-        : undefined,
-      canUpdateRecords: mutations !== undefined,
-      profileDocuments: profileDocuments(),
-    });
-    const result = agent.respond(await convertToModelMessages(uiMessages), request.signal);
-    return result.toUIMessageStreamResponse({
-      sendReasoning: false,
-      onError: error => safeAgentError(error),
-      onEnd: ({ isAborted, finishReason, responseMessage }) => {
-        const partTypes = responseMessage.parts.map((part) => part.type);
-        const deliveredTextCharacters = responseMessage.parts.reduce(
-          (total, part) => total + (part.type === "text" ? part.text.length : 0),
-          0,
-        );
-        agentLogger.info({
-          event: "agent.response.stream.finished",
-          outcome: isAborted ? "aborted" : "completed",
-          finishReason,
-          latencyMs: Math.round(performance.now() - requestStartedAt),
-          partTypes,
-          deliveredTextCharacters,
-        }, "Agent response stream finished");
-      },
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    });
+export function createAgentApi(
+  conversations: ConversationService,
+  logger: Logger,
+): AgentApi {
+  return {
+    async messages(request) {
+      const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+      const startedAt = performance.now();
+      const contentLength = Number(request.headers.get("content-length") ?? 0);
+      if (contentLength > 32_000) throw new WebRequestError("Request body is too large.", 413);
+      let body: { id?: unknown; message?: unknown };
+      try {
+        body = await request.json() as typeof body;
+      } catch (error) {
+        throw new WebRequestError("Request body must be valid JSON.", 400, { cause: error });
+      }
+      if (typeof body.id !== "string") {
+        throw new WebRequestError("A conversation ID is required.", 400);
+      }
+      try {
+        const stream = await conversations.respond({
+          conversationId: body.id,
+          message: toConversationMessage(body.message),
+          requestId,
+          signal: request.signal,
+        });
+        return createUIMessageStreamResponse({
+          stream: toUIStream(stream),
+          headers: { "Cache-Control": "no-store" },
+        });
+      } catch (error) {
+        if (error instanceof ConversationValidationError) {
+          throw new WebRequestError(error.message, 400, { cause: error });
+        }
+        throw error;
+      } finally {
+        logger.debug({
+          event: "agent.request.delegated",
+          requestId,
+          latencyMs: Math.round(performance.now() - startedAt),
+        }, "Delegated agent request to conversation service");
+      }
+    },
+    list() {
+      return Response.json({ conversations: conversations.list() }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    },
+    load(id) {
+      const result = conversations.load(id);
+      return result
+        ? Response.json({
+            conversation: result.conversation,
+            messages: result.messages.map(toUIMessage),
+          }, { headers: { "Cache-Control": "no-store" } })
+        : Response.json({ error: "Conversation not found" }, { status: 404 });
+    },
   };
 }

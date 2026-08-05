@@ -1,6 +1,7 @@
 export * from "./artifacts";
 export * from "./audit";
 export * from "./context";
+export * from "./conversation-store";
 export * from "./database";
 export * from "./document-store";
 export * from "./errors";

@@ -34,7 +34,11 @@ beforeEach(() => {
   );
   fetchRequest = createWebHandler({
     gigFinder: application,
-    agentHandler: async () => new Response(null),
+    agentApi: {
+      messages: async () => new Response(null),
+      list: () => Response.json({ conversations: [] }),
+      load: () => Response.json({ error: "Not found" }, { status: 404 }),
+    },
     uploadHandler: async () => new Response(null),
     discardStagedDocument: () => false,
     requestLogger: () => logger,
@@ -102,7 +106,11 @@ describe("application health", () => {
     );
     const handler = createWebHandler({
       gigFinder: application,
-      agentHandler: async () => new Response(null),
+      agentApi: {
+        messages: async () => new Response(null),
+        list: () => Response.json({ conversations: [] }),
+        load: () => Response.json({ error: "Not found" }, { status: 404 }),
+      },
       uploadHandler: async () => new Response(null),
       discardStagedDocument: () => false,
       requestLogger: () => logger,

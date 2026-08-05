@@ -116,7 +116,12 @@ an exact managed-document ID, expected current version, replacement content,
 and change summary. They return links, the document ID, current version,
 content hash, change ID, and whether content changed; identical content is a
 successful no-op. Managed IDs and `get_document` results also expose the
-current version needed for a later update. Gig and Person records expose
+current version needed for a later update. `get_document` accepts a nullable
+positive version; null reads current content, while an explicit managed version
+supports comparisons without placing historical document content in chat
+storage. When a hydrated historical result reports a newer `currentVersion`,
+the agent chooses whether historical fidelity or current content fits the
+request and rereads with a null version when freshness matters. Gig and Person records expose
 `documents` entries containing `id`, `type`, nullable `title`, and a required
 friendly `displayName`.
 The display name is the explicit title, otherwise the uploaded filename,
@@ -127,8 +132,7 @@ The agent verifies the intended change with the user before invoking a mutation.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
 later-revision conflicts. Task creations are also reversible. Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
-limited to 50,000 characters. Managed document reads return current content;
-their version history remains immutable.
+limited to 50,000 characters. Managed document version history remains immutable.
 
 ## Source uploads
 

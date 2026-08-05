@@ -482,6 +482,7 @@ describe("GigFinderAgent tools", () => {
     expect(Object.keys(tools)).not.toContain("create_uploaded_document");
     const stagedRead = await tools.get_document.execute?.({
       reference: staged.reference,
+      version: null,
     }, {
       toolCallId: "read-upload",
       messages: [],
@@ -1350,7 +1351,7 @@ describe("GigFinderAgent tools", () => {
     }, logger);
 
     expect(await tools.get_document.execute?.(
-      { reference: managedDocument.id },
+      { reference: managedDocument.id, version: null },
       { toolCallId: "call-inconsistent-document", messages: [], abortSignal: undefined, context: {} },
     )).toEqual({
       status: "error",

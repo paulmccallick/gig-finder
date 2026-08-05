@@ -32,6 +32,45 @@ export const applicationSettings = sqliteTable("application_settings", {
   updatedAt: text("updated_at").notNull(),
 });
 
+const conversationFields = {
+  id: text("id").notNull(),
+  title: text("title").notNull(),
+  lastActiveAt: text("last_active_at").notNull(),
+};
+
+export const conversations = sqliteTable("conversations", {
+  ...conversationFields,
+  id: text("id").primaryKey(),
+  ...recordMetadata,
+}, table => [
+  index("conversations_last_active_idx").on(table.lastActiveAt),
+  check("conversations_deleted_check", sql`${table.isDeleted} in (0, 1)`),
+]);
+
+export const conversationHistory = sqliteTable("conversation_history", {
+  ...historyMetadata,
+  ...conversationFields,
+  ...recordMetadata,
+}, table => [
+  index("conversation_history_entity_idx").on(table.id, table.revision),
+  index("conversation_history_change_idx").on(table.changeId),
+  check("conversation_history_deleted_check", sql`${table.isDeleted} in (0, 1)`),
+  check("conversation_history_operation_check", sql`${table.operation} = 'update'`),
+]);
+
+export const conversationMessages = sqliteTable("conversation_messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull()
+    .references(() => conversations.id),
+  sequence: integer("sequence").notNull(),
+  messageJson: text("message_json").notNull(),
+  createdAt: text("created_at").notNull(),
+}, table => [
+  uniqueIndex("conversation_messages_sequence_idx")
+    .on(table.conversationId, table.sequence),
+  index("conversation_messages_conversation_idx").on(table.conversationId),
+]);
+
 const gigFields = {
   id: text("id").notNull(),
   company: text("company").notNull(),
