@@ -36,7 +36,7 @@ Both schemas live with their domain in `src/core`, for example:
 - Gig in `src/core/gigs.ts`;
 - Person in `src/core/people.ts`;
 - Task in `src/core/tasks.ts`; and
-- Interaction in `src/core/interactions.ts`.
+- Meeting in `src/core/meetings.ts`.
 
 Relationships with substantial behavior receive their own domain module.
 Centralized `create-contracts.ts` and `update-contracts.ts` files are not used;
