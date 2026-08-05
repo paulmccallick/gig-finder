@@ -20,6 +20,7 @@ import {
 import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 import { testCandidateProfile } from "./fixtures";
 import {
+  buildCurrentTurnContext,
   buildGigFinderInstructions,
   genericGigFinderAgentSystemPrompt,
   gigFinderDocumentInstructions,
@@ -161,6 +162,15 @@ function mockModel(answer = "Prioritize roles with matching leadership scope.") 
 }
 
 describe("GigFinderAgent instructions", () => {
+  test("formats trusted current UTC turn context", () => {
+    expect(buildCurrentTurnContext(new Date("2026-08-05T23:15:00.000Z"))).toBe(
+      "Current UTC time: 2026-08-05T23:15:00.000Z",
+    );
+    expect(() => buildCurrentTurnContext(new Date(Number.NaN))).toThrow(
+      "Agent turn time must be a valid date.",
+    );
+  });
+
   test("keeps the generic policy independent of a particular search", () => {
     expect(genericGigFinderAgentSystemPrompt).toContain("You are GigFinderAgent");
     expect(genericGigFinderAgentSystemPrompt).not.toContain("Jordan");
@@ -258,6 +268,35 @@ describe("GigFinderAgent instructions", () => {
 });
 
 describe("agent streaming", () => {
+  test("injects a fresh UTC timestamp on every turn without changing messages", async () => {
+    const model = mockModel();
+    const times = [
+      new Date("2026-08-05T23:59:59.000Z"),
+      new Date("2026-08-06T00:00:01.000Z"),
+    ];
+    let turn = 0;
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
+      model,
+      logger,
+      now: () => times[turn++]!,
+    });
+    const messages = [userMessage("What did I do yesterday?")];
+    const original = structuredClone(messages);
+
+    await agent.respond(messages).text;
+    await agent.respond(messages).text;
+
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
+      "Current UTC time: 2026-08-05T23:59:59.000Z",
+    );
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      "Current UTC time: 2026-08-06T00:00:01.000Z",
+    );
+    expect(messages).toEqual(original);
+    expect(JSON.stringify(messages)).not.toContain("Current UTC time");
+  });
+
   test("sends the complete strict tool registry through the AI SDK model boundary", async () => {
     const model = mockModel("Tool registry accepted.");
     const mutations: GigFinderMutationCapabilities = {

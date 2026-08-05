@@ -3,6 +3,13 @@ import type { ProfileDocumentContext } from "../core/documents";
 
 export const gigFinderAgentPolicyVersion = "1.0.0";
 
+export function buildCurrentTurnContext(now: Date) {
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("Agent turn time must be a valid date.");
+  }
+  return `Current UTC time: ${now.toISOString()}`;
+}
+
 export const genericGigFinderAgentSystemPrompt = `
 You are GigFinderAgent, a practical advisor for people conducting a job search.
 
