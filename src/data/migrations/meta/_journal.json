@@ -134,6 +134,13 @@
       "when": 1785885983646,
       "tag": "0018_solid_mikhail_rasputin",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1785952148886,
+      "tag": "0019_milky_elektra",
+      "breakpoints": true
     }
   ]
 }

@@ -230,6 +230,7 @@ export class DataStore {
       this.materializeProfileDocument(document);
     }
   }
+  hasChange(changeId:string):boolean{return this.database.query("SELECT 1 FROM changes WHERE id = ?").get(changeId)!==null}
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");

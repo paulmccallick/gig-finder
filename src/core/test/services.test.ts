@@ -20,10 +20,20 @@ class DocumentRepo implements DocumentWriteRepository {
 }
 const documents=new DocumentRepo();
 const recordedEvents:string[]=[];
-const persistence:Persistence={gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,settings:{get:()=>null,set:()=>undefined},change:(context,action)=>({changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,recordEvent:event=>{recordedEvents.push(event.id??event.type);return event.id??event.type}} as UnitOfWork)}),revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
+const persistence:Persistence={gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:()=>false,change:(context,action)=>({changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,meetings,meetingParticipants,documents,recordEvent:event=>{recordedEvents.push(event.id??event.type);return event.id??event.type}} as UnitOfWork)}),revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
 const artifacts:ArtifactPort={jobDescription:async()=>"description",interviewPrep:async()=>[{name:"general.md",content:"prep"}],jobDescriptionExists:async()=>true,interviewPrepExists:async()=>true,verify:async():Promise<ArtifactVerification>=>({ok:true,errors:[],unregistered:[]})};
 const audit:AuditPort={query:query=>({query})};const app=new GigFinderApplication(persistence,audit,artifacts);const context:ChangeContext={actor:"test",source:"test",summary:"change"};
 describe("application services",()=>{
+ test("shared creation contracts create complete gigs, people, and validated relationships",()=>{
+  const gig=app.gigs.createNew({...context,changeId:"create-gig"},"contract-gig",{company:"Contract Co",title:"Director",externalJobId:null,stage:"identified",outcome:"pending",statusSummary:"Identified",lastActivity:"2026-08-05",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[],location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null});
+  expect(gig).toMatchObject({changeId:"create-gig",record:{id:"contract-gig",documents:[]}});
+  const person=app.people.createNew({...context,changeId:"create-person"},"contract-person",{name:"Casey Example",company:"Contract Co",title:"Recruiter",linkedInProfileUrl:null,connectedOn:null,relationshipType:null,relationshipStrength:null,introducedBy:null,relationshipNotes:null,priority:null,status:null,lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:null,nextActionDue:null,whyInteresting:null,notes:[],tags:[]});
+  expect(person).toMatchObject({changeId:"create-person",record:{id:"contract-person",priority:"unranked",status:"not_contacted"}});
+  const relationship=app.gigPeople.createNew({...context,changeId:"create-relationship"},"contract-relationship",{gigId:"contract-gig",personId:"contract-person",relationship:"recruiter",notes:null});
+  expect(relationship).toMatchObject({changeId:"create-relationship",record:{relationship:"recruiter"}});
+  expect(()=>app.gigPeople.createNew(context,"duplicate-relationship",{gigId:"contract-gig",personId:"contract-person",relationship:"recruiter",notes:null})).toThrow("Relationship already exists");
+  expect(()=>app.gigPeople.createNew(context,"missing-relationship",{gigId:"missing",personId:"contract-person",relationship:"recruiter",notes:null})).toThrow("Gig not found");
+ });
  test("gig service reads, writes, and loads artifacts",async()=>{app.gigs.create(context,{id:"gig",company:"Company",title:"VP",externalJobId:null,artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-07-22",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[],hasJobDescription:true,hasInterviewPrep:true});expect(app.gigs.get("gig")?.company).toBe("Company");expect(await app.gigs.description("gig")).toBe("description");expect(await app.gigs.prep("gig")).toHaveLength(1)});
  test("people service stores canonical people with neutral relationship defaults",()=>{app.people.create(context,{id:"person",name:"Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null});expect(app.people.get("person")).toMatchObject({name:"Person",relationship:{type:"professional_contact",strength:"unknown"},priority:"unranked",status:"not_contacted",outreach:{lastContacted:null,nextAction:null},notes:[],tags:[]})});
  test("people service includes relationship and outreach state",()=>{app.people.create(context,{id:"network-person",name:"Network Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:"colleague",relationshipStrength:"warm",priority:"high",status:"not_contacted"});expect(app.people.get("network-person")).toMatchObject({name:"Network Person",relationship:{type:"colleague",strength:"warm"},priority:"high"})});
@@ -49,7 +59,14 @@ describe("application services",()=>{
   const updated=app.documents.update({...context,changeId:"document-update"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Correct source text"});
   expect(updated).toMatchObject({changed:true,changeId:"document-update",document:{currentVersion:2,content:"Corrected description"}});
   expect(app.documents.versions(created.document.id).map(version=>version.content)).toEqual(["Corrected description","Original description"]);
-  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description"}});
+ expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description"}});
+  const discovery=await app.documentReader.query({owner:{entityType:"gig",entityId:"gig"},offset:0,limit:50});
+  expect(discovery).toMatchObject({status:"ok",page:{limit:50,total:3}});
+  expect(discovery.status==="ok"?discovery.items:[]).toContainEqual(expect.objectContaining({reference:created.document.id,storage:"managed"}));
+  const versionPage=app.documentReader.versionQuery({documentId:created.document.id,offset:0,limit:1});
+  expect(versionPage).toMatchObject({status:"ok",page:{limit:1,total:2},items:[{version:2}]});
+  expect(versionPage.status==="ok"?versionPage.items[0]:null).not.toHaveProperty("content");
+  expect(app.documentReader.versionQuery({documentId:"gig:gig:job_description"})).toMatchObject({status:"unsupported"});
  expect(()=>app.documents.update(context,{documentId:created.document.id,expectedVersion:1,content:"Stale description",changeSummary:"Stale update"})).toThrow(new MutationError("revision_conflict",`Document ${created.document.id} expected version 1 but is at version 2.`));
  });
  test("uploaded source documents preserve provenance and cannot be edited",()=>{

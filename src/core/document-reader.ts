@@ -1,6 +1,7 @@
 import type { ManagedDocumentService, ManagedDocumentType } from "./documents";
 import type { GigRecord } from "./gigs";
-import type { ReadResult } from "./queries";
+import { page, type Page, type ReadResult } from "./queries";
+import { candidateProfileId, documentIdFromIdentifier, type DocumentLinkEntityType, type DocumentMediaType, type UploadedDocumentProvenance } from "./documents";
 
 export type ReadableDocumentType = ManagedDocumentType;
 
@@ -29,8 +30,19 @@ export const readableDocumentContentLimit = 50_000;
 
 export interface DocumentReader {
   list(entityType: "gig" | "person" | "profile", entityId: string): Promise<DocumentReference[]>;
+  query(input: DocumentDiscoveryInput): Promise<DocumentDiscoveryResult>;
+  versionQuery(input: DocumentVersionQueryInput): DocumentVersionDiscoveryResult;
   get(reference: string, version?: number | null): Promise<ReadResult<ReadableDocument>>;
 }
+
+export interface DocumentDiscoveryInput { owner: { entityType: DocumentLinkEntityType; entityId: string }; offset?: number; limit?: number }
+export type DocumentDiscoveryResult = ({status:"ok"} & Page<DocumentReference>) | {status:"not_found";id:string} | {status:"unsupported";id:string;message:string};
+export interface DocumentVersionQueryInput { documentId: string; offset?: number; limit?: number }
+export interface DocumentVersionMetadata { documentId:string;version:number;parentVersion:number|null;contentHash:string;changeId:string;changeSummary:string;createdAt:string;createdBy:string;mediaType:DocumentMediaType;provenance:UploadedDocumentProvenance|null }
+export type DocumentVersionDiscoveryResult =
+  | {status:"ok"} & Page<DocumentVersionMetadata>
+  | {status:"not_found";id:string}
+  | {status:"unsupported";id:string;message:string};
 
 export interface DocumentReaderServices {
   gigs: {
@@ -126,6 +138,27 @@ export class ApplicationDocumentReader implements DocumentReader {
       });
     }
     return references;
+  }
+
+  async query(input: DocumentDiscoveryInput): Promise<DocumentDiscoveryResult> {
+    const {entityType,entityId}=input.owner;
+    const exists=entityType==="profile"
+      ?entityId===candidateProfileId
+      :entityType==="gig"?this.services.gigs.get(entityId)!==null:this.services.people.get(entityId)!==null;
+    if(!exists)return{status:"not_found",id:`${entityType}:${entityId}`};
+    const items=(await this.list(entityType,entityId)).sort((a,b)=>a.displayName.localeCompare(b.displayName)||a.reference.localeCompare(b.reference));
+    return{status:"ok",...page(items,input)};
+  }
+
+  versionQuery(input: DocumentVersionQueryInput): DocumentVersionDiscoveryResult {
+    const id=documentIdFromIdentifier(input.documentId);
+    if(!id)return{status:"unsupported",id:input.documentId,message:"Only managed documents have version history."};
+    const document=this.services.managed?.get(id);
+    if(!document)return{status:"not_found",id:input.documentId};
+    const versions=(this.services.managed?.versions(id)??[]).map(({content:_,...version})=>({
+      ...version,mediaType:document.mediaType,provenance:document.uploadProvenance,
+    })).sort((a,b)=>b.version-a.version);
+    return{status:"ok",...page(versions,input)};
   }
 
   async get(reference: string, version?: number | null): Promise<ReadResult<ReadableDocument>> {

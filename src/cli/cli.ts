@@ -118,12 +118,14 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
     }
     const entityType = gigId ? "gig" as const : personId ? "person" as const : "profile" as const;
     const entityId = gigId ?? personId ?? candidateProfileId;
+    const discovery = await listDocuments(paths, entityType, entityId);
+    if (discovery.status !== "ok") throw new Error(`Document owner not found: ${entityType}:${entityId}`);
     console.log(JSON.stringify({
       ok: true,
       entity: "document",
       command,
       link: { entityType, entityId },
-      records: listDocuments(paths, entityType, entityId),
+      records: discovery.items,
     }, null, 2));
     return true;
   }
@@ -139,7 +141,7 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
       command,
       reference,
       [command === "get" ? "record" : "records"]:
-        command === "get" ? document : listDocumentVersions(paths, reference),
+        command === "get" ? document : (()=>{const result=listDocumentVersions(paths,reference);return result.status==="ok"?result.items:[]})(),
     }, null, 2));
     return true;
   }

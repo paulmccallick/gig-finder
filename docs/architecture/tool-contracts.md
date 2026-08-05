@@ -159,6 +159,11 @@ The agent verifies the intended change with the user before invoking a mutation.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
 later-revision conflicts. Creation reversion is available only where the core
 can prove no later edit or dependent record would be overwritten or orphaned.
+Gig-Person relationship creation is reversible because reverting it only
+soft-deletes that leaf relationship at its original revision. Gig and Person
+creation are non-revertible: either record can acquire dependent relationships,
+tasks, meetings, or documents, and the generic reverter does not cascade or
+orphan those records.
 Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
 limited to 50,000 characters. Managed document version history remains immutable.

@@ -137,8 +137,9 @@ const reader = {
 } satisfies GigFinderReadCapabilities;
 
 const mutations: GigFinderMutationCapabilities = {
-  gigs: { update: () => { throw new Error("not executed"); } },
-  people: { update: () => { throw new Error("not executed"); } },
+  gigs: { createNew: () => { throw new Error("not executed"); }, update: () => { throw new Error("not executed"); } },
+  people: { createNew: () => { throw new Error("not executed"); }, update: () => { throw new Error("not executed"); } },
+  gigPeople: { createNew: () => { throw new Error("not executed"); } },
   tasks: taskMutations,
   meetings: meetingMutations,
   changes: { revert: () => { throw new Error("not executed"); } },
@@ -209,6 +210,8 @@ describe("GigFinderAgent tools", () => {
       "get_task",
       "list_meetings",
       "get_meeting",
+      "list_documents",
+      "list_document_versions",
       "get_document",
     ]);
     for (const definition of Object.values(tools)) {
@@ -235,9 +238,14 @@ describe("GigFinderAgent tools", () => {
       "get_task",
       "list_meetings",
       "get_meeting",
+      "list_documents",
+      "list_document_versions",
       "get_document",
+      "create_gig",
       "update_gig",
       "update_person",
+      "create_person",
+      "create_gig_person_relationship",
       "create_task",
       "update_task",
       "create_meeting",
@@ -1073,6 +1081,28 @@ describe("GigFinderAgent tools", () => {
       status: "ok",
       changeId: "agent-tool:call-9",
     });
+  });
+
+  test("adapts shared creation and document discovery capabilities", async () => {
+    const created: Array<{kind:string;id:string;changeId?:string}> = [];
+    const capabilities: GigFinderMutationCapabilities = {
+      gigs:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"gig",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never,update:()=>{throw new Error("not executed")}},
+      people:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"person",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never,update:()=>{throw new Error("not executed")}},
+      gigPeople:{createNew:(context,id,input)=>{created.push({kind:"relationship",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}},
+      tasks:taskMutations,meetings:meetingMutations,changes:{revert:()=>{throw new Error("not executed")}},documents:documentMutations,
+    };
+    const discoveryReader: GigFinderReadCapabilities={...reader,documents:{...reader.documents,
+      query:async input=>({status:"ok",items:[],page:{offset:input.offset??0,limit:input.limit??20,returned:0,total:0,hasMore:false,nextOffset:null}}),
+      versionQuery:input=>({status:"unsupported",id:input.documentId,message:"Only managed documents have version history."}),
+    }};
+    const tools=createGigFinderTools(discoveryReader,logger,capabilities,{actor:"Candidate",requestId:"request-creation"});
+    if(!("create_gig" in tools)||!tools.create_gig)throw new Error("Create gig tool was not registered.");const createGig=tools.create_gig;
+    const gigInput={company:"Example",title:"Director",externalJobId:null,stage:"identified" as const,outcome:"pending" as const,statusSummary:"Identified",lastActivity:"2026-08-05",nextAction:null,fit:{rating:"good" as const,summary:null},payRange:null,sourceUrl:null,tags:[],location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null};
+    const output=await createGig.execute?.(gigInput,{toolCallId:"create-1",messages:[],abortSignal:undefined,context:{}});
+    expect(output).toMatchObject({status:"ok",changeId:"agent-tool:create-1",record:{company:"Example"}});
+    expect(created[0]).toMatchObject({kind:"gig",id:expect.stringMatching(/^gig_/),changeId:"agent-tool:create-1"});
+    expect(await tools.list_documents.execute?.({owner:{entityType:"profile",entityId:"candidate"},offset:null,limit:null},{toolCallId:"read-1",messages:[],abortSignal:undefined,context:{}})).toMatchObject({status:"ok",page:{limit:20}});
+    expect(await tools.list_document_versions.execute?.({documentId:"gig:gig:job_description",offset:null,limit:null},{toolCallId:"read-2",messages:[],abortSignal:undefined,context:{}})).toMatchObject({status:"unsupported"});
   });
 
   test("creates and updates tasks through the shared mutation boundary", async () => {

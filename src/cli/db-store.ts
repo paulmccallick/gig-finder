@@ -21,7 +21,14 @@ function withApplication<T>(runtime:TrackerPaths,action:(app:GigFinderApplicatio
 
 export const getGig=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.gigs.get(id));
 export const listGigs=(paths:TrackerPaths)=>withApplication(paths,app=>app.gigs.list());
-export const createGig=(paths:TrackerPaths,record:GigSummary,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.create(context(paths,"CLI gig create",record.lastActivity),record,options));
+export const createGig=(paths:TrackerPaths,record:GigSummary,options:UpdateOptions={})=>withApplication(paths,app=>{
+  const{id,artifactDirectory:_,hasJobDescription:__,hasInterviewPrep:___,...input}=record;
+  return app.gigs.createNew(context(paths,"CLI gig create",record.lastActivity),id,{
+    location:input.location??null,workArrangement:input.workArrangement??null,postedDate:input.postedDate??null,
+    businessUnitTeam:input.businessUnitTeam??null,recruiterSource:input.recruiterSource??null,bonus:input.bonus??null,
+    equity:input.equity??null,otherCompensation:input.otherCompensation??null,...input,
+  },options).record;
+});
 export const updateGig=(paths:TrackerPaths,id:string,patch:GigUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.update(context(paths,`CLI gig update ${id}`,options.date),id,patch,options).record);
 export const touchGig=(paths:TrackerPaths,id:string,input:GigTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.touch(context(paths,`CLI gig touch ${id}`,input.date),id,input,options));
 
@@ -33,10 +40,16 @@ export const completeTask=(paths:TrackerPaths,id:string,date:string,options:Upda
 
 export const getPerson=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.people.get(id));
 export const listPeople=(paths:TrackerPaths)=>withApplication(paths,app=>app.people.list());
-export const createPerson=(paths:TrackerPaths,record:PersonCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.create(context(paths,"CLI person create",options.date),record,options));
+export const createPerson=(paths:TrackerPaths,record:PersonCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.createNew(context(paths,"CLI person create",options.date),record.id,{
+  name:record.name,company:record.company,title:record.title,linkedInProfileUrl:record.linkedInProfileUrl,connectedOn:record.connectedOn,
+  relationshipType:record.relationshipType??null,relationshipStrength:(record.relationshipStrength as never)??null,introducedBy:record.introducedBy??null,
+  relationshipNotes:record.relationshipNotes??null,priority:(record.priority as never)??null,status:(record.status as never)??null,lastContacted:record.lastContacted??null,
+  lastContactMethod:record.lastContactMethod??null,lastContactSummary:record.lastContactSummary??null,nextAction:record.nextAction??null,
+  nextActionDue:record.nextActionDue??null,whyInteresting:record.whyInteresting??null,notes:JSON.parse(record.notesJson??"[]"),tags:JSON.parse(record.tagsJson??"[]"),
+},options).record);
 export const updatePerson=(paths:TrackerPaths,id:string,patch:PersonUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.people.update(context(paths,`CLI person update ${id}`,options.date),id,patch,options).record);
 export const touchPerson=(paths:TrackerPaths,id:string,input:PersonTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.touch(context(paths,`CLI person touch ${id}`,input.date),id,input,options));
-export function createGigPerson(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.gigPeople.create(context(paths,"CLI gig-person create"),record));return record}
+export const createGigPerson=(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={})=>withApplication(paths,app=>app.gigPeople.createNew(context(paths,"CLI gig-person create"),record.id,{gigId:record.gigId,personId:record.personId,relationship:record.relationship as never,notes:record.notes},options).record);
 export const getMeeting=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.meetings.get(id));
 export const listMeetings=(paths:TrackerPaths)=>withApplication(paths,app=>app.meetings.list());
 export function createMeeting(paths:TrackerPaths,record:Meeting,options:UpdateOptions={}){return options.dryRun?record:withApplication(paths,app=>app.meetings.create(context(paths,"CLI meeting create",record.startsAt.slice(0,10)),record).record)}
@@ -45,9 +58,15 @@ export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)
 
 export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
 export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));
-export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person"|"profile",entityId:string)=>withApplication(paths,app=>app.documents.list(entityType,entityId));
+export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person"|"profile",entityId:string)=>withApplication(paths,async app=>{
+  const discovery=await app.documentReader.query({owner:{entityType,entityId},offset:0,limit:50});
+  return discovery.status==="ok"?{...discovery,items:app.documents.list(entityType,entityId)}:discovery;
+});
 export const getDocument=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.get(documentId));
-export const listDocumentVersions=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.versions(documentId));
+export const listDocumentVersions=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>{
+  const discovery=app.documentReader.versionQuery({documentId,offset:0,limit:50});
+  return discovery.status==="ok"?{...discovery,items:app.documents.versions(documentId)}:discovery;
+});
 export const createDocument=(paths:TrackerPaths,input:CreateManagedDocumentInput)=>withApplication(paths,app=>app.documents.create(context(paths,`CLI document create ${input.documentType}`),input));
 export const updateDocument=(paths:TrackerPaths,input:UpdateManagedDocumentInput)=>withApplication(paths,app=>app.documents.update(context(paths,input.changeSummary),input));
 export type{TaskPriority,TaskRecord,TaskStatus,TaskType};

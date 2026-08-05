@@ -80,7 +80,7 @@ export function buildGigFinderInstructions(
     ? `${entityInstructions}
 
 Use the tools to find relevant information for the user request${capabilities.canUpdateRecords
-      ? " and update information when appropriate or told to do so.\nAlways verify with the user before creating updates."
+      ? " and update information when appropriate or told to do so. You can also create supported records.\nAlways verify with the user before creating updates. Obtain explicit user confirmation before invoking any mutation. Resolve exact Gig and Person IDs before creating a relationship, and check for an existing record first."
       : ". These tools are read-only; you cannot change records."}
 
 ${gigFinderDocumentInstructions}

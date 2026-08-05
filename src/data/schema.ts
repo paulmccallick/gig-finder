@@ -112,7 +112,7 @@ export const personHistory=sqliteTable("person_history",{...historyMetadata,...p
 
 const gigPersonFields={id:text("id").notNull(),gigId:text("gig_id").notNull().references(()=>gigs.id),personId:text("person_id").notNull().references(()=>people.id),relationship:text("relationship").notNull(),notes:text("notes")};
 export const gigPeople=sqliteTable("gig_people",{...gigPersonFields,id:text("id").primaryKey(),...recordMetadata},table=>[uniqueIndex("gig_people_relation_idx").on(table.gigId,table.personId,table.relationship),check("gig_people_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
-export const gigPeopleHistory=sqliteTable("gig_people_history",{...historyMetadata,...gigPersonFields,...recordMetadata},table=>[index("gig_people_history_entity_idx").on(table.id,table.revision),check("gig_people_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("gig_people_history_operation_check",sql`${table.operation} in ('update','delete')`)]);
+export const gigPeopleHistory=sqliteTable("gig_people_history",{...historyMetadata,...gigPersonFields,...recordMetadata},table=>[index("gig_people_history_entity_idx").on(table.id,table.revision),check("gig_people_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("gig_people_history_operation_check",sql`${table.operation} in ('create','update','delete')`)]);
 
 const taskFields = {
   id: text("id").notNull(), title: text("title").notNull(), type: text("type").notNull(), status: text("status").notNull(), priority: text("priority").notNull(), dueDate: text("due_date"), relatedEntityType: text("related_entity_type").notNull(), relatedEntityId: text("related_entity_id"), relatedEntityLabel: text("related_entity_label").notNull(), notes: text("notes"), completedAt: text("completed_at"),

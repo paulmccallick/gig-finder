@@ -622,8 +622,18 @@ describe("change idempotency and reversal", () => {
     }, reversible.changeId!);
     expect(reverted.affected).toEqual([{ entity: "task", id: "task-reversible" }]);
     expect(app.tasks.get("task-reversible")).toBeNull();
+
+    const createdPerson=app.people.createNew({...createContext,changeId:"agent-tool:create-person"},"person-created",{name:"Taylor Example",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:null,relationshipStrength:null,introducedBy:null,relationshipNotes:null,priority:null,status:null,lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:null,nextActionDue:null,whyInteresting:null,notes:[],tags:[]});
+    expect(app.people.createNew({...createContext,changeId:"agent-tool:create-person"},"person-created",{name:"Taylor Example",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:null,relationshipStrength:null,introducedBy:null,relationshipNotes:null,priority:null,status:null,lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:null,nextActionDue:null,whyInteresting:null,notes:[],tags:[]})).toEqual(createdPerson);
+    const relationship=app.gigPeople.createNew({...createContext,changeId:"agent-tool:create-relationship"},"relationship-created",{gigId:gig.id,personId:createdPerson.record.id,relationship:"recruiter",notes:null});
+    expect(app.gigPeople.createNew({...createContext,changeId:"agent-tool:create-relationship"},"relationship-created",{gigId:gig.id,personId:createdPerson.record.id,relationship:"recruiter",notes:null})).toEqual(relationship);
+    const revertedRelationship=app.changes.revert({...createContext,changeId:"change:revert-relationship",summary:"Undo relationship creation"},relationship.changeId!);
+    expect(revertedRelationship.affected).toEqual([{entity:"gig-person",id:"relationship-created"}]);
+    expect(app.gigPeople.get("relationship-created")).toBeNull();
+    expect(()=>app.changes.revert({...createContext,changeId:"change:revert-person",summary:"Undo person creation"},createdPerson.changeId!)).toThrow(new MutationError("not_revertible","Change has no reversible updates: agent-tool:create-person"));
   });
 
+  test("gig creation retries return the original audited result",()=>{const artifacts={jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})} satisfies ArtifactPort;const app=new GigFinderApplication(store,new AuditReader(database),artifacts);const createContext={actor:"Candidate",source:"agent" as const,summary:"Create gig",changeId:"agent-tool:create-gig"};const input={company:"Retry Company",title:"Director",externalJobId:null,stage:"identified" as const,outcome:"pending" as const,statusSummary:"Identified",lastActivity:"2026-08-04",nextAction:null,fit:{rating:"good" as const,summary:null},payRange:null,sourceUrl:null,tags:[],location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null};const created=app.gigs.createNew(createContext,"gig-created",input);expect(app.gigs.createNew(createContext,"gig-created",input)).toEqual(created)});
   test("reverts a gig update as a new audited revision", () => {
     store.change(context("Create gig"), tx => tx.gigs.create(gig));
     store.change({

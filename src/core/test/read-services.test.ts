@@ -112,6 +112,7 @@ function application() {
     meetingParticipants,
     documents,
     settings,
+    hasChange: () => false,
     change: (changeContext, action) => {
       readChanges += 1;
       return {

@@ -1,7 +1,7 @@
 import type { ArtifactPort, Persistence } from "./ports";
 import type { ChangeContext, EntityRecord, GigData, TaskData } from "./models";
 import { fitRatings, outcomes, pipelineStages, type Gig, type GigRecord, type GigSummary } from "./gigs";
-import { DomainValidationError } from "./errors";
+import { DomainValidationError, MutationError } from "./errors";
 import { compareTasks, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskRecord } from "./tasks";
 import {
   gigUpdateSchema,
@@ -15,6 +15,7 @@ import {
 import { ChangeExecutor, type MutationOptions } from "./changes";
 import type { ManagedDocumentService } from "./documents";
 import type { PeopleService } from "./services";
+import { gigCreateSchema, type GigCreateInput } from "./create-contracts";
 import {
   hasMeaningfulFilters,
   isCalendarDate,
@@ -133,6 +134,18 @@ export class GigDomainService {
         ||b.lastActivity.localeCompare(a.lastActivity)||a.company.localeCompare(b.company)||a.id.localeCompare(b.id)),input)
   }
   create(context:ChangeContext,gig:GigSummary,options:MutationOptions={}){const complete=gigFromData(gigToData(gig));validateGig(complete);if(!options.dryRun)this.p.change(context,u=>u.gigs.create(gigToData(complete)));return{...complete,documents:[]}}
+  createNew(context:ChangeContext,id:string,input:GigCreateInput,options:MutationOptions={}){
+    if(context.changeId&&this.p.hasChange(context.changeId)){
+      const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Gig ${id}.`);
+      return{record:existing,changeId:context.changeId};
+    }
+    const parsed=gigCreateSchema.parse(input);
+    const duplicate=this.p.gigs.list().find(record=>(parsed.externalJobId!==null&&record.externalJobId===parsed.externalJobId)||(record.company.trim().toLocaleLowerCase()===parsed.company.toLocaleLowerCase()&&record.title.trim().toLocaleLowerCase()===parsed.title.toLocaleLowerCase()));
+    if(duplicate)throw new MutationError("duplicate",`Gig already exists: ${duplicate.id}`);
+    const candidate:GigSummary={id,...parsed,artifactDirectory:`artifacts/gigs/${id}`,hasJobDescription:false,hasInterviewPrep:false};
+    const complete=gigFromData(gigToData(candidate));validateGig(complete);
+    return this.changes.execute(context,{...complete,documents:[]},options,u=>this.record(u.gigs.create(gigToData(complete))));
+  }
   update(context:ChangeContext,id:string,patch:GigUpdate,options:MutationOptions={}){const validatedPatch=gigUpdateSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Gig not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateGig(updated);const raw=this.p.gigs.get(id)!;const{id:_,...data}=gigToData(updated);return this.changes.execute(context,updated,options,u=>this.record(u.gigs.update(id,raw.revision,data)))}
   touch(context:ChangeContext,id:string,input:GigTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
   async description(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasJobDescription?this.artifacts.jobDescription(id):null}

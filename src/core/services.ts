@@ -34,7 +34,7 @@ import {
   type ReadResult,
 } from "./queries";
 import type { GigRecord } from "./gigs";
-import { DomainValidationError } from "./errors";
+import { DomainValidationError, MutationError } from "./errors";
 import type { ManagedDocumentService } from "./documents";
 import { ChangeExecutor, type MutationOptions, type MutationResult } from "./changes";
 import {
@@ -44,6 +44,7 @@ import {
   type PersonUpdate,
 } from "./update-contracts";
 import { deepPatch } from "./tracker-services";
+import { gigPersonCreateSchema, personCreateSchema, type GigPersonCreateInput, type PersonCreateContractInput } from "./create-contracts";
 
 export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
 
@@ -108,6 +109,33 @@ export class PeopleService {
     validatePerson(personFromData(preview, []));
     if (options.dryRun) return personFromData(preview, []);
     return this.record(this.persistence.change(context, transaction => transaction.people.create(data)).value);
+  }
+
+  createNew(context: ChangeContext, id: string, input: PersonCreateContractInput, options: MutationOptions = {}): MutationResult<PersonRecord> {
+    if(context.changeId&&this.persistence.hasChange(context.changeId)){
+      const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Person ${id}.`);
+      return{record:existing,changeId:context.changeId};
+    }
+    const parsed = personCreateSchema.parse(input);
+    const duplicate=this.persistence.people.list().find(record=>(parsed.linkedInProfileUrl!==null&&record.linkedInProfileUrl===parsed.linkedInProfileUrl)||(record.name.trim().toLocaleLowerCase()===parsed.name.toLocaleLowerCase()&&(record.company??"").trim().toLocaleLowerCase()===(parsed.company??"").toLocaleLowerCase()));
+    if(duplicate)throw new MutationError("duplicate",`Person already exists: ${duplicate.id}`);
+    const person: PersonCreateInput = {
+      id, name: parsed.name, company: parsed.company, title: parsed.title,
+      linkedInProfileUrl: parsed.linkedInProfileUrl, connectedOn: parsed.connectedOn,
+      ...(parsed.relationshipType === null ? {} : { relationshipType: parsed.relationshipType }),
+      ...(parsed.relationshipStrength === null ? {} : { relationshipStrength: parsed.relationshipStrength }),
+      introducedBy: parsed.introducedBy, relationshipNotes: parsed.relationshipNotes,
+      ...(parsed.priority === null ? {} : { priority: parsed.priority }),
+      ...(parsed.status === null ? {} : { status: parsed.status }),
+      lastContacted: parsed.lastContacted, lastContactMethod: parsed.lastContactMethod,
+      lastContactSummary: parsed.lastContactSummary, nextAction: parsed.nextAction,
+      nextActionDue: parsed.nextActionDue, whyInteresting: parsed.whyInteresting,
+      notesJson: JSON.stringify(parsed.notes), tagsJson: JSON.stringify(parsed.tags),
+    };
+    const data=withPersonDefaults(person), timestamp=context.occurredAt??new Date().toISOString();
+    const candidate=personFromData({...data,revision:1,isDeleted:false,createdAt:timestamp,updatedAt:timestamp},[]);
+    validatePerson(candidate);
+    return this.changes.execute(context,candidate,options,transaction=>this.record(transaction.people.create(data)));
   }
 
   update(
@@ -345,6 +373,22 @@ export class GigPeopleService {
       context,
       transaction => transaction.gigPeople.create(relationshipToData(relationship)),
     ).value);
+  }
+
+  createNew(context: ChangeContext, id: string, input: GigPersonCreateInput, options: MutationOptions = {}): MutationResult<GigPersonRelationship> {
+    if(context.changeId&&this.persistence.hasChange(context.changeId)){
+      const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match relationship ${id}.`);
+      return{record:existing,changeId:context.changeId};
+    }
+    const parsed=gigPersonCreateSchema.parse(input);
+    if(this.gigs.read(parsed.gigId).status!=="ok")throw new MutationError("not_found",`Gig not found: ${parsed.gigId}`);
+    if(this.people.read(parsed.personId).status!=="ok")throw new MutationError("not_found",`Person not found: ${parsed.personId}`);
+    const duplicate=this.persistence.gigPeople.list().find(item=>item.gigId===parsed.gigId&&item.personId===parsed.personId&&item.relationship===parsed.relationship);
+    if(duplicate)throw new MutationError("duplicate",`Relationship already exists: ${duplicate.id}`);
+    const candidate: GigPersonRelationship={id,...parsed};
+    if(options.dryRun)return{record:candidate,changeId:null};
+    const result=this.persistence.change(context,transaction=>transaction.gigPeople.create(relationshipToData(candidate),{reversible:true}));
+    return{record:relationshipFromData(result.value),changeId:result.changeId};
   }
 
   read(id: string): ReadResult<GigPersonRelationship> {
