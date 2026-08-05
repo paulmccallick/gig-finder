@@ -39,8 +39,8 @@ Both schemas live with their domain in `src/core`, for example:
 - Interaction in `src/core/interactions.ts`.
 
 Relationships with substantial behavior receive their own domain module.
-Centralized `create-contracts.ts` and `update-contracts.ts` files do not own
-entity field definitions.
+Centralized `create-contracts.ts` and `update-contracts.ts` files are not used;
+clients import the owning domain module directly.
 
 ## Create and update behavior
 

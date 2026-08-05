@@ -17,4 +17,3 @@ export * from "./ports";
 export * from "./queries";
 export * from "./tracker-services";
 export * from "./services";
-export * from "./update-contracts";

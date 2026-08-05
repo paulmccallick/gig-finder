@@ -91,8 +91,7 @@ Gig, Person, task, and meeting update tools use structurally strict operation li
 descriptions enumerate accepted domain values; the agent adapter translates
 operations into, and validates them against, the entity-owned input schemas in
 `src/core/gigs.ts`, `people.ts`, `tasks.ts`, and `meetings.ts`. The CLI adapts
-its JSON and flags to those same contracts. `src/core/update-contracts.ts`
-contains compatibility aliases only and owns no field definitions. See
+its JSON and flags to those same contracts. See
 [ADR 0001](decisions/0001-agent-update-contracts.md) and
 [ADR 0004](decisions/0004-share-domain-input-contracts.md).
 
