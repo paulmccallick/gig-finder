@@ -6,8 +6,19 @@ import {
   taskCreateSchema,
   taskUpdateSchema,
 } from "../update-contracts";
+import { gigInputSchema } from "../gigs";
+import { meetingInputSchema } from "../meetings";
+import { personInputSchema } from "../people";
+import { taskInputSchema } from "../tasks";
 
 describe("shared update contracts", () => {
+  test("compatibility exports are the entity-owned schema objects", () => {
+    expect(gigUpdateSchema).toBe(gigInputSchema);
+    expect(personUpdateSchema).toBe(personInputSchema);
+    expect(meetingUpdateSchema).toBe(meetingInputSchema);
+    expect(taskCreateSchema).toBe(taskInputSchema);
+    expect(taskUpdateSchema).toBe(taskInputSchema);
+  });
   test("accepts explicit partial and nested gig updates", () => {
     expect(gigUpdateSchema.parse({
       stage: "applied",
@@ -95,14 +106,12 @@ describe("shared update contracts", () => {
     expect(taskCreateSchema.parse({
       title: "Follow up",
       type: "networking_follow_up",
-      priority: null,
       dueDate: "2026-08-05",
       relatedEntity: { type: "person", id: "person-1" },
       notes: null,
     })).toEqual({
       title: "Follow up",
       type: "networking_follow_up",
-      priority: null,
       dueDate: "2026-08-05",
       relatedEntity: { type: "person", id: "person-1" },
       notes: null,
@@ -122,14 +131,12 @@ describe("shared update contracts", () => {
     const creation = {
       title: "Follow up",
       type: "networking_follow_up",
-      priority: null,
       dueDate: null,
       relatedEntity: { type: "general", id: null },
       notes: null,
     };
     for (const input of [
       { ...creation, title: "" },
-      { ...creation, status: "open" },
       { ...creation, type: "invalid" },
       { ...creation, dueDate: "tomorrow" },
       { ...creation, dueDate: "2026-02-31" },

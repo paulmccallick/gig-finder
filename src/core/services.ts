@@ -11,15 +11,19 @@ import {
   type PersonRecord,
   personIsOverdue,
   relationshipStrengths,
+  personInputSchema,
+  type PersonInput,
 } from "./people";
 import {
   meetingStatuses,
   meetingInstant,
   meetingParticipantId,
   meetingTimezoneSchema,
+  meetingInputSchema,
   type Meeting,
   type MeetingRecord,
   type MeetingStatus,
+  type MeetingInput,
 } from "./meetings";
 import {
   matchesQuery,
@@ -37,14 +41,8 @@ import type { GigRecord } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
 import type { ManagedDocumentService } from "./documents";
 import { ChangeExecutor, type MutationOptions, type MutationResult } from "./changes";
-import {
-  meetingUpdateSchema,
-  personUpdateSchema,
-  type MeetingUpdate,
-  type PersonUpdate,
-} from "./update-contracts";
 import { deepPatch } from "./tracker-services";
-import { gigPersonCreateSchema, personCreateSchema, type GigPersonCreateInput, type PersonCreateContractInput } from "./create-contracts";
+import { gigPersonRelationshipEntitySchema, gigPersonRelationshipInputSchema, type GigPersonRelationshipInput } from "./gig-people";
 
 export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
 
@@ -111,26 +109,18 @@ export class PeopleService {
     return this.record(this.persistence.change(context, transaction => transaction.people.create(data)).value);
   }
 
-  createNew(context: ChangeContext, id: string, input: PersonCreateContractInput, options: MutationOptions = {}): MutationResult<PersonRecord> {
+  createNew(context: ChangeContext, id: string, input: PersonInput, options: MutationOptions = {}): MutationResult<PersonRecord> {
     if(context.changeId&&this.persistence.hasChange(context.changeId)){
       const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Person ${id}.`);
       return{record:existing,changeId:context.changeId};
     }
-    const parsed = personCreateSchema.parse(input);
-    const duplicate=this.persistence.people.list().find(record=>(parsed.linkedInProfileUrl!==null&&record.linkedInProfileUrl===parsed.linkedInProfileUrl)||(record.name.trim().toLocaleLowerCase()===parsed.name.toLocaleLowerCase()&&(record.company??"").trim().toLocaleLowerCase()===(parsed.company??"").toLocaleLowerCase()));
+    const parsed = personInputSchema.parse(input);
+    const duplicate=this.persistence.people.list().find(record=>(parsed.linkedInProfileUrl!==undefined&&parsed.linkedInProfileUrl!==null&&record.linkedInProfileUrl===parsed.linkedInProfileUrl)||(record.name.trim().toLocaleLowerCase()===(parsed.name??"").toLocaleLowerCase()&&(record.company??"").trim().toLocaleLowerCase()===(parsed.company??"").toLocaleLowerCase()));
     if(duplicate)throw new MutationError("duplicate",`Person already exists: ${duplicate.id}`);
     const person: PersonCreateInput = {
-      id, name: parsed.name, company: parsed.company, title: parsed.title,
-      linkedInProfileUrl: parsed.linkedInProfileUrl, connectedOn: parsed.connectedOn,
-      ...(parsed.relationshipType === null ? {} : { relationshipType: parsed.relationshipType }),
-      ...(parsed.relationshipStrength === null ? {} : { relationshipStrength: parsed.relationshipStrength }),
-      introducedBy: parsed.introducedBy, relationshipNotes: parsed.relationshipNotes,
-      ...(parsed.priority === null ? {} : { priority: parsed.priority }),
-      ...(parsed.status === null ? {} : { status: parsed.status }),
-      lastContacted: parsed.lastContacted, lastContactMethod: parsed.lastContactMethod,
-      lastContactSummary: parsed.lastContactSummary, nextAction: parsed.nextAction,
-      nextActionDue: parsed.nextActionDue, whyInteresting: parsed.whyInteresting,
-      notesJson: JSON.stringify(parsed.notes), tagsJson: JSON.stringify(parsed.tags),
+      id,name:parsed.name??"",company:parsed.company??null,title:parsed.title??null,linkedInProfileUrl:parsed.linkedInProfileUrl??null,connectedOn:parsed.connectedOn??null,
+      ...(parsed.relationship?.type===undefined?{}:{relationshipType:parsed.relationship.type}),...(parsed.relationship?.strength===undefined?{}:{relationshipStrength:parsed.relationship.strength}),introducedBy:parsed.relationship?.introducedBy??null,relationshipNotes:parsed.relationship?.notes??null,
+      ...(parsed.priority===undefined?{}:{priority:parsed.priority}),...(parsed.status===undefined?{}:{status:parsed.status}),lastContacted:parsed.outreach?.lastContacted??null,lastContactMethod:parsed.outreach?.lastContactMethod??null,lastContactSummary:parsed.outreach?.lastContactSummary??null,nextAction:parsed.outreach?.nextAction??null,nextActionDue:parsed.outreach?.nextActionDue??null,whyInteresting:parsed.whyInteresting??null,notesJson:JSON.stringify(parsed.notes??[]),tagsJson:JSON.stringify(parsed.tags??[]),
     };
     const data=withPersonDefaults(person), timestamp=context.occurredAt??new Date().toISOString();
     const candidate=personFromData({...data,revision:1,isDeleted:false,createdAt:timestamp,updatedAt:timestamp},[]);
@@ -141,10 +131,10 @@ export class PeopleService {
   update(
     context: ChangeContext,
     id: string,
-    patch: PersonUpdate,
+    patch: PersonInput,
     options: MutationOptions = {},
   ) {
-    const validatedPatch = personUpdateSchema.parse(patch);
+    const validatedPatch = personInputSchema.parse(patch);
     const raw = this.persistence.people.get(id);
     if (!raw) throw new Error(`Person not found: ${id}`);
     const updated = deepPatch(this.record(raw), validatedPatch);
@@ -230,7 +220,10 @@ export class MeetingService {
 
   create(context: ChangeContext, meeting: Meeting): MutationResult<MeetingRecord> {
     validateMeeting(meeting, this.gigs, this.people);
-    const { personIds, ...data } = meeting;
+    const {id,externalCalendarId,externalEventId,...input}=meeting;
+    const parsed=meetingInputSchema.parse(input);
+    const candidate={id,externalCalendarId,externalEventId,...parsed} as Meeting;
+    const { personIds, ...data } = candidate;
     const result = this.persistence.change(context, transaction => {
       const record = transaction.meetings.create(data);
       for (const personId of personIds) {
@@ -238,7 +231,7 @@ export class MeetingService {
       }
       return {
         ...record,
-        status: meeting.status,
+        status: candidate.status,
         personIds: [...personIds].sort(),
       };
     });
@@ -248,10 +241,10 @@ export class MeetingService {
   update(
     context: ChangeContext,
     id: string,
-    patch: MeetingUpdate,
+    patch: MeetingInput,
     options: MutationOptions = {},
   ): MutationResult<MeetingRecord> {
-    const validatedPatch = meetingUpdateSchema.parse(patch);
+    const validatedPatch = meetingInputSchema.parse(patch);
     const current = this.get(id);
     if (!current) throw new Error(`Meeting not found: ${id}`);
     const candidate: MeetingRecord = {
@@ -375,17 +368,19 @@ export class GigPeopleService {
     ).value);
   }
 
-  createNew(context: ChangeContext, id: string, input: GigPersonCreateInput, options: MutationOptions = {}): MutationResult<GigPersonRelationship> {
+  createNew(context: ChangeContext, id: string, input: GigPersonRelationshipInput, options: MutationOptions = {}): MutationResult<GigPersonRelationship> {
     if(context.changeId&&this.persistence.hasChange(context.changeId)){
       const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match relationship ${id}.`);
       return{record:existing,changeId:context.changeId};
     }
-    const parsed=gigPersonCreateSchema.parse(input);
+    const entity=gigPersonRelationshipEntitySchema.safeParse({id,...gigPersonRelationshipInputSchema.parse(input)});
+    if(!entity.success)throw new DomainValidationError(entity.error.issues.map(issue=>issue.message).join("; "));
+    const parsed=entity.data;
     if(this.gigs.read(parsed.gigId).status!=="ok")throw new MutationError("not_found",`Gig not found: ${parsed.gigId}`);
     if(this.people.read(parsed.personId).status!=="ok")throw new MutationError("not_found",`Person not found: ${parsed.personId}`);
     const duplicate=this.persistence.gigPeople.list().find(item=>item.gigId===parsed.gigId&&item.personId===parsed.personId&&item.relationship===parsed.relationship);
     if(duplicate)throw new MutationError("duplicate",`Relationship already exists: ${duplicate.id}`);
-    const candidate: GigPersonRelationship={id,...parsed};
+    const candidate: GigPersonRelationship=parsed;
     if(options.dryRun)return{record:candidate,changeId:null};
     const result=this.persistence.change(context,transaction=>transaction.gigPeople.create(relationshipToData(candidate),{reversible:true}));
     return{record:relationshipFromData(result.value),changeId:result.changeId};

@@ -52,18 +52,6 @@ export interface DocumentSummary {
   displayName: string;
 }
 
-export interface ManagedDocumentData {
-  id: string;
-  links: DocumentLink[];
-  documentType: ManagedDocumentType;
-  title: string | null;
-  description: string | null;
-  mediaType: DocumentMediaType;
-  sourceDescription: string | null;
-  filePath: string | null;
-  uploadProvenance: UploadedDocumentProvenance | null;
-}
-
 export interface ManagedDocumentVersionData {
   documentId: string;
   version: number;
@@ -74,28 +62,6 @@ export interface ManagedDocumentVersionData {
   changeSummary: string;
   createdAt: string;
   createdBy: string;
-}
-
-export interface ManagedDocumentRecord extends ManagedDocumentData {
-  displayName: string;
-  currentVersion: number;
-  content: string;
-  contentHash: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type ManagedDocumentSummary = Omit<ManagedDocumentRecord, "content">;
-
-export interface CreateManagedDocumentInput {
-  links: DocumentLink[];
-  documentType: ManagedDocumentType;
-  title: string | null;
-  description?: string | null;
-  mediaType: DocumentMediaType;
-  sourceDescription: string | null;
-  content: string;
-  uploadProvenance?: UploadedDocumentProvenance | null;
 }
 
 export interface UpdateManagedDocumentInput {
@@ -141,17 +107,24 @@ export const documentLinkSchema = z.object({
   entityId: z.string().trim().min(1).max(200),
 }).strict();
 
+const managedDocumentMutableFields={links:z.array(documentLinkSchema).min(1).describe("Document owners."),documentType:z.enum(managedDocumentTypes).describe("Document type."),title:z.string().trim().min(1).max(200).nullable().describe("Title, or null."),description:z.string().trim().min(1).max(profileDocumentDescriptionLimit).nullable().describe("Description, or null."),mediaType:z.enum(documentMediaTypes).describe("Media type."),sourceDescription:z.string().trim().min(1).max(500).nullable().describe("Source description, or null."),uploadProvenance:uploadedDocumentProvenanceSchema.nullable().describe("Upload provenance, or null.")};
+export const managedDocumentEntitySchema=z.object({id:z.string().trim().min(1),...managedDocumentMutableFields,filePath:z.string().nullable(),displayName:z.string().min(1),currentVersion:z.number().int().positive(),content:contentSchema,contentHash:z.string().regex(/^[0-9a-f]{64}$/),createdAt:z.string().datetime({offset:true}),updatedAt:z.string().datetime({offset:true})}).strict();
+export const managedDocumentInputSchema=z.object({links:managedDocumentMutableFields.links.optional(),documentType:managedDocumentMutableFields.documentType.optional(),title:managedDocumentMutableFields.title.optional(),description:managedDocumentMutableFields.description.optional(),mediaType:managedDocumentMutableFields.mediaType.optional(),sourceDescription:managedDocumentMutableFields.sourceDescription.optional(),uploadProvenance:managedDocumentMutableFields.uploadProvenance.optional()}).strict().refine(value=>Object.keys(value).length>0,"Managed-document input must contain at least one field.");
+export type ManagedDocumentInput=z.infer<typeof managedDocumentInputSchema>;
 export const createManagedDocumentSchema = z.object({
-  links: z.array(documentLinkSchema).min(1),
-  documentType: z.enum(managedDocumentTypes),
-  title: z.string().trim().min(1).max(200).nullable(),
-  description: z.string().trim().min(1).max(profileDocumentDescriptionLimit).nullable()
-    .default(null),
-  mediaType: z.enum(documentMediaTypes),
-  sourceDescription: z.string().trim().min(1).max(500).nullable(),
+  links: managedDocumentInputSchema.shape.links.unwrap(),
+  documentType: managedDocumentInputSchema.shape.documentType.unwrap(),
+  title: managedDocumentInputSchema.shape.title.unwrap(),
+  description: managedDocumentInputSchema.shape.description.default(null),
+  mediaType: managedDocumentInputSchema.shape.mediaType.unwrap(),
+  sourceDescription: managedDocumentInputSchema.shape.sourceDescription.unwrap(),
   content: contentSchema,
-  uploadProvenance: uploadedDocumentProvenanceSchema.nullable().default(null),
+  uploadProvenance: managedDocumentInputSchema.shape.uploadProvenance.default(null),
 }).strict();
+export type ManagedDocumentRecord=z.infer<typeof managedDocumentEntitySchema>;
+export type ManagedDocumentData=Omit<ManagedDocumentRecord,"displayName"|"currentVersion"|"content"|"contentHash"|"createdAt"|"updatedAt">;
+export type ManagedDocumentSummary=Omit<ManagedDocumentRecord,"content">;
+export type CreateManagedDocumentInput=z.input<typeof createManagedDocumentSchema>;
 
 export const updateManagedDocumentSchema = z.object({
   documentId: z.string().trim().min(1),

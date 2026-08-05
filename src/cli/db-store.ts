@@ -4,11 +4,11 @@ import type {
   CreateManagedDocumentInput,
   UpdateManagedDocumentInput,
 } from "../core/documents";
-import type { GigSummary } from "../core/gigs";
+import type { GigInput, GigSummary } from "../core/gigs";
 import type { PersonCreateInput, PersonTouchInput } from "../core/services";
-import type { TaskPriority,TaskRecord,TaskStatus,TaskType } from "../core/tasks";
+import type { TaskInput,TaskPriority,TaskRecord,TaskStatus,TaskType } from "../core/tasks";
 import type { GigTouchInput,TaskCreateInput } from "../core/tracker-services";
-import type { GigUpdate, PersonUpdate, TaskUpdate } from "../core/update-contracts";
+import type { PersonInput } from "../core/people";
 import type { GigFinderApplication } from "../core/application";
 
 export interface CliRuntime{application:GigFinderApplication;actor:string}
@@ -29,25 +29,22 @@ export const createGig=(paths:TrackerPaths,record:GigSummary,options:UpdateOptio
     equity:input.equity??null,otherCompensation:input.otherCompensation??null,...input,
   },options).record;
 });
-export const updateGig=(paths:TrackerPaths,id:string,patch:GigUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.update(context(paths,`CLI gig update ${id}`,options.date),id,patch,options).record);
+export const updateGig=(paths:TrackerPaths,id:string,patch:GigInput,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.update(context(paths,`CLI gig update ${id}`,options.date),id,patch,options).record);
 export const touchGig=(paths:TrackerPaths,id:string,input:GigTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.gigs.touch(context(paths,`CLI gig touch ${id}`,input.date),id,input,options));
 
 export const getTask=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.tasks.get(id));
 export const listTasks=(paths:TrackerPaths)=>withApplication(paths,app=>app.tasks.list());
 export const createTaskFromInput=(paths:TrackerPaths,input:TaskCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.createNew(context(paths,"CLI task create",options.date),input,options).record);
-export const updateTask=(paths:TrackerPaths,id:string,patch:TaskUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.update(context(paths,`CLI task update ${id}`,options.date),id,patch,options).record);
+export const updateTask=(paths:TrackerPaths,id:string,patch:TaskInput,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.update(context(paths,`CLI task update ${id}`,options.date),id,patch,options).record);
 export const completeTask=(paths:TrackerPaths,id:string,date:string,options:UpdateOptions={})=>withApplication(paths,app=>app.tasks.complete(context(paths,`CLI task complete ${id}`,date),id,date,options));
 
 export const getPerson=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.people.get(id));
 export const listPeople=(paths:TrackerPaths)=>withApplication(paths,app=>app.people.list());
 export const createPerson=(paths:TrackerPaths,record:PersonCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.createNew(context(paths,"CLI person create",options.date),record.id,{
   name:record.name,company:record.company,title:record.title,linkedInProfileUrl:record.linkedInProfileUrl,connectedOn:record.connectedOn,
-  relationshipType:record.relationshipType??null,relationshipStrength:(record.relationshipStrength as never)??null,introducedBy:record.introducedBy??null,
-  relationshipNotes:record.relationshipNotes??null,priority:(record.priority as never)??null,status:(record.status as never)??null,lastContacted:record.lastContacted??null,
-  lastContactMethod:record.lastContactMethod??null,lastContactSummary:record.lastContactSummary??null,nextAction:record.nextAction??null,
-  nextActionDue:record.nextActionDue??null,whyInteresting:record.whyInteresting??null,notes:JSON.parse(record.notesJson??"[]"),tags:JSON.parse(record.tagsJson??"[]"),
+  relationship:{type:record.relationshipType??"professional_contact",strength:(record.relationshipStrength as never)??"unknown",introducedBy:record.introducedBy??null,notes:record.relationshipNotes??null},priority:(record.priority as never)??"unranked",status:(record.status as never)??"not_contacted",outreach:{lastContacted:record.lastContacted??null,lastContactMethod:record.lastContactMethod??null,lastContactSummary:record.lastContactSummary??null,nextAction:record.nextAction??null,nextActionDue:record.nextActionDue??null},whyInteresting:record.whyInteresting??null,notes:JSON.parse(record.notesJson??"[]"),tags:JSON.parse(record.tagsJson??"[]"),
 },options).record);
-export const updatePerson=(paths:TrackerPaths,id:string,patch:PersonUpdate,options:UpdateOptions={})=>withApplication(paths,app=>app.people.update(context(paths,`CLI person update ${id}`,options.date),id,patch,options).record);
+export const updatePerson=(paths:TrackerPaths,id:string,patch:PersonInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.update(context(paths,`CLI person update ${id}`,options.date),id,patch,options).record);
 export const touchPerson=(paths:TrackerPaths,id:string,input:PersonTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.touch(context(paths,`CLI person touch ${id}`,input.date),id,input,options));
 export const createGigPerson=(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={})=>withApplication(paths,app=>app.gigPeople.createNew(context(paths,"CLI gig-person create"),record.id,{gigId:record.gigId,personId:record.personId,relationship:record.relationship as never,notes:record.notes},options).record);
 export const getMeeting=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.meetings.get(id));

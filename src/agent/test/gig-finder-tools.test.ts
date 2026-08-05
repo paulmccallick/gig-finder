@@ -1088,7 +1088,7 @@ describe("GigFinderAgent tools", () => {
     const capabilities: GigFinderMutationCapabilities = {
       gigs:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"gig",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never,update:()=>{throw new Error("not executed")}},
       people:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"person",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never,update:()=>{throw new Error("not executed")}},
-      gigPeople:{createNew:(context,id,input)=>{created.push({kind:"relationship",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}},
+      gigPeople:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"relationship",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never},
       tasks:taskMutations,meetings:meetingMutations,changes:{revert:()=>{throw new Error("not executed")}},documents:documentMutations,
     };
     const discoveryReader: GigFinderReadCapabilities={...reader,documents:{...reader.documents,
@@ -1119,13 +1119,13 @@ describe("GigFinderAgent tools", () => {
     let updated: { context: ChangeContext; id: string; patch: unknown } | undefined;
     const taskRecord = (input: Parameters<GigFinderMutationCapabilities["tasks"]["createNew"]>[1]): TaskRecord => ({
       id: input.id,
-      title: input.title,
-      type: input.type,
+      title: input.title!,
+      type: input.type!,
       status: "open",
       priority: input.priority ?? "medium",
-      dueDate: input.dueDate,
-      relatedEntity: { ...input.relatedEntity, label: "Contact Person" },
-      notes: input.notes,
+      dueDate: input.dueDate??null,
+      relatedEntity: { ...input.relatedEntity!, label: "Contact Person" },
+      notes: input.notes??null,
       createdAt: "2026-08-03",
       updatedAt: "2026-08-03",
       completedAt: null,
@@ -1149,7 +1149,6 @@ describe("GigFinderAgent tools", () => {
                   id,
                   title: "Private follow-up",
                   type: "networking_follow_up",
-                  priority: null,
                   dueDate: null,
                   relatedEntity: { type: "person", id: "person-1" },
                   notes: null,
@@ -1501,6 +1500,8 @@ describe("GigFinderAgent tools", () => {
       bonus: null,
       equity: null,
       otherCompensation: null,
+      hasJobDescription: false,
+      hasInterviewPrep: false,
     } satisfies Gig;
     const loggingMutations: GigFinderMutationCapabilities = {
       gigs: { update: context => ({

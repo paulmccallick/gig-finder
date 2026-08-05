@@ -1,138 +1,38 @@
 import { z } from "zod";
-import { fitRatings, outcomes, pipelineStages } from "../core/gigs";
+import { gigClearableInputFieldPaths, gigClearOnlyInputFieldPaths, gigInputFieldPaths, gigInputSchema } from "../core/gigs";
 import {
-  personPriorities,
-  personStatuses,
-  relationshipStrengths,
+  personClearableInputFieldPaths,
+  personInputFieldPaths,
+  personInputSchema,
 } from "../core/people";
-import { meetingStatuses } from "../core/meetings";
-import { taskPriorities, taskStatuses, taskTypes } from "../core/tasks";
-import { taskRelatedEntityInputSchema } from "../core/update-contracts";
+import { meetingClearableInputFieldPaths, meetingInputFieldPaths, meetingInputSchema } from "../core/meetings";
+import { taskClearableInputFieldPaths, taskInputFieldPaths, taskInputSchema } from "../core/tasks";
 
-const updateValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.array(z.string()),
-  z.null(),
-]);
-
-const gigUpdateFields = [
-  "company", "title", "externalJobId", "stage", "outcome", "statusSummary",
-  "lastActivity", "nextAction", "nextAction.description", "nextAction.due",
-  "fit.rating", "fit.summary", "payRange", "payRange.currency",
-  "payRange.minimum", "payRange.maximum", "payRange.period",
-  "payRange.notes", "sourceUrl", "tags", "location", "workArrangement",
-  "postedDate", "businessUnitTeam", "recruiterSource", "bonus", "equity",
-  "otherCompensation",
-] as const;
-
-const personUpdateFields = [
-  "name", "company", "title", "linkedInProfileUrl", "connectedOn",
-  "relationship.type", "relationship.strength", "relationship.introducedBy",
-  "relationship.notes", "priority", "status", "outreach.lastContacted",
-  "outreach.lastContactMethod", "outreach.lastContactSummary",
-  "outreach.nextAction", "outreach.nextActionDue", "whyInteresting", "notes",
-  "tags",
-] as const;
-
-const meetingUpdateFields = [
-  "title", "startsAt", "endsAt", "timezone", "status", "personIds",
-  "gigId", "location", "description",
-] as const;
-
-const taskUpdateFields = [
-  "title", "type", "status", "priority", "dueDate", "relatedEntity", "notes",
-] as const;
-
-const list = (values: readonly string[]) => values.join(", ");
-
-const gigFieldDescription = [
-  "Exact mutable gig field path; nested fields use dot notation.",
-  `stage values: ${list(pipelineStages)}.`,
-  `outcome values: ${list(outcomes)}.`,
-  `fit.rating values: ${list(fitRatings)}.`,
-  "payRange.currency: USD; payRange.period: hour or year.",
-].join(" ");
-
-const gigValueDescription = [
-  "Value appropriate to the selected gig field.",
-  `For stage use one of: ${list(pipelineStages)}.`,
-  `For outcome use one of: ${list(outcomes)}.`,
-  `For fit.rating use one of: ${list(fitRatings)}.`,
-  "Use YYYY-MM-DD for date fields, a valid URL for sourceUrl,",
-  "nonnegative numbers for payRange.minimum or payRange.maximum,",
-  "and a string array for tags.",
-  "For clear operations use null; only nullable fields can be cleared.",
-].join(" ");
-
-const personFieldDescription = [
-  "Exact mutable person field path; nested fields use dot notation.",
-  `status values: ${list(personStatuses)}.`,
-  `priority values: ${list(personPriorities)}.`,
-  `relationship.strength values: ${list(relationshipStrengths)}.`,
-].join(" ");
-
-const personValueDescription = [
-  "Value appropriate to the selected person field.",
-  `For status use one of: ${list(personStatuses)}.`,
-  `For priority use one of: ${list(personPriorities)}.`,
-  `For relationship.strength use one of: ${list(relationshipStrengths)}.`,
-  "Use YYYY-MM-DD for date fields, a valid URL for linkedInProfileUrl,",
-  "and a string array for notes or tags.",
-  "For clear operations use null; only nullable fields can be cleared.",
-].join(" ");
-
-const meetingFieldDescription = [
-  "Exact mutable meeting field.",
-  `status values: ${list(meetingStatuses)}.`,
-  "personIds replaces the complete participant list.",
-].join(" ");
-
-const meetingValueDescription = [
-  "Value appropriate to the selected meeting field.",
-  `For status use one of: ${list(meetingStatuses)}.`,
-  "Use ISO 8601 timestamps with offsets for startsAt and endsAt,",
-  "an exact durable ID for gigId, and a string array of exact durable Person IDs for personIds.",
-  "For clear operations use null; only gigId, location, and description can be cleared.",
-].join(" ");
-
-const taskFieldDescription = [
-  "Exact mutable task field.",
-  `type values: ${list(taskTypes)}.`,
-  `status values: ${list(taskStatuses)}.`,
-  `priority values: ${list(taskPriorities)}.`,
-  "relatedEntity replaces the complete Gig, Person, or general relationship.",
-].join(" ");
-
-const taskValueDescription = [
-  "Value appropriate to the selected task field.",
-  `For type use one of: ${list(taskTypes)}.`,
-  `For status use one of: ${list(taskStatuses)}.`,
-  `For priority use one of: ${list(taskPriorities)}.`,
-  "Use YYYY-MM-DD for dueDate.",
-  "For relatedEntity use an object with type gig, person, or general and an exact ID; general uses a null ID.",
-  "For clear operations use null; only dueDate and notes can be cleared.",
-].join(" ");
-
-const taskUpdateValueSchema = z.union([
-  z.string(),
-  taskRelatedEntityInputSchema,
-  z.null(),
-]);
+function schemaAtPath(root:z.ZodObject, path:string):z.ZodType {
+  let current:z.ZodType=root;
+  for(const segment of path.split(".")) {
+    while("unwrap" in current && typeof current.unwrap==="function") current=current.unwrap();
+    if(!("shape" in current)) throw new Error(`No domain schema for ${path}.`);
+    current=(current as z.ZodObject).shape[segment] as z.ZodType;
+  }
+  while(current instanceof z.ZodOptional) current=current.unwrap() as z.ZodType;
+  return current;
+}
 
 function operationListSchema<T extends readonly [string, ...string[]]>(
   fields: T,
   clearable: ReadonlySet<T[number]>,
   clearOnly: ReadonlySet<T[number]>,
-  fieldDescription: string,
-  valueDescription: string,
-  valueSchema: z.ZodType = updateValueSchema,
+  domainSchema: z.ZodObject,
 ) {
+  const schemas=Object.fromEntries(fields.map(field=>[field,schemaAtPath(domainSchema,field)])) as Record<T[number],z.ZodType>;
+  const valueSchemas=fields.filter(field=>!clearOnly.has(field)).map(field=>schemas[field as T[number]]);
+  const valueSchema=z.union(valueSchemas as [z.ZodType,z.ZodType,...z.ZodType[]]);
   return z.array(z.object({
     operation: z.enum(["set", "clear"])
       .describe("Use set to assign a value or clear to remove a nullable value."),
-    field: z.enum(fields).describe(fieldDescription),
-    value: valueSchema.describe(valueDescription),
+    field: z.enum(fields).describe("Exact mutable domain field path; nested fields use dot notation."),
+    value: valueSchema.describe("Value validated by the selected entity-owned domain field schema."),
   }).strict().superRefine((change, context) => {
     if (change.operation === "clear" && change.value !== null) {
       context.addIssue({
@@ -154,6 +54,9 @@ function operationListSchema<T extends readonly [string, ...string[]]>(
         path: ["value"],
         message: "Set operations require a non-null value.",
       });
+    }
+    if(change.operation==="set"&&!schemas[change.field].safeParse(change.value).success){
+      context.addIssue({code:"custom",path:["value"],message:`Value is invalid for ${change.field}.`});
     }
     if (change.operation === "set" && clearOnly.has(change.field)) {
       context.addIssue({
@@ -184,49 +87,29 @@ function operationListSchema<T extends readonly [string, ...string[]]>(
 }
 
 export const gigChangesSchema = operationListSchema(
-  gigUpdateFields,
-  new Set([
-    "externalJobId", "nextAction", "nextAction.due", "fit.summary", "payRange",
-    "payRange.minimum", "payRange.maximum", "payRange.notes", "sourceUrl",
-    "location", "workArrangement", "postedDate", "businessUnitTeam",
-    "recruiterSource", "bonus", "equity", "otherCompensation",
-  ] satisfies typeof gigUpdateFields[number][]),
-  new Set(["nextAction", "payRange"] satisfies typeof gigUpdateFields[number][]),
-  gigFieldDescription,
-  gigValueDescription,
+  gigInputFieldPaths,
+  gigClearableInputFieldPaths,
+  gigClearOnlyInputFieldPaths,
+  gigInputSchema,
 );
 
 export const personChangesSchema = operationListSchema(
-  personUpdateFields,
-  new Set([
-    "company", "title", "linkedInProfileUrl", "connectedOn",
-    "relationship.introducedBy", "relationship.notes",
-    "outreach.lastContacted", "outreach.lastContactMethod",
-    "outreach.lastContactSummary", "outreach.nextAction",
-    "outreach.nextActionDue", "whyInteresting",
-  ] satisfies typeof personUpdateFields[number][]),
+  personInputFieldPaths,
+  personClearableInputFieldPaths,
   new Set(),
-  personFieldDescription,
-  personValueDescription,
+  personInputSchema,
 );
 
 export const meetingChangesSchema = operationListSchema(
-  meetingUpdateFields,
-  new Set([
-    "gigId", "location", "description",
-  ] satisfies typeof meetingUpdateFields[number][]),
+  meetingInputFieldPaths,
+  meetingClearableInputFieldPaths,
   new Set(),
-  meetingFieldDescription,
-  meetingValueDescription,
+  meetingInputSchema,
 );
 
 export const taskChangesSchema = operationListSchema(
-  taskUpdateFields,
-  new Set([
-    "dueDate", "notes",
-  ] satisfies typeof taskUpdateFields[number][]),
+  taskInputFieldPaths,
+  taskClearableInputFieldPaths,
   new Set(),
-  taskFieldDescription,
-  taskValueDescription,
-  taskUpdateValueSchema,
+  taskInputSchema,
 );

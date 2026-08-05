@@ -1,7 +1,6 @@
 export * from "./application";
 export * from "./application-settings";
 export * from "./changes";
-export * from "./create-contracts";
 export * from "./document-reader";
 export * from "./documents";
 export * from "./staged-documents";
@@ -9,6 +8,7 @@ export * from "./context-search";
 export * from "./conversation-service";
 export * from "./errors";
 export * from "./gigs";
+export * from "./gig-people";
 export * from "./meetings";
 export * from "./tasks";
 export * from "./models";

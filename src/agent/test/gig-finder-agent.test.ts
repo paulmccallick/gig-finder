@@ -556,9 +556,10 @@ describe("agent streaming", () => {
       createNew: (context, input) => {
         const task: TaskRecord = {
           ...input,
+          id:input.id,title:input.title!,type:input.type!,dueDate:input.dueDate??null,notes:input.notes??null,
           status: "open",
           priority: input.priority ?? "medium",
-          relatedEntity: { ...input.relatedEntity, label: "Jordan" },
+          relatedEntity: { ...input.relatedEntity!, label: "Jordan" },
           createdAt: "2026-08-03",
           updatedAt: "2026-08-03",
           completedAt: null,

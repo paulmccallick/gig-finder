@@ -89,16 +89,25 @@ nullable `gigId`; missing links and meetings without participants return
 
 Gig, Person, task, and meeting update tools use structurally strict operation lists. Field and value
 descriptions enumerate accepted domain values; the agent adapter translates
-operations into, and validates them against, the update schemas in
-`src/core/update-contracts.ts`. The CLI uses those core schemas directly.
-See [ADR 0001](decisions/0001-agent-update-contracts.md).
+operations into, and validates them against, the entity-owned input schemas in
+`src/core/gigs.ts`, `people.ts`, `tasks.ts`, and `meetings.ts`. The CLI adapts
+its JSON and flags to those same contracts. `src/core/update-contracts.ts`
+contains compatibility aliases only and owns no field definitions. See
+[ADR 0001](decisions/0001-agent-update-contracts.md) and
+[ADR 0004](decisions/0004-share-domain-input-contracts.md).
 
-Gig, Person, and Gig-Person relationship creation use client-neutral core input
-contracts shared with the CLI. Core owns required fields, defaults, enum values,
+Gig, Person, Gig-Person relationship, task, and meeting creation use
+client-neutral, entity-owned core input contracts shared with update behavior
+and the CLI. Core owns required fields, defaults, enum values,
 relationship validation, uniqueness, and lifecycle invariants. The agent adapts
 those inputs to strict model-facing schemas and generates entity-prefixed UUIDs;
 the CLI adapts its flags and explicit command ID to the same core operations.
 Neither adapter maintains independent domain validation or enum lists.
+
+Managed-document metadata follows the same entity-owned input-contract pattern.
+Replacing document content remains a distinct versioned command because it is
+an optimistic-concurrency boundary that creates an immutable prior version; it
+is not a second general-purpose metadata patch path.
 
 `create_meeting` requires title, offset-bearing start and end timestamps, a
 valid IANA timezone, a domain-derived status, and one or more unique Person IDs. Nullable
@@ -110,9 +119,9 @@ status, participant Person IDs, Gig ID, location, and description. Setting
 description can be cleared. Meeting and participant changes are atomic.
 Meeting updates can be reverted when no later edit would be overwritten.
 
-`create_task` requires a title, domain-derived type, nullable priority and due
+`create_task` requires a title, domain-derived type, optional priority and nullable due
 date, a complete Gig/Person/general relationship, and nullable notes. The
-server generates its ID and dates, defaults null priority to medium, and derives
+server generates its ID and dates, defaults omitted priority to medium, and derives
 the relationship label from the linked record. Dates must be calendar-valid and
 task lifecycle dates use the Pacific business date. `update_task` supports title,
 type, status, priority, due date, relationship, and notes; due date and notes

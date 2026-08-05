@@ -578,7 +578,6 @@ describe("change idempotency and reversal", () => {
       id: "task-audited",
       title: "Review role",
       type: "application" as const,
-      priority: null,
       dueDate: null,
       relatedEntity: { type: "gig" as const, id: gig.id },
       notes: null,
@@ -623,8 +622,8 @@ describe("change idempotency and reversal", () => {
     expect(reverted.affected).toEqual([{ entity: "task", id: "task-reversible" }]);
     expect(app.tasks.get("task-reversible")).toBeNull();
 
-    const createdPerson=app.people.createNew({...createContext,changeId:"agent-tool:create-person"},"person-created",{name:"Taylor Example",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:null,relationshipStrength:null,introducedBy:null,relationshipNotes:null,priority:null,status:null,lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:null,nextActionDue:null,whyInteresting:null,notes:[],tags:[]});
-    expect(app.people.createNew({...createContext,changeId:"agent-tool:create-person"},"person-created",{name:"Taylor Example",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:null,relationshipStrength:null,introducedBy:null,relationshipNotes:null,priority:null,status:null,lastContacted:null,lastContactMethod:null,lastContactSummary:null,nextAction:null,nextActionDue:null,whyInteresting:null,notes:[],tags:[]})).toEqual(createdPerson);
+    const createdPerson=app.people.createNew({...createContext,changeId:"agent-tool:create-person"},"person-created",{name:"Taylor Example",company:null,title:null,linkedInProfileUrl:null,connectedOn:null});
+    expect(app.people.createNew({...createContext,changeId:"agent-tool:create-person"},"person-created",{name:"Taylor Example",company:null,title:null,linkedInProfileUrl:null,connectedOn:null})).toEqual(createdPerson);
     const relationship=app.gigPeople.createNew({...createContext,changeId:"agent-tool:create-relationship"},"relationship-created",{gigId:gig.id,personId:createdPerson.record.id,relationship:"recruiter",notes:null});
     expect(app.gigPeople.createNew({...createContext,changeId:"agent-tool:create-relationship"},"relationship-created",{gigId:gig.id,personId:createdPerson.record.id,relationship:"recruiter",notes:null})).toEqual(relationship);
     const revertedRelationship=app.changes.revert({...createContext,changeId:"change:revert-relationship",summary:"Undo relationship creation"},relationship.changeId!);

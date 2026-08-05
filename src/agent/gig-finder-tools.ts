@@ -10,41 +10,31 @@ import type {
   GigPeopleService,
   GigPersonRelationshipQueryInput,
   GigQueryInput,
-  GigUpdate,
   ManagedDocumentMutationResult,
   ManagedDocumentService,
   MeetingQueryInput,
   MeetingService,
-  MeetingUpdate,
-  PersonUpdate,
   PeopleQueryInput,
   PeopleService,
   SearchContextService,
   StagedDocumentAccess,
   TaskDomainService,
   TaskQueryInput,
-  TaskUpdate,
 } from "../core";
-import { gigCreateSchema, gigPersonCreateSchema, personCreateSchema } from "../core/create-contracts";
+import { fitRatings, gigInputSchema, outcomes, pipelineStages, type GigInput } from "../core/gigs";
+import { gigPersonRelationshipInputSchema } from "../core/gig-people";
+import { personInputSchema, personOutreachSchema, personRelationshipSchema, type PersonInput } from "../core/people";
 import {
   DomainValidationError,
   MutationError,
   PersistenceConsistencyError,
 } from "../core/errors";
 import {
-  gigUpdateSchema,
-  meetingUpdateSchema,
-  personUpdateSchema,
-  taskCreateSchema,
-  taskUpdateSchema,
-} from "../core/update-contracts";
-import { fitRatings, outcomes, pipelineStages } from "../core/gigs";
-import {
   personPriorities,
   personStatuses,
   relationshipStrengths,
 } from "../core/people";
-import { taskPriorities, taskStatuses, taskTypes } from "../core/tasks";
+import { taskInputSchema, taskPriorities, taskStatuses, taskTypes, type TaskInput } from "../core/tasks";
 import {
   documentMediaTypes,
   documentLinkEntityTypes,
@@ -54,7 +44,7 @@ import {
 } from "../core/documents";
 import { stagedDocumentReferencePattern } from "../core/staged-documents";
 import { gigPersonRelationships } from "../core/people";
-import { meetingStatuses, meetingTimezoneSchema } from "../core/meetings";
+import { meetingInputSchema, meetingStatuses, meetingTimezoneSchema, type MeetingInput } from "../core/meetings";
 import {
   personChangesSchema,
   gigChangesSchema,
@@ -182,9 +172,9 @@ const listDocumentVersionsInputSchema = z.object({
   ...pageSchema,
 }).strict();
 
-const createGigInputSchema = gigCreateSchema;
-const createPersonInputSchema = personCreateSchema;
-const createGigPersonRelationshipInputSchema = gigPersonCreateSchema;
+const createGigInputSchema = gigInputSchema.required();
+const createPersonInputSchema = personInputSchema.required().safeExtend({relationship:personRelationshipSchema,outreach:personOutreachSchema});
+const createGigPersonRelationshipInputSchema = gigPersonRelationshipInputSchema.required();
 
 const searchGigsAndPeopleInputSchema = z.object({
   companyNames: z.array(z.string().trim().min(2).max(200)).max(4)
@@ -232,7 +222,14 @@ const updateMeetingInputSchema = z.object({
     .describe("One or more explicit changes to mutable meeting fields."),
 }).strict();
 
-const createTaskInputSchema = taskCreateSchema;
+const createTaskInputSchema = z.object({
+  title: taskInputSchema.shape.title,
+  type: taskInputSchema.shape.type,
+  priority: taskInputSchema.shape.priority.nullable().describe("Task priority, or null to use the default priority."),
+  dueDate: taskInputSchema.shape.dueDate,
+  relatedEntity: taskInputSchema.shape.relatedEntity,
+  notes: taskInputSchema.shape.notes,
+}).required().strict();
 
 const updateTaskInputSchema = z.object({
   id: getInputSchema.shape.id,
@@ -369,11 +366,11 @@ export interface GigFinderReadCapabilities {
 export interface GigFinderMutationCapabilities {
   gigs: {
     createNew?: GigDomainService["createNew"];
-    update(context: ChangeContext, id: string, patch: GigUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
+    update(context: ChangeContext, id: string, patch: GigInput, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
   people: {
     createNew?: PeopleService["createNew"];
-    update(context: ChangeContext, id: string, patch: PersonUpdate, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
+    update(context: ChangeContext, id: string, patch: PersonInput, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
   gigPeople?: Pick<GigPeopleService, "createNew">;
   tasks: Pick<TaskDomainService, "createNew" | "update">;
@@ -523,26 +520,26 @@ function changesToPatch(
 
 function gigPatchFromOperations(
   changes: z.infer<typeof gigChangesSchema>,
-): GigUpdate {
-  return gigUpdateSchema.parse(changesToPatch(changes));
+): GigInput {
+  return gigInputSchema.parse(changesToPatch(changes));
 }
 
 function personPatchFromOperations(
   changes: z.infer<typeof personChangesSchema>,
-): PersonUpdate {
-  return personUpdateSchema.parse(changesToPatch(changes));
+): PersonInput {
+  return personInputSchema.parse(changesToPatch(changes));
 }
 
 function meetingPatchFromOperations(
   changes: z.infer<typeof meetingChangesSchema>,
-): MeetingUpdate {
-  return meetingUpdateSchema.parse(changesToPatch(changes));
+): MeetingInput {
+  return meetingInputSchema.parse(changesToPatch(changes));
 }
 
 function taskPatchFromOperations(
   changes: z.infer<typeof taskChangesSchema>,
-): TaskUpdate {
-  return taskUpdateSchema.parse(changesToPatch(changes));
+): TaskInput {
+  return taskInputSchema.parse(changesToPatch(changes));
 }
 
 function normalizeGigsInput(
@@ -1004,7 +1001,9 @@ export function createGigFinderTools(
       execute: loggedExecution(
         logger,
         "create_task",
-        (input, { toolCallId }) => ({
+        (input, { toolCallId }) => {
+          const { priority, ...fields } = input;
+          return ({
           status: "ok" as const,
           ...mutations.tasks.createNew({
             actor: requestContext.actor,
@@ -1013,9 +1012,10 @@ export function createGigFinderTools(
             changeId: `agent-tool:${toolCallId}`,
           }, {
             id: `task_${crypto.randomUUID()}`,
-            ...input,
+            ...fields,
+            ...(priority === null ? {} : { priority }),
           }),
-        }),
+        });},
       ),
     }),
     update_task: tool({
