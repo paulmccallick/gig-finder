@@ -14,7 +14,9 @@ import {
 } from "../data";
 import { registerAiSdkDevTools } from "../observability/devtools";
 import { createApplicationLogger } from "../observability/logger";
-import { createAgentHandler } from "./agent-handler";
+import { createAgentApi } from "./agent-handler";
+import { ConversationService } from "../core/conversation-service";
+import { GigFinderConversationRuntime } from "../agent/ai-sdk-conversation-runtime";
 import { LocalDocumentConverter } from "./document-conversion";
 import { createDocumentUploadHandler } from "./document-upload-handler";
 import { createWebHandler } from "./request-handler";
@@ -153,7 +155,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
     stagedDocuments,
     configuration.uploads.maxBytes,
   );
-  const agentHandler = createAgentHandler({
+  const agentRuntime = new GigFinderConversationRuntime({
     profile: loadCandidateProfile(configuration.context.profile),
     profileDocuments: () => gigFinder.documents.profileContext(),
     logger: logging.logger,
@@ -170,9 +172,20 @@ export async function createWebApplication(configuration: WebConfiguration) {
     toolExtensions: { contextSearch: gigFinder.contextSearch, stagedDocuments },
     selectModel: () => gigFinder.settings.get().agentModel,
   });
+  const conversations = new ConversationService(
+    local.conversations,
+    {
+      async read(documentId, version) {
+        const result = await gigFinder.documentReader.get(documentId, version);
+        return result.status === "ok" ? result : null;
+      },
+    },
+    agentRuntime,
+  );
+  const agentApi = createAgentApi(conversations, logging.logger);
   const fetch = createWebHandler({
     gigFinder,
-    agentHandler,
+    agentApi,
     uploadHandler,
     discardStagedDocument: reference => stagedDocuments.discard(reference),
     requestLogger: logging.requestLogger,

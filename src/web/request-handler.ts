@@ -2,7 +2,7 @@ import type { Logger } from "pino";
 import type { GigFinderApplication } from "../core/application";
 import { parseAgentModelId } from "../core/application-settings";
 import { toWebError } from "./error-response";
-import { WebRequestError } from "./agent-handler";
+import { WebRequestError, type AgentApi } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";
 
 const agentIdleTimeoutSeconds = 120;
@@ -11,7 +11,7 @@ const json = (value: unknown, status = 200) => Response.json(value, { status, he
 
 export interface WebHandlerDependencies {
   gigFinder: GigFinderApplication;
-  agentHandler(request: Request): Promise<Response>;
+  agentApi: AgentApi;
   uploadHandler(request: Request): Promise<Response>;
   discardStagedDocument(reference: string): boolean;
   requestLogger(requestId: string): Logger;
@@ -49,7 +49,7 @@ async function updateAgentModel(
   return gigFinder.settings.setAgentModel(modelId);
 }
 
-export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardStagedDocument,requestLogger,healthCheck,staticFiles}:WebHandlerDependencies) {
+export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStagedDocument,requestLogger,healthCheck,staticFiles}:WebHandlerDependencies) {
   return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -95,7 +95,15 @@ export function createWebHandler({gigFinder,agentHandler,uploadHandler,discardSt
         }
       } else if (url.pathname === "/api/agent/messages") {
         response = request.method === "POST"
-          ? await agentHandler(new Request(request, { headers: new Headers([...request.headers, ["x-request-id", requestId]]) }))
+          ? await agentApi.messages(new Request(request, { headers: new Headers([...request.headers, ["x-request-id", requestId]]) }))
+          : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname === "/api/agent/conversations") {
+        response = request.method === "GET"
+          ? agentApi.list()
+          : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname.startsWith("/api/agent/conversations/")) {
+        response = request.method === "GET"
+          ? agentApi.load(decodeURIComponent(url.pathname.slice("/api/agent/conversations/".length)))
           : json({ error: "Method not allowed" }, 405);
       } else if (url.pathname === "/api/agent/documents") {
         response = request.method === "POST"

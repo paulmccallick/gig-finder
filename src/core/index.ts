@@ -5,6 +5,7 @@ export * from "./document-reader";
 export * from "./documents";
 export * from "./staged-documents";
 export * from "./context-search";
+export * from "./conversation-service";
 export * from "./errors";
 export * from "./gigs";
 export * from "./meetings";

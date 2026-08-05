@@ -10,7 +10,10 @@ flowchart LR
   Converter --> Stage[Short-lived Markdown stage]
   Stage -->|Reference attached to next user message| Dashboard
   API -->|Dashboard reads| Core[Core application services]
-  API <-->|Agent messages and response stream| Agent[GigFinderAgent / AI SDK loop]
+  API -->|Conversation ID and latest message| Core
+  Core -->|Bounded conversation context| Agent[GigFinderAgent / AI SDK loop]
+  Agent -->|GigFinder conversation events| Core
+  Core -->|Framework-neutral stream| API
   Agent <-->|Model steps| Provider[Codex subscription provider]
   Provider <-->|Responses API| Model[Codex model]
   Agent -->|Validated tool calls| Tools[Agent tools]
@@ -48,6 +51,10 @@ The web API reads and updates the selected model through that service, and each
 agent request resolves the setting before constructing its model. The generic
 `application_settings` table persists the preference; `CODEX_AGENT_MODEL`
 supplies a validated startup default only when no preference is stored.
+
+Core conversation services own durable messages, context budgeting, and turn
+orchestration. Web maps AI SDK UI messages and streams to the core contract;
+the agent maps core messages and events to AI SDK Core.
 
 Gigs, people, gig-person relationships, tasks, and
 meetings expose caller-neutral query/read services from `GigFinderApplication`;

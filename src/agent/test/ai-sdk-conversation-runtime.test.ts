@@ -1,0 +1,50 @@
+import { describe, expect, test } from "bun:test";
+import type { ConversationMessage } from "../../core/conversation-service";
+import { toModelMessages } from "../ai-sdk-conversation-runtime";
+
+describe("AI SDK conversation adapter", () => {
+  test("maps application messages and completed tools to model messages", () => {
+    const messages: ConversationMessage[] = [{
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Tell me about the role" }],
+    }, {
+      id: "assistant-1",
+      role: "assistant",
+      parts: [
+        { type: "step-start" },
+        {
+          type: "tool",
+          toolName: "get_document",
+          toolCallId: "call-1",
+          state: "output-available",
+          input: { reference: "doc-1" },
+          output: { record: { reference: "doc-1", content: "description" } },
+        },
+        { type: "step-start" },
+        { type: "text", text: "Here is the summary." },
+      ],
+    }];
+
+    expect(toModelMessages(messages)).toEqual([
+      { role: "user", content: "Tell me about the role" },
+      { role: "assistant", content: [{
+        type: "tool-call",
+        toolCallId: "call-1",
+        toolName: "get_document",
+        input: { reference: "doc-1" },
+        providerExecuted: undefined,
+      }] },
+      { role: "tool", content: [{
+        type: "tool-result",
+        toolCallId: "call-1",
+        toolName: "get_document",
+        output: {
+          type: "json",
+          value: { record: { reference: "doc-1", content: "description" } },
+        },
+      }] },
+      { role: "assistant", content: [{ type: "text", text: "Here is the summary." }] },
+    ]);
+  });
+});

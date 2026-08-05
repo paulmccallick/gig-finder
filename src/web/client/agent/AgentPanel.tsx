@@ -24,6 +24,11 @@ import {
   loadApplicationSettings,
   saveAgentModel,
 } from "../data/settings";
+import {
+  loadConversation,
+  loadConversations,
+} from "../data/conversations";
+import type { Conversation } from "../../../core/conversation-service";
 
 const starterPrompts = [
   "What kinds of roles should I prioritize?",
@@ -177,7 +182,16 @@ export function AgentPanel({
     assistantTextBefore: number;
   } | null>(null);
   const sequenceRef = useRef(0);
-  const transport = useMemo(() => new DefaultChatTransport({ api: "/api/agent/messages" }), []);
+  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
+  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationFailure, setConversationFailure] = useState<string | null>(null);
+  const transport = useMemo(() => new DefaultChatTransport({
+    api: "/api/agent/messages",
+    prepareSendMessagesRequest: ({ id, messages }) => ({
+      body: { id, message: messages[messages.length - 1] },
+    }),
+  }), []);
   const {
     messages,
     sendMessage,
@@ -187,6 +201,8 @@ export function AgentPanel({
     error,
     clearError,
   } = useChat({
+    id: conversationId,
+    messages: initialMessages,
     transport,
     throttle: 30,
     onFinish: ({ message, isAbort, isDisconnect, isError }) => {
@@ -206,6 +222,9 @@ export function AgentPanel({
         setUpload(current => current && savedReferences.includes(current.reference)
           ? null
           : current);
+      }
+      if (completed) {
+        void loadConversations().then(setConversations).catch(() => undefined);
       }
       if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
         setInteractionFailure(
@@ -228,6 +247,48 @@ export function AgentPanel({
     startWidth: number;
   } | null>(null);
   activeRef.current = active;
+
+  useEffect(() => {
+    let mounted = true;
+    void loadConversations()
+      .then(async items => {
+        if (!mounted) return;
+        setConversations(items);
+        const latest = items[0];
+        if (!latest) return;
+        const loaded = await loadConversation(latest.id);
+        if (!mounted) return;
+        setInitialMessages(loaded.messages);
+        setConversationId(loaded.conversation.id);
+      })
+      .catch(error => {
+        if (mounted) setConversationFailure(
+          error instanceof Error ? error.message : "Conversations could not be loaded.",
+        );
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const switchConversation = async (id: string) => {
+    if (activeRef.current || id === conversationId) return;
+    setConversationFailure(null);
+    try {
+      const loaded = await loadConversation(id);
+      setInitialMessages(loaded.messages);
+      setConversationId(id);
+    } catch (error) {
+      setConversationFailure(
+        error instanceof Error ? error.message : "Conversation could not be loaded.",
+      );
+    }
+  };
+
+  const newConversation = () => {
+    if (activeRef.current) return;
+    setInitialMessages([]);
+    setConversationId(crypto.randomUUID());
+    setConversationFailure(null);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -526,6 +587,27 @@ export function AgentPanel({
           </div>
         </div>
         <div className="agent-header-actions">
+          <div className="agent-conversation-control">
+            <select
+              aria-label="Conversation"
+              value={conversations.some(item => item.id === conversationId) ? conversationId : "new"}
+              disabled={active}
+              onChange={event => {
+                if (event.target.value === "new") newConversation();
+                else void switchConversation(event.target.value);
+              }}
+            >
+              <option value="new">New conversation</option>
+              {conversations.map(conversation => (
+                <option key={conversation.id} value={conversation.id}>
+                  {conversation.title ?? "New conversation"}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={newConversation} disabled={active}>
+              New
+            </button>
+          </div>
           <label className="agent-model-control">
             <span>Model</span>
             <select
@@ -595,10 +677,10 @@ export function AgentPanel({
         )}
       </div>
 
-      {(error || interactionFailure) && (
+      {(error || interactionFailure || conversationFailure) && (
         <div className="agent-error" role="alert">
           <span>RESPONSE INTERRUPTED</span>
-          <p>{interactionFailure || error?.message || "The GigFinderAgent could not complete that response."}</p>
+          <p>{conversationFailure || interactionFailure || error?.message || "The GigFinderAgent could not complete that response."}</p>
           <button type="button" onClick={retry} disabled={modelSaving}>Retry response</button>
           <button type="button" onClick={() => {
             clearError();

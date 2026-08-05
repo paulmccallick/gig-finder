@@ -19,6 +19,7 @@ export type DocumentReference = DocumentReferenceBase & (
 );
 
 export type ReadableDocument = DocumentReference & {
+  version: number | null;
   content: string;
   truncated: boolean;
   totalCharacters: number;
@@ -28,7 +29,7 @@ export const readableDocumentContentLimit = 50_000;
 
 export interface DocumentReader {
   list(entityType: "gig" | "person" | "profile", entityId: string): Promise<DocumentReference[]>;
-  get(reference: string): Promise<ReadResult<ReadableDocument>>;
+  get(reference: string, version?: number | null): Promise<ReadResult<ReadableDocument>>;
 }
 
 export interface DocumentReaderServices {
@@ -38,7 +39,7 @@ export interface DocumentReaderServices {
     prep(id: string): Promise<Array<{ name: string; content: string }>>;
   };
   people: { get(id: string): unknown | null };
-  managed?: Pick<ManagedDocumentService, "get" | "list">;
+  managed?: Pick<ManagedDocumentService, "get" | "list" | "versions">;
 }
 
 const encoded = (value: string) => encodeURIComponent(value);
@@ -127,11 +128,15 @@ export class ApplicationDocumentReader implements DocumentReader {
     return references;
   }
 
-  async get(reference: string): Promise<ReadResult<ReadableDocument>> {
+  async get(reference: string, version?: number | null): Promise<ReadResult<ReadableDocument>> {
     if (reference.startsWith("doc_") || reference.startsWith("document:")) {
       const managed = this.services.managed?.get(reference) ?? null;
       const primaryLink = managed?.links[0];
+      const selected = version === undefined || version === null
+        ? managed
+        : this.services.managed?.versions(reference).find(item => item.version === version) ?? null;
       return managed && primaryLink
+        && selected
         ? {
             status: "ok",
             record: documentRecord({
@@ -143,7 +148,7 @@ export class ApplicationDocumentReader implements DocumentReader {
               displayName: managed.displayName,
               storage: "managed",
               currentVersion: managed.currentVersion,
-            }, managed.content),
+            }, selected.content, version ?? managed.currentVersion),
           }
         : { status: "not_found", id: reference };
     }
@@ -174,9 +179,14 @@ export class ApplicationDocumentReader implements DocumentReader {
   }
 }
 
-function documentRecord(reference: DocumentReference, content: string): ReadableDocument {
+function documentRecord(
+  reference: DocumentReference,
+  content: string,
+  version = reference.currentVersion,
+): ReadableDocument {
   return {
     ...reference,
+    version,
     content: content.slice(0, readableDocumentContentLimit),
     truncated: content.length > readableDocumentContentLimit,
     totalCharacters: content.length,

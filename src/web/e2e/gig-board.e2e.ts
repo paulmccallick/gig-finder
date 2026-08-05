@@ -95,7 +95,7 @@ test("mobile board remains usable", async ({ page }) => {
   await page.screenshot({ path: "test-results/playwright/agent-mobile.png", fullPage: false });
 });
 
-test("session-only GigFinderAgent streams guidance and remains available across dashboard views", async ({ page }) => {
+test("GigFinderAgent streams guidance and remains available across dashboard views", async ({ page }) => {
   const diagnostics: string[] = [];
   page.on("console", message => {
     if (message.text().includes("[GigFinderAgent]")) diagnostics.push(message.text());
@@ -114,8 +114,9 @@ test("session-only GigFinderAgent streams guidance and remains available across 
   await page.route("**/api/agent/messages", async route => {
     const request = route.request();
     expect(request.method()).toBe("POST");
-    const body = request.postDataJSON() as { messages: Array<{ role: string }> };
-    expect(body.messages.at(-1)?.role).toBe("user");
+    const body = request.postDataJSON() as { id: string; message: { role: string } };
+    expect(body.id).toBeTruthy();
+    expect(body.message.role).toBe("user");
     await route.fulfill({
       status: 200,
       headers: {
@@ -278,9 +279,11 @@ test("document upload stages without the agent and attaches to the next message"
   await page.route("**/api/agent/messages", async route => {
     agentRequests += 1;
     const body = route.request().postDataJSON() as {
-      messages: Array<{ role: string; parts: Array<{ type: string; text?: string }> }>;
+      id: string;
+      message: { role: string; parts: Array<{ type: string; text?: string }> };
     };
-    const prompt = body.messages.at(-1)?.parts
+    expect(body.id).toBeTruthy();
+    const prompt = body.message.parts
       .filter(part => part.type === "text")
       .map(part => part.text)
       .join("");
@@ -326,4 +329,36 @@ test("document upload stages without the agent and attaches to the next message"
   releaseAgentResponse();
   await expect(panel).toContainText("saved the uploaded source");
   expect(agentRequests).toBe(1);
+});
+
+test("GigFinderAgent reopens and switches persisted conversations", async ({ page }) => {
+  const conversations = [
+    { id: "conversation-latest", title: "Latest strategy", createdAt: "2026-08-04T10:00:00.000Z", lastActiveAt: "2026-08-04T12:00:00.000Z" },
+    { id: "conversation-older", title: "Earlier interview", createdAt: "2026-08-03T10:00:00.000Z", lastActiveAt: "2026-08-03T12:00:00.000Z" },
+  ];
+  await page.route("**/api/agent/conversations", route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ conversations }),
+  }));
+  await page.route("**/api/agent/conversations/*", route => {
+    const id = route.request().url().split("/").at(-1)!;
+    const conversation = conversations.find(item => item.id === id)!;
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        conversation,
+        messages: [
+          { id: `user-${id}`, role: "user", parts: [{ type: "text", text: `Question for ${conversation.title}` }] },
+          { id: `assistant-${id}`, role: "assistant", parts: [{ type: "text", text: `Answer for ${conversation.title}` }] },
+        ],
+      }),
+    });
+  });
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "GigFinder" });
+  const selector = panel.getByLabel("Conversation");
+  await expect(selector).toHaveValue("conversation-latest");
+  await expect(panel).toContainText("Answer for Latest strategy");
+  await selector.selectOption("conversation-older");
+  await expect(panel).toContainText("Answer for Earlier interview");
 });

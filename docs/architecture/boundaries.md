@@ -32,6 +32,9 @@
 - Core owns the supported agent-model catalog and preference validation; web
   owns its HTTP contract and control, while data stores only generic key/value
   settings.
+- Core owns conversation history, context budgeting, document deduplication,
+  and turn orchestration. Web alone adapts AI SDK UI requests and streams;
+  agent adapts the core contract to AI SDK Core model messages and events.
 - Private context never belongs in application source control.
 - CI builds only repository source and synthetic fixtures; it never receives
   private context or Codex credentials.

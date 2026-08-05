@@ -225,6 +225,9 @@ describe("GigFinderAgent instructions", () => {
       '"name":"Interview stories","type":"interview_prep","description":"Behavioral examples from prior leadership roles.","currentVersion":3',
     );
     expect(instructions).toContain("Use get_document with an exact ID");
+    expect(instructions).toContain(
+      "If version differs from currentVersion, choose historical fidelity or reread",
+    );
     expect(instructions).not.toContain("Confidential story content");
   });
 

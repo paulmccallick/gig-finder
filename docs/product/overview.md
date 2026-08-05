@@ -23,7 +23,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   agent identity and workspace controls.
 - The agent header selects GPT-5.6 Sol, Terra, or Luna. The saved choice applies
   to the next request, survives restarts, and does not alter an active response.
-- Agent conversations last only for the current page load.
+- The agent supports multiple durable conversations, reopens the most recently
+  active one, and lists the 20 most recently active conversations for switching.
 - Development uses `context/`; production uses isolated Unix state,
   configuration, log, and backup paths mounted into a local container built
   from the exact revision merged to GitHub.
