@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import {
-  gigUpdateSchema,
-  meetingUpdateSchema,
-  personUpdateSchema,
-  taskCreateSchema,
-  taskUpdateSchema,
-} from "../update-contracts";
+import { gigInputSchema } from "../gigs";
+import { meetingInputSchema } from "../meetings";
+import { personInputSchema } from "../people";
+import { taskInputSchema } from "../tasks";
 
-describe("shared update contracts", () => {
+describe("domain input contracts", () => {
   test("accepts explicit partial and nested gig updates", () => {
-    expect(gigUpdateSchema.parse({
+    expect(gigInputSchema.parse({
       stage: "applied",
       fit: { rating: "strong" },
       nextAction: { due: null },
@@ -31,12 +28,12 @@ describe("shared update contracts", () => {
       { nextAction: {} },
       { lastActivity: "07/27/2026" },
     ]) {
-      expect(gigUpdateSchema.safeParse(patch).success).toBe(false);
+      expect(gigInputSchema.safeParse(patch).success).toBe(false);
     }
   });
 
   test("accepts explicit partial and nested person updates", () => {
-    expect(personUpdateSchema.parse({
+    expect(personInputSchema.parse({
       status: "awaiting_response",
       relationship: { strength: "strong" },
       outreach: { nextAction: null },
@@ -58,12 +55,12 @@ describe("shared update contracts", () => {
       { relationship: {} },
       { outreach: { nextActionDue: "tomorrow" } },
     ]) {
-      expect(personUpdateSchema.safeParse(patch).success).toBe(false);
+      expect(personInputSchema.safeParse(patch).success).toBe(false);
     }
   });
 
   test("accepts partial meeting updates and nullable clears", () => {
-    expect(meetingUpdateSchema.parse({
+    expect(meetingInputSchema.parse({
       status: "completed",
       personIds: ["person-1", "person-2"],
       gigId: null,
@@ -87,27 +84,25 @@ describe("shared update contracts", () => {
       { timezone: "Mars/Olympus" },
       { personIds: [] },
     ]) {
-      expect(meetingUpdateSchema.safeParse(patch).success).toBe(false);
+      expect(meetingInputSchema.safeParse(patch).success).toBe(false);
     }
   });
 
   test("accepts task creation and partial updates without caller-owned labels", () => {
-    expect(taskCreateSchema.parse({
+    expect(taskInputSchema.parse({
       title: "Follow up",
       type: "networking_follow_up",
-      priority: null,
       dueDate: "2026-08-05",
       relatedEntity: { type: "person", id: "person-1" },
       notes: null,
     })).toEqual({
       title: "Follow up",
       type: "networking_follow_up",
-      priority: null,
       dueDate: "2026-08-05",
       relatedEntity: { type: "person", id: "person-1" },
       notes: null,
     });
-    expect(taskUpdateSchema.parse({
+    expect(taskInputSchema.parse({
       status: "completed",
       dueDate: null,
       relatedEntity: { type: "gig", id: "gig-1" },
@@ -122,21 +117,19 @@ describe("shared update contracts", () => {
     const creation = {
       title: "Follow up",
       type: "networking_follow_up",
-      priority: null,
       dueDate: null,
       relatedEntity: { type: "general", id: null },
       notes: null,
     };
     for (const input of [
       { ...creation, title: "" },
-      { ...creation, status: "open" },
       { ...creation, type: "invalid" },
       { ...creation, dueDate: "tomorrow" },
       { ...creation, dueDate: "2026-02-31" },
       { ...creation, relatedEntity: { type: "general", id: "gig-1" } },
       { ...creation, relatedEntity: { type: "gig", id: null } },
     ]) {
-      expect(taskCreateSchema.safeParse(input).success).toBe(false);
+      expect(taskInputSchema.safeParse(input).success).toBe(false);
     }
     for (const patch of [
       {},
@@ -149,7 +142,7 @@ describe("shared update contracts", () => {
       { dueDate: "2026-02-31" },
       { relatedEntity: { type: "person", id: null } },
     ]) {
-      expect(taskUpdateSchema.safeParse(patch).success).toBe(false);
+      expect(taskInputSchema.safeParse(patch).success).toBe(false);
     }
   });
 });

@@ -56,15 +56,21 @@ Core conversation services own durable messages, context budgeting, and turn
 orchestration. Web maps AI SDK UI messages and streams to the core contract;
 the agent maps core messages and events to AI SDK Core.
 
-Gigs, people, gig-person relationships, tasks, and
-meetings expose caller-neutral query/read services from `GigFinderApplication`;
-agent tools receive only those narrow capabilities. Document lookup uses a
-separate shared document reader. There is no agent-specific domain context
-facade.
+Gigs, people, gig-person relationships, tasks, meetings, and documents expose
+client-neutral application contracts from `GigFinderApplication`; agent tools
+and the CLI receive only the narrow capabilities they need and adapt their own
+transport shapes at the boundary. Core owns validation, defaults, lifecycle
+rules, auditing, idempotency semantics, and domain results. Neither client owns
+or duplicates those rules. Document discovery, version metadata, and exact
+content lookup use shared document readers. There is no agent-specific domain
+context facade.
 
-Task creation and updates use the same core task service from the agent and
-CLI. The agent adapter supplies strict tool operations and audit identity; core
-validates relationships and lifecycle dates before generic persistence writes.
+Gig, Person, Gig-Person relationship, task, Meeting, and managed-document
+mutations use the same core services from the agent and CLI. The agent adapter
+supplies strict model-facing schemas, application-generated IDs, confirmation
+policy, and audit identity; the CLI translates flags and caller-supplied IDs at
+its boundary. Core validates relationships and lifecycle rules before generic
+persistence writes.
 
 - `src/web/server.ts` launches the server; `src/web/app.ts` assembles its
   dependencies. `src/cli/app.ts` assembles and runs the CLI.
@@ -86,7 +92,15 @@ validates relationships and lifecycle dates before generic persistence writes.
   `candidate_profiles` supplies the Profile relationship target, and current
   Profile context Markdown is a repairable projection of SQLite. The stored
   materialized version identifies failed or interrupted writes for retry.
-  Legacy job-description and interview-prep files remain filesystem artifacts.
+  Rollout migration 0020 changes Gig-Person tuple uniqueness to apply only to
+  active relationships, so a reverted relationship can be recreated with a new
+  durable ID. The filesystem-aware maintenance migration then imports every
+  registered legacy job-description and interview-prep file as a Gig-linked,
+  version-one managed document in one transaction. Deterministic IDs and a
+  migration change ID make retries safe; equivalent existing managed documents
+  are retained without duplication. Missing registered files or ID collisions
+  fail before the migration is recorded. Legacy files are left in place as a
+  rollback source but managed discovery becomes authoritative after import.
 - `application_settings` stores operator preferences outside entity revision
   history; the core service validates values before the generic adapter writes.
 - Person identity, relationship, and outreach share `people` and

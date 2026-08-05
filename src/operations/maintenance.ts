@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import {
   createManagedBackup,
   loadLegacyMeetingParticipants,
+  migrateLegacyGigArtifacts,
   migrateDatabase,
   openDatabase,
   resolveGigFinderContext,
@@ -30,8 +31,9 @@ if (command === "backup") {
         context.meetingParticipantMigration,
       ),
     });
+    const legacyArtifacts = await migrateLegacyGigArtifacts(database, context.artifacts);
     const validation = validateDatabase(database);
-    output({ command, ok: validation.ok, validation });
+    output({ command, ok: validation.ok, validation, legacyArtifacts });
     if (!validation.ok) process.exitCode = 1;
   } finally {
     database.close();

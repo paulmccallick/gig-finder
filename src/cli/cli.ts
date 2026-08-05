@@ -4,18 +4,14 @@ import { completeTask, createDocument, createEvent, createGig, createGigPerson, 
 import type { BusinessEventInput,GigPersonData } from "../core/models";
 import type { Meeting } from "../core/meetings";
 import type { PersonStatus, Person, PersonCreateInput } from "../core";
-import type { GigSummary, Outcome, PipelineStage } from "../core/gigs";
+import { gigInputSchema, type GigSummary, type Outcome, type PipelineStage } from "../core/gigs";
 import {
   candidateProfileId,
   documentMediaTypes,
   managedDocumentTypes,
 } from "../core/documents";
-import {
-  gigUpdateSchema,
-  personUpdateSchema,
-  taskCreateSchema,
-  taskUpdateSchema,
-} from "../core/update-contracts";
+import { personInputSchema } from "../core/people";
+import { taskInputSchema } from "../core/tasks";
 
 export const cliUsage = `gig-finder — GigFinder CLI
 
@@ -118,12 +114,14 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
     }
     const entityType = gigId ? "gig" as const : personId ? "person" as const : "profile" as const;
     const entityId = gigId ?? personId ?? candidateProfileId;
+    const discovery = await listDocuments(paths, entityType, entityId);
+    if (discovery.status !== "ok") throw new Error(`Document owner not found: ${entityType}:${entityId}`);
     console.log(JSON.stringify({
       ok: true,
       entity: "document",
       command,
       link: { entityType, entityId },
-      records: listDocuments(paths, entityType, entityId),
+      records: discovery.items.map(item=>({...item,id:item.reference,type:item.documentType})),
     }, null, 2));
     return true;
   }
@@ -139,7 +137,7 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
       command,
       reference,
       [command === "get" ? "record" : "records"]:
-        command === "get" ? document : listDocumentVersions(paths, reference),
+        command === "get" ? document : (()=>{const result=listDocumentVersions(paths,reference);return result.status==="ok"?result.items:[]})(),
     }, null, 2));
     return true;
   }
@@ -238,17 +236,17 @@ export async function runCli(args: string[], runtime: CliRuntime) {
   }else if(entity==="meeting"&&command==="add"){const record=await patchFrom(flags) as unknown as Meeting;if(record.id!==id)throw new Error("Meeting id must match the command id.");result=createMeeting(paths,record,{dryRun});
   }else if(entity==="gig-person"&&command==="add"){const record=await patchFrom(flags) as unknown as GigPersonData;if(record.id!==id)throw new Error("Gig-person id must match the command id.");result=createGigPerson(paths,record,{dryRun});
   }else if(entity==="person"&&command==="add"){const record=await patchFrom(flags) as unknown as PersonCreateInput;if(record.id!==id)throw new Error("Person id must match the command id.");result=createPerson(paths,record,{dryRun});
-  }else if(entity==="person"&&command==="update"){result=updatePerson(paths,id,personUpdateSchema.parse(await patchFrom(flags)),{dryRun,date:optional(flags,"date")});
+  }else if(entity==="person"&&command==="update"){result=updatePerson(paths,id,personInputSchema.parse(await patchFrom(flags)),{dryRun,date:optional(flags,"date")});
   }else if (entity === "gig" && command === "add") {
     const record = await patchFrom(flags) as unknown as GigSummary;
     if (record.id !== id) throw new Error("Gig id must match the command id.");
     result = await createGig(paths, record, { dryRun });
   } else if (entity === "task" && command === "add") {
     const date = optional(flags, "date") ?? pacificDate();
-    const input = taskCreateSchema.parse({
+    const input = taskInputSchema.parse({
       title: required(flags, "title"),
       type: required(flags, "type"),
-      priority: optional(flags, "priority") ?? null,
+      ...(optional(flags, "priority") ? { priority: optional(flags, "priority") } : {}),
       dueDate: nullable(required(flags, "due")) ?? null,
       relatedEntity: {
         type: required(flags, "related-type"),
@@ -261,12 +259,12 @@ export async function runCli(args: string[], runtime: CliRuntime) {
       ...input,
     }, { dryRun, date });
   } else if (entity === "task" && command === "update") {
-    result = await updateTask(paths, id, taskUpdateSchema.parse(await patchFrom(flags)), { dryRun, date: optional(flags, "date") });
+    result = await updateTask(paths, id, taskInputSchema.parse(await patchFrom(flags)), { dryRun, date: optional(flags, "date") });
   } else if (entity === "task" && command === "complete") {
     const date = required(flags, "date");
     result = await completeTask(paths, id, date, { dryRun, date });
   } else if (entity === "gig" && command === "update") {
-    result = await updateGig(paths, id, gigUpdateSchema.parse(await patchFrom(flags)), { dryRun });
+    result = await updateGig(paths, id, gigInputSchema.parse(await patchFrom(flags)), { dryRun });
   } else if (entity === "gig") {
     const outcome = optional(flags, "outcome");
     const action = optional(flags, "next-action");

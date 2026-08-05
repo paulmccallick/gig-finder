@@ -1,6 +1,9 @@
 import type { ChangeContext, RevertedRecord } from "./models";
 import type { Persistence, UnitOfWork } from "./ports";
 import { MutationError, OptimisticConcurrencyError } from "./errors";
+import { createHash } from "node:crypto";
+
+export const creationPayloadHash=(payload:unknown)=>createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 
 export interface MutationOptions {
   dryRun?: boolean;

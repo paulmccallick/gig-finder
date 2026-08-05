@@ -9,9 +9,10 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - The CLI reads and updates the same records and linked documents with audited mutations and
   non-persisting dry-run previews where available.
 - The agent window uses the candidate profile; reads complete current gigs,
-  people, gig-person relationships, tasks, and registered meetings and
-  documents; updates existing gigs and people; creates and updates tasks and
-  meetings; and manages documents.
+  people, gig-person relationships, tasks, meetings, and registered documents;
+  creates gigs, people, gig-person relationships, tasks, meetings, and managed
+  documents; updates supported records and documents; and discovers managed
+  document version history before reading an exact version.
 - Named Profile context-document descriptions are always visible to the agent;
   it reads their versioned content on demand by document ID.
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
@@ -45,6 +46,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   that may be associated with a gig.
 - **Managed document:** Versioned Markdown or text linked to gigs, people, or
   the Candidate Profile; Person profiles link to exactly one person, while
+  registered legacy Gig descriptions and interview-prep files are imported as
+  version-one managed documents during rollout without deleting the source
+  files.
   Profile context documents link only to the Candidate Profile.
 
 The archive is a dashboard view of closed gigs grouped by outcome; it does not
@@ -64,8 +68,14 @@ Profile context documents require a name, may include a 255-character
 description, and store their current Markdown file in the configured private
 Profile-document directory while SQLite remains authoritative.
 
-Agent tools cannot create or delete gigs or people, delete tasks or managed documents,
-or access arbitrary files, history, email, calendars, or external
-services. Agent mutations are audited; task creations and gig, person, task, and meeting updates can be reverted
-when no later edit would be overwritten. The agent verifies the intended change
-with the user before mutating records or documents.
+Core application services own client-neutral domain contracts, validation,
+lifecycle behavior, audit semantics, and results. The CLI and agent are adapters
+over those contracts and do not maintain independent domain rules.
+
+Agent tools cannot delete gigs, people, tasks, relationships, or managed
+documents, perform operator artifact maintenance, read or write Business
+Events, or access arbitrary files, email, calendars, or external services.
+Agent mutations are audited and idempotent. Eligible creations and updates can
+be reverted when no later edit or dependent record would be overwritten or
+orphaned. The agent verifies the intended change with the user before mutating
+records or documents.

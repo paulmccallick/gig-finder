@@ -24,6 +24,7 @@ export class PersistenceConsistencyError extends Error {
 }
 
 export type MutationErrorCode =
+  | "duplicate"
   | "duplicate_change"
   | "not_found"
   | "not_revertible"
