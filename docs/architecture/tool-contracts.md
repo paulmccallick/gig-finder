@@ -1,6 +1,6 @@
 # Agent tool contracts
 
-GigFinderAgent has twelve read tools and nine mutation tools.
+GigFinderAgent has fourteen read tools and twelve mutation tools.
 
 | Tool | Contract |
 | --- | --- |
@@ -14,10 +14,15 @@ GigFinderAgent has twelve read tools and nine mutation tools.
 | `get_task` | Returns one complete task. |
 | `list_meetings` | Lists complete meetings; filters by multiple person IDs, gig IDs, statuses, inclusive start timestamps, and text. |
 | `get_meeting` | Returns one complete meeting with every participant person ID and its optional gig ID. |
+| `list_documents` | Lists registered managed and legacy document references for exactly one Gig, Person, or candidate Profile owner, with bounded pagination. |
+| `list_document_versions` | Lists bounded immutable metadata for versions of one exact managed document so the agent can select a version for `get_document`. |
 | `get_document` | Resolves an exact registered or staged document reference. |
 | `search_gigs_and_people` | Resolves company or person names to existing gigs and people, ignoring punctuation and case. |
+| `create_gig` | Creates one pipeline Gig using the client-neutral core creation contract and an application-generated ID. |
 | `update_gig` | Updates mutable fields on one existing gig. |
+| `create_person` | Creates one canonical Person using the client-neutral core creation contract and an application-generated ID. |
 | `update_person` | Updates mutable identity, relationship, and outreach fields on one Person. |
+| `create_gig_person_relationship` | Creates one typed relationship between an exact existing Gig and Person using an application-generated ID. |
 | `create_task` | Creates a task related to an existing Gig, Person, or the general search. |
 | `update_task` | Updates mutable fields on one existing task. |
 | `create_meeting` | Creates a meeting linked to one or more existing people and optionally one existing gig. |
@@ -59,6 +64,13 @@ instants. Accepted statuses are `confirmed` and `completed`.
 Pagination defaults to `offset: 0` and `limit: 20`; the maximum limit is 50.
 Responses include totals and the next offset.
 
+Document discovery accepts exactly one owner type and ID. Gig and Person owners
+must exist; the Profile owner is the canonical candidate Profile. Results
+contain registered discovery metadata only and never arbitrary paths or
+document content. Managed-document version discovery returns immutable metadata
+in deterministic newest-first order. Staged documents and legacy artifacts do
+not expose version lists.
+
 ## Model-facing schema
 
 Read tools use strict JSON schemas. List properties are required and nullable so the
@@ -80,6 +92,13 @@ descriptions enumerate accepted domain values; the agent adapter translates
 operations into, and validates them against, the update schemas in
 `src/core/update-contracts.ts`. The CLI uses those core schemas directly.
 See [ADR 0001](decisions/0001-agent-update-contracts.md).
+
+Gig, Person, and Gig-Person relationship creation use client-neutral core input
+contracts shared with the CLI. Core owns required fields, defaults, enum values,
+relationship validation, uniqueness, and lifecycle invariants. The agent adapts
+those inputs to strict model-facing schemas and generates entity-prefixed UUIDs;
+the CLI adapts its flags and explicit command ID to the same core operations.
+Neither adapter maintains independent domain validation or enum lists.
 
 `create_meeting` requires title, offset-bearing start and end timestamps, a
 valid IANA timezone, a domain-derived status, and one or more unique Person IDs. Nullable
@@ -127,10 +146,20 @@ friendly `displayName`.
 The display name is the explicit title, otherwise the uploaded filename,
 otherwise a friendly label for the document type.
 
-Successful Gig, Person, task, and meeting mutations return the persisted record and change ID.
+`list_documents` returns managed and registered legacy references for one exact
+owner with totals and next-offset metadata. `list_document_versions` accepts an
+exact managed-document ID and returns bounded metadata such as version, media
+type, content hash, provenance, and creation information; content remains
+available only through `get_document`. Missing owners and documents and
+unsupported version sources use explicit bounded results.
+
+Successful Gig, Person, Gig-Person relationship, task, and meeting mutations
+return the persisted record and change ID.
 The agent verifies the intended change with the user before invoking a mutation.
 The tool-call ID makes updates idempotent. Reverts create new history and reject
-later-revision conflicts. Task creations are also reversible. Failures distinguish validation, not found,
+later-revision conflicts. Creation reversion is available only where the core
+can prove no later edit or dependent record would be overwritten or orphaned.
+Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
 limited to 50,000 characters. Managed document version history remains immutable.
 
