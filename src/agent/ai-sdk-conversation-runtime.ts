@@ -127,7 +127,7 @@ function updatePart(
   if (index >= 0) parts[index] = update(parts[index]!);
 }
 
-function conversationStream(
+export function conversationStream(
   fullStream: AsyncIterable<unknown>,
   onEnd: Parameters<ConversationAgentRuntime["stream"]>[0]["onEnd"],
 ) {
@@ -135,6 +135,7 @@ function conversationStream(
   const parts: ConversationPart[] = [];
   let finishReason: string | undefined;
   let aborted = false;
+  let failed = false;
   return new ReadableStream<ConversationStreamEvent>({
     async start(controller) {
       controller.enqueue({ type: "start", messageId });
@@ -220,6 +221,7 @@ function conversationStream(
               break;
             }
             case "error":
+              failed = true;
               controller.enqueue({ type: "error", errorText: safeAgentError(event.error) });
               break;
             case "abort":
@@ -234,7 +236,7 @@ function conversationStream(
         await onEnd({
           responseMessage: { id: messageId, role: "assistant", parts },
           isAborted: aborted,
-          finishReason,
+          finishReason: failed ? "error" : finishReason,
         });
         controller.close();
       } catch (error) {

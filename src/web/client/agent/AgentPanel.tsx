@@ -582,7 +582,7 @@ export function AgentPanel({
         <div className="agent-identity">
           <span className="agent-orbit" aria-hidden="true"><i /><i /><i /></span>
           <div>
-            <span className="eyebrow">Guidance channel / session only</span>
+            <span className="eyebrow">Guidance channel / conversations saved</span>
             <h2>GigFinderAgent</h2>
           </div>
         </div>

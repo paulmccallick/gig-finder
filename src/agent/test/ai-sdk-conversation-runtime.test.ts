@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationMessage } from "../../core/conversation-service";
-import { toModelMessages } from "../ai-sdk-conversation-runtime";
+import {
+  conversationStream,
+  toModelMessages,
+} from "../ai-sdk-conversation-runtime";
 
 describe("AI SDK conversation adapter", () => {
   test("maps application messages and completed tools to model messages", () => {
@@ -46,5 +49,38 @@ describe("AI SDK conversation adapter", () => {
       }] },
       { role: "assistant", content: [{ type: "text", text: "Here is the summary." }] },
     ]);
+  });
+
+  test("reports a streamed error as a failed completion", async () => {
+    async function* events() {
+      yield { type: "text-start", id: "text-1" };
+      yield { type: "text-delta", id: "text-1", text: "partial" };
+      yield { type: "error", error: new Error("provider failed") };
+    }
+    let completion: Parameters<Parameters<typeof conversationStream>[1]>[0] | undefined;
+    const stream = conversationStream(events(), event => {
+      completion = event;
+    });
+
+    const streamed = [];
+    const reader = stream.getReader();
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      streamed.push(result.value);
+    }
+
+    expect(streamed.at(-1)).toEqual({
+      type: "error",
+      errorText: "The GigFinderAgent could not complete that response. Please try again.",
+    });
+    expect(completion).toMatchObject({
+      isAborted: false,
+      finishReason: "error",
+      responseMessage: {
+        role: "assistant",
+        parts: [{ type: "text", text: "partial" }],
+      },
+    });
   });
 });
