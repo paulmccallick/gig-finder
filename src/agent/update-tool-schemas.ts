@@ -24,9 +24,12 @@ function operationListSchema<T extends readonly [string, ...string[]]>(
   clearable: ReadonlySet<T[number]>,
   clearOnly: ReadonlySet<T[number]>,
   domainSchema: z.ZodObject,
+  modelFieldSchemas: Partial<Record<T[number], z.ZodType>> = {},
 ) {
   const schemas=Object.fromEntries(fields.map(field=>[field,schemaAtPath(domainSchema,field)])) as Record<T[number],z.ZodType>;
-  const valueSchemas=fields.filter(field=>!clearOnly.has(field)).map(field=>schemas[field as T[number]]);
+  const valueSchemas=fields.filter(field=>!clearOnly.has(field)).map(field=>
+    modelFieldSchemas[field as T[number]] ?? schemas[field as T[number]],
+  );
   const valueSchema=z.union(valueSchemas as [z.ZodType,z.ZodType,...z.ZodType[]]);
   return z.array(z.object({
     operation: z.enum(["set", "clear"])
@@ -91,6 +94,7 @@ export const gigChangesSchema = operationListSchema(
   gigClearableInputFieldPaths,
   gigClearOnlyInputFieldPaths,
   gigInputSchema,
+  { sourceUrl: z.string().trim().min(1).nullable().describe("Canonical source URL, or null.") },
 );
 
 export const personChangesSchema = operationListSchema(
@@ -98,6 +102,7 @@ export const personChangesSchema = operationListSchema(
   personClearableInputFieldPaths,
   new Set(),
   personInputSchema,
+  { linkedInProfileUrl: z.string().trim().min(1).nullable().describe("LinkedIn profile URL, or null.") },
 );
 
 export const meetingChangesSchema = operationListSchema(

@@ -1657,6 +1657,22 @@ describe("GigFinderAgent tools", () => {
     }
   });
 
+  test("does not emit provider-unsupported URI formats", () => {
+    const visit = (node: unknown): void => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(visit);
+        return;
+      }
+      const schema = node as Record<string, unknown>;
+      expect(schema.format).not.toBe("uri");
+      Object.values(schema).forEach(visit);
+    };
+    for (const schema of Object.values(gigFinderToolSchemas)) {
+      visit(z.toJSONSchema(schema));
+    }
+  });
+
   test("keeps create_gig nested values strict while adapting optional domain fields", () => {
     const jsonSchema = z.toJSONSchema(gigFinderToolSchemas.create_gig);
     const properties = jsonSchema.properties as Record<string, Record<string, unknown>>;
@@ -1677,6 +1693,33 @@ describe("GigFinderAgent tools", () => {
       company: "Synthetic Co",
       title: "Engineering Director",
     }).success).toBe(false);
+  });
+
+  test("leaves URL validation at the domain boundary without emitting URI formats", () => {
+    const completeGig = {
+      company: "Synthetic Co",
+      title: "Engineering Director",
+      externalJobId: null,
+      stage: "identified" as const,
+      outcome: "pending" as const,
+      statusSummary: "Identified",
+      lastActivity: "2026-08-05",
+      nextAction: null,
+      fit: { rating: "good" as const, summary: null },
+      payRange: null,
+      sourceUrl: "not a URL",
+      tags: [],
+      location: null,
+      workArrangement: null,
+      postedDate: null,
+      businessUnitTeam: null,
+      recruiterSource: null,
+      bonus: null,
+      equity: null,
+      otherCompensation: null,
+    };
+    expect(gigFinderToolSchemas.create_gig.safeParse(completeGig).success).toBe(true);
+    expect(gigInputSchema.safeParse(completeGig).success).toBe(false);
   });
 
   test("generates a Codex-compatible flat document source schema", () => {

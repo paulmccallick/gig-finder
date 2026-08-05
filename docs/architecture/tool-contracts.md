@@ -116,6 +116,8 @@ When a provider requires all properties at every object level, the agent adapter
 projects optional core fields as required nullable values and makes nested
 objects complete. This does not make those fields required in the shared domain
 contract or in other clients such as the CLI.
+Provider-unsupported JSON Schema formats are likewise omitted from model-facing
+projections; core still validates the corresponding domain value before write.
 
 Managed-document metadata follows the same entity-owned input-contract pattern.
 Replacing document content remains a distinct versioned command because it is
