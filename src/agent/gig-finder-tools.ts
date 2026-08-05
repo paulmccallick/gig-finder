@@ -178,8 +178,15 @@ const createGigInputSchema = gigInputSchema.required().safeExtend({
   fit: gigFitSchema.describe("Assessment of how well the Gig fits the candidate."),
   payRange: gigPayRangeSchema.nullable()
     .describe("Expected compensation range, or null when it is not known."),
+  sourceUrl: z.string().trim().min(1).nullable()
+    .describe("Canonical source URL, or null when it is not known."),
 });
-const createPersonInputSchema = personInputSchema.required().safeExtend({relationship:personRelationshipSchema,outreach:personOutreachSchema});
+const createPersonInputSchema = personInputSchema.required().safeExtend({
+  relationship: personRelationshipSchema,
+  outreach: personOutreachSchema,
+  linkedInProfileUrl: z.string().trim().min(1).nullable()
+    .describe("LinkedIn profile URL, or null when it is not known."),
+});
 const createGigPersonRelationshipInputSchema = gigPersonRelationshipInputSchema.required();
 
 const searchGigsAndPeopleInputSchema = z.object({
