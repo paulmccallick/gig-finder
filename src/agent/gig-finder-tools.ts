@@ -51,7 +51,6 @@ import {
   meetingChangesSchema,
   taskChangesSchema,
 } from "./update-tool-schemas";
-import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 
 const nonEmptyArray = <T extends readonly [string, ...string[]]>(values: T) =>
   z.array(z.enum(values)).min(1);
@@ -1232,7 +1231,3 @@ export const gigFinderToolSchemas = {
   update_document: updateDocumentInputSchema,
   revert_change: revertChangeInputSchema,
 } as const;
-
-for (const [name, schema] of Object.entries(gigFinderToolSchemas)) {
-  validateStrictToolJsonSchema(name, z.toJSONSchema(schema));
-}

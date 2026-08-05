@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   StrictToolSchemaError,
   validateStrictToolJsonSchema,
-} from "../strict-tool-schema";
+} from "./strict-tool-schema";
 
 describe("strict tool schema validation", () => {
   test("traverses arrays, combinators, nullable branches, definitions, and refs", () => {

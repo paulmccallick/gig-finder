@@ -77,14 +77,15 @@ Read tools use strict JSON schemas. List properties are required and nullable so
 model can leave individual filters unused. Each property carries its own
 description; enum-valued properties use domain-derived values.
 
-Every registered model-facing tool schema is validated before use. Recursively,
-each object reachable through properties, arrays, nullable alternatives,
-schema combinators, definitions, or local references must set
+CI validates every registered model-facing tool schema. Recursively, each
+object reachable through properties, arrays, nullable alternatives, schema
+combinators, definitions, or local references must set
 `additionalProperties: false` and require exactly its declared properties.
 Registry/runtime parity tests cover both read-only and mutation-enabled tool
 sets, and an AI SDK boundary test verifies the emitted schemas that reach the
-model. Validation failures identify only the tool, schema path, and rule; they
-must not log full schemas, prompts, or record content.
+model. Test validation failures identify only the tool, schema path, and rule;
+they do not include full schemas, prompts, or record content. Production does
+not perform this development-time contract assertion.
 
 List and get return the same domain fields for each entity; Person detail adds
 compact related-gig references. Missing records return `not_found`, while stored relationships with
