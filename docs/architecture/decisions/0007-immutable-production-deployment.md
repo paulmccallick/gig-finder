@@ -1,5 +1,8 @@
 # ADR 0007: Deploy immutable images with external state and verified rollback
 
+**Status:** Accepted
+**Date:** 2026-08-05
+
 ## Context
 
 GigFinder holds private mutable state, while each application release must be
@@ -8,6 +11,18 @@ failure. Building in production or embedding state in an image weakens both
 properties.
 
 ## Decision
+
+```mermaid
+flowchart LR
+  PR[Pull request] -->|validate| CI[GitHub Actions]
+  CI -->|main merge SHA| Image[Immutable GHCR image]
+  Image -->|deploy exact tag| Host[Local production container]
+  Host --> State[/var/lib/gig-finder]
+  Host --> Logs[/var/log/gig-finder]
+  Host --> Backups[/var/backups/gig-finder]
+  Host --> Config[/etc/gig-finder]
+  Host -->|read-only| Credentials[Codex credentials]
+```
 
 - CI validates a revision, builds its production image once, smoke-tests it
   with synthetic state, and publishes an immutable commit-addressed image.

@@ -1,5 +1,8 @@
 # ADR 0005: Store mutations as revisioned, audited transactions
 
+**Status:** Accepted
+**Date:** 2026-08-05
+
 ## Context
 
 GigFinder must preserve current state while explaining how it changed, prevent

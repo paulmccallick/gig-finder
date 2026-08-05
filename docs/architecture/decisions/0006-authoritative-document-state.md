@@ -1,5 +1,8 @@
 # ADR 0006: Make database document state authoritative
 
+**Status:** Accepted
+**Date:** 2026-08-05
+
 ## Context
 
 Managed documents need transactional ownership, metadata, and immutable version

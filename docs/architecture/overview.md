@@ -1,162 +1,54 @@
 # Architecture overview
 
-The application is a Bun and TypeScript repository with one shared domain.
+GigFinder is a Bun and TypeScript application with a framework-neutral core and
+client adapters for the web dashboard, agent, and CLI.
 
 ```mermaid
 flowchart LR
-  Dashboard[React dashboard] <-->|Dashboard JSON and agent message stream| API[Bun Web API]
-  Dashboard -->|DOCX / MD / PDF upload| API
-  API --> Converter[Deterministic document conversion]
-  Converter --> Stage[Short-lived Markdown stage]
-  Stage -->|Reference attached to next user message| Dashboard
-  API -->|Dashboard reads| Core[Core application services]
-  API -->|Conversation ID and latest message| Core
-  Core -->|Bounded conversation context| Agent[GigFinderAgent / AI SDK loop]
-  Agent -->|GigFinder conversation events| Core
-  Core -->|Framework-neutral stream| API
-  Agent <-->|Model steps| Provider[Codex subscription provider]
-  Provider <-->|Responses API| Model[Codex model]
-  Agent -->|Validated tool calls| Tools[Agent tools]
-  Tools --> Stage
-  Tools --> Core
-  CLI[CLI] --> Core
-  CLIApp[CLI app] --> CLI
-  CLIApp --> SQLite
-  WebServer[Web server] --> WebApp[Web app]
-  WebApp --> API
-  WebApp --> Agent
-  WebApp --> SQLite
-  SQLite[(SQLite)] -->|implements persistence ports| Core
-  Core --> Artifacts[Legacy filesystem artifacts]
+  Browser[React dashboard] <-->|HTTP and UI message stream| Web[Web adapter]
+  CLI[CLI adapter] --> Core
+  Web --> Core
+  Web --> Uploads[Upload conversion and staging]
+  Core --> Agent[Agent runtime]
+  Core --> Data
+  Agent <-->|AI SDK Core| Model[Codex provider]
+  Agent -->|Validated tool calls| Core
+  Data --> SQLite[(SQLite)]
+  Data --> Files[versioned files and context files]
 ```
 
-- `src/core/` owns domain models, ports, validation, and application services.
-- `src/data/` implements persistence, auditing, artifacts, and context paths.
-- `src/cli/` adapts commands to shared services.
-- `src/agent/` owns agent policy, profile composition, model runtime, and tools.
-- `src/web/` owns the Bun server, application assembly, HTTP API, and React
-  dashboard.
-- `src/operations/` contains executable database maintenance and context-copy
-  programs used by operators and deployment automation.
-- Each module keeps implementation files at its root and unit tests under
-  `test/`; `src/web/client/` contains browser-only React code.
+## Package boundaries
 
-The React dashboard owns session-only agent layout and side-panel width. Changing
-between side-panel and full-screen layouts keeps one mounted agent session and
-does not change the agent or HTTP contracts. Full-screen layout places identity
-and controls in a full-height left rail.
+- `src/core/` owns domain models, client-neutral contracts, validation, ports,
+  conversation orchestration, and application services. It has no dependency
+  on client or persistence packages.
+- `src/data/` implements core persistence ports, SQLite transactions, auditing,
+  private context resolution, and managed filesystem projections.
+- `src/agent/` adapts core capabilities to model-facing tools and AI SDK Core.
+  Agent policy is separate from the configured candidate profile.
+- `src/web/` owns HTTP, AI SDK UI adaptation, uploads and conversion, static
+  assets, and the React dashboard. Browser code does not construct data
+  adapters.
+- `src/cli/` translates commands and flags into the same core contracts used by
+  other clients.
+- `src/operations/` contains operator-facing database and deployment programs.
+- `src/web/app.ts` and `src/cli/app.ts` are composition roots; only composition
+  roots construct concrete data adapters.
+- Cross-client filtering, traversal, ordering, validation, lifecycle rules,
+  auditing, and idempotency belong in core rather than client adapters.
+- Private context and credentials never belong in source control or build
+  artifacts.
 
-The core application owns the typed agent-model catalog and settings service.
-The web API reads and updates the selected model through that service, and each
-agent request resolves the setting before constructing its model. The generic
-`application_settings` table persists the preference; `CODEX_AGENT_MODEL`
-supplies a validated startup default only when no preference is stored.
+## Architecture decisions
 
-Core conversation services own durable messages, context budgeting, and turn
-orchestration. Web maps AI SDK UI messages and streams to the core contract;
-the agent maps core messages and events to AI SDK Core.
+- [ADR 0001: Use operation-list patches for agent updates](decisions/0001-agent-update-contracts.md) defines the agent's strict patch envelope over client-neutral updates.
+- [ADR 0002: Isolate AI SDK UI in the web package](decisions/0002-isolate-ai-sdk-ui.md) keeps framework UI types outside core, data, and agent contracts.
+- [ADR 0003: Keep document content out of conversation history](decisions/0003-document-context-in-conversations.md) stores document references and hydrates exact versions when building model context.
+- [ADR 0004: Share one domain input contract across create and update](decisions/0004-share-domain-input-contracts.md) makes entity-owned input schemas the source for all client adapters.
+- [ADR 0005: Store mutations as revisioned, audited transactions](decisions/0005-revisioned-audited-change-transactions.md) defines atomic revision history, audit envelopes, and safe reversion.
+- [ADR 0006: Make database document state authoritative](decisions/0006-authoritative-document-state.md) treats filesystem content as imports or repairable projections.
+- [ADR 0007: Deploy immutable images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
+- [ADR 0008: Adapt domain capabilities to strict agent tools](decisions/0008-agent-tool-contracts.md) defines tool patches, schema strictness, and generated contract documentation.
 
-Gigs, people, gig-person relationships, tasks, meetings, and documents expose
-client-neutral application contracts from `GigFinderApplication`; agent tools
-and the CLI receive only the narrow capabilities they need and adapt their own
-transport shapes at the boundary. Core owns validation, defaults, lifecycle
-rules, auditing, idempotency semantics, and domain results. Neither client owns
-or duplicates those rules. Document discovery, version metadata, and exact
-content lookup use shared document readers. There is no agent-specific domain
-context facade.
-
-Gig, Person, Gig-Person relationship, task, Meeting, and managed-document
-mutations use the same core services from the agent and CLI. The agent adapter
-supplies strict model-facing schemas, application-generated IDs, confirmation
-policy, and audit identity; the CLI translates flags and caller-supplied IDs at
-its boundary. Core validates relationships and lifecycle rules before generic
-persistence writes.
-
-- `src/web/server.ts` launches the server; `src/web/app.ts` assembles its
-  dependencies. `src/cli/app.ts` assembles and runs the CLI.
-
-## Persistence and history
-
-- Mutable entities use revision numbers, soft deletion, and generic change
-  transactions in `src/data/store.ts`.
-- Each mutable entity table in `src/data/schema.ts` has a companion
-  `*_history` table; updates and deletes copy the prior revision there with its
-  operation and `change_id`. Reversible task and relationship creations also
-  record a `create` entry.
-- The `changes` table groups all records written by one transaction into one
-  audited change.
-- Meeting attendees use versioned participant and participant-history tables;
-  migration retains exact legacy relationship values on historical Meeting
-  snapshots rather than guessing historical attendees.
-- Managed documents and their immutable versions live in the document tables;
-  `candidate_profiles` supplies the Profile relationship target, and current
-  Profile context Markdown is a repairable projection of SQLite. The stored
-  materialized version identifies failed or interrupted writes for retry.
-  Rollout migration 0020 changes Gig-Person tuple uniqueness to apply only to
-  active relationships, so a reverted relationship can be recreated with a new
-  durable ID. The filesystem-aware maintenance migration then imports every
-  registered legacy job-description and interview-prep file as a Gig-linked,
-  version-one managed document in one transaction. Deterministic IDs and a
-  migration change ID make retries safe; equivalent existing managed documents
-  are retained without duplication. Missing registered files or ID collisions
-  fail before the migration is recorded. Legacy files are left in place as a
-  rollback source but managed discovery becomes authoritative after import.
-- `application_settings` stores operator preferences outside entity revision
-  history; the core service validates values before the generic adapter writes.
-- Person identity, relationship, and outreach share `people` and
-  `person_history`; migration 0013 coalesces legacy snapshots by Person ID and
-  change ID before removing the separate networking tables.
-
-## Context Files
-
-Private paths default below `context/`. `GIG_FINDER_CONTEXT_ROOT` changes that
-root; `GIG_FINDER_CONFIG` can place `config.json` independently for production;
-`GIG_FINDER_PROFILE`, `GIG_FINDER_DATABASE`, `GIG_FINDER_ARTIFACTS`,
-`GIG_FINDER_PROFILE_DOCUMENTS`, `LOG_DIRECTORY`, and
-`GIG_FINDER_BACKUP_ROOT` override individual paths. Profile context Markdown
-defaults to `context/profile/documents/`; `config.json` can set
-`profileDocuments` to a descendant path relative to the context root, while the
-environment override may be absolute.
-`GIG_FINDER_MEETING_PARTICIPANT_MIGRATION` overrides the private, typed legacy
-Meeting mapping used only by migration 0010.
-`GIG_FINDER_ACTOR` overrides the configured audit actor.
-Legacy `JOB_SEARCH_*`, `job-search.sqlite`, profile, artifact, and backup names
-remain read-compatible so existing private context does not need to move.
-
-`bun run db:migrate` creates a verified backup, preflights required private
-Meeting mappings, applies pending migrations, and validates the result.
-
-For local development, `bun run dev:restart` replaces any running API,
-dashboard, and AI SDK DevTools processes and supervises their replacements.
-
-## Build and deployment
-
-```mermaid
-flowchart LR
-  PR[Pull request] -->|validate| Actions[GitHub Actions]
-  Actions -->|main merge SHA| GHCR[GHCR multi-architecture image]
-  GHCR -->|manual deploy script| OrbStack[OrbStack container :3001]
-  OrbStack --> State[/var/lib/gig-finder]
-  OrbStack --> Logs[/var/log/gig-finder]
-  OrbStack --> Backups[/var/backups/gig-finder]
-  OrbStack --> Config[/etc/gig-finder]
-  OrbStack -->|read-only| Codex[Codex credentials]
-```
-
-`.github/workflows/ci.yml` runs checks and builds on GitHub; successful `main`
-revisions publish immutable `sha-<commit>` and moving `latest` tags. The image
-uses the same `server.js` process as other hosts, supplying `HOST`, `PORT`,
-`STATIC_ROOT`, and `APP_REVISION`; it includes the version-matched PDF.js worker
-required for server-side PDF conversion and never runs Vite or source TypeScript.
-`bin/deploy-local.sh` synchronizes the candidate profile, configuration, legacy
-artifacts, and required migration mapping from `context/`; pulls only an
-immutable tag; backs up and migrates the production SQLite database; replaces the container; verifies
-`/healthz`, and restores the database and prior container on failure.
-
-Development uses ports `5173` and `3101` with the ignored repository context.
-Production binds only `127.0.0.1:3001` on the host and mounts standard Unix
-state, log, backup, and configuration paths. Codex credentials remain outside
-the repository and are mounted read-only. Tests use synthetic isolated databases.
-`bin/bootstrap-production.sh` creates the initial verified production copy
-without changing the development database. Structured application logs persist
-at `/var/log/gig-finder/server.log` and can be inspected directly from the host.
+Runtime settings are documented in [Configuration](configuration.md). Production
+layout and procedures are documented in the [Deployment runbook](deployment-runbook.md).

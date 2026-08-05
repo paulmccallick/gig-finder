@@ -21,7 +21,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - The light dashboard uses compact navigation and summaries; its agent workspace
   opens as a resizable side panel and can expand to fill the application without
   resetting the active session. Full-screen mode uses a narrow left rail for
-  agent identity and workspace controls.
+  agent identity and workspace controls. Switching layouts preserves the
+  mounted agent session and does not change agent or HTTP contracts.
 - The agent header selects GPT-5.6 Sol, Terra, or Luna. The saved choice applies
   to the next request, survives restarts, and does not alter an active response.
 - The agent supports multiple durable conversations, reopens the most recently
@@ -45,11 +46,8 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - **Meeting:** A scheduled or completed interaction with one or more people
   that may be associated with a gig.
 - **Managed document:** Versioned Markdown or text linked to gigs, people, or
-  the Candidate Profile; Person profiles link to exactly one person, while
-  registered legacy Gig descriptions and interview-prep files are imported as
-  version-one managed documents during rollout without deleting the source
-  files.
-  Profile context documents link only to the Candidate Profile.
+  the Candidate Profile. Person profiles link to exactly one person; Profile
+  context documents link only to the Candidate Profile.
 
 The archive is a dashboard view of closed gigs grouped by outcome; it does not
 copy or move records into separate storage.
@@ -64,9 +62,9 @@ Gig and person records include document IDs, types, optional titles, and
 friendly display names; person detail also includes related gig IDs and
 relationship types. User interfaces display document names rather than IDs.
 
-Profile context documents require a name, may include a 255-character
-description, and store their current Markdown file in the configured private
-Profile-document directory while SQLite remains authoritative.
+Profile context documents require a name and may include a 255-character
+description. SQLite is authoritative; current Markdown in the configured
+private Profile-document directory is a repairable projection.
 
 Core application services own client-neutral domain contracts, validation,
 lifecycle behavior, audit semantics, and results. The CLI and agent are adapters
