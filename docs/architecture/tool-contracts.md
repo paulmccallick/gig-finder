@@ -77,6 +77,15 @@ Read tools use strict JSON schemas. List properties are required and nullable so
 model can leave individual filters unused. Each property carries its own
 description; enum-valued properties use domain-derived values.
 
+Every registered model-facing tool schema is validated before use. Recursively,
+each object reachable through properties, arrays, nullable alternatives,
+schema combinators, definitions, or local references must set
+`additionalProperties: false` and require exactly its declared properties.
+Registry/runtime parity tests cover both read-only and mutation-enabled tool
+sets, and an AI SDK boundary test verifies the emitted schemas that reach the
+model. Validation failures identify only the tool, schema path, and rule; they
+must not log full schemas, prompts, or record content.
+
 List and get return the same domain fields for each entity; Person detail adds
 compact related-gig references. Missing records return `not_found`, while stored relationships with
 missing links or unsupported values return a distinct `consistency_error`
@@ -102,6 +111,10 @@ relationship validation, uniqueness, and lifecycle invariants. The agent adapts
 those inputs to strict model-facing schemas and generates entity-prefixed UUIDs;
 the CLI adapts its flags and explicit command ID to the same core operations.
 Neither adapter maintains independent domain validation or enum lists.
+When a provider requires all properties at every object level, the agent adapter
+projects optional core fields as required nullable values and makes nested
+objects complete. This does not make those fields required in the shared domain
+contract or in other clients such as the CLI.
 
 Managed-document metadata follows the same entity-owned input-contract pattern.
 Replacing document content remains a distinct versioned command because it is

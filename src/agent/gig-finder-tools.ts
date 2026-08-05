@@ -21,7 +21,7 @@ import type {
   TaskDomainService,
   TaskQueryInput,
 } from "../core";
-import { fitRatings, gigInputSchema, outcomes, pipelineStages, type GigInput } from "../core/gigs";
+import { fitRatings, gigFitSchema, gigInputSchema, gigNextActionSchema, gigPayRangeSchema, outcomes, pipelineStages, type GigInput } from "../core/gigs";
 import { gigPersonRelationshipInputSchema } from "../core/gig-people";
 import { personInputSchema, personOutreachSchema, personRelationshipSchema, type PersonInput } from "../core/people";
 import {
@@ -51,6 +51,7 @@ import {
   meetingChangesSchema,
   taskChangesSchema,
 } from "./update-tool-schemas";
+import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 
 const nonEmptyArray = <T extends readonly [string, ...string[]]>(values: T) =>
   z.array(z.enum(values)).min(1);
@@ -172,7 +173,13 @@ const listDocumentVersionsInputSchema = z.object({
   ...pageSchema,
 }).strict();
 
-const createGigInputSchema = gigInputSchema.required();
+const createGigInputSchema = gigInputSchema.required().safeExtend({
+  nextAction: gigNextActionSchema.nullable()
+    .describe("Next action for the Gig, or null when no next action is planned."),
+  fit: gigFitSchema.describe("Assessment of how well the Gig fits the candidate."),
+  payRange: gigPayRangeSchema.nullable()
+    .describe("Expected compensation range, or null when it is not known."),
+});
 const createPersonInputSchema = personInputSchema.required().safeExtend({relationship:personRelationshipSchema,outreach:personOutreachSchema});
 const createGigPersonRelationshipInputSchema = gigPersonRelationshipInputSchema.required();
 
@@ -943,11 +950,20 @@ export function createGigFinderTools(
   if (!mutations || !requestContext) return readTools;
   return {
     ...readTools,
-    ...(mutations.gigs.createNew?{create_gig: tool({
-      strict:true, description:"Create one new pipeline Gig after explicit user confirmation. Resolve duplicates first and report the persisted record and change ID.",
-      inputSchema:createGigInputSchema,
-      execute:loggedExecution(logger,"create_gig",(input,{toolCallId})=>({status:"ok" as const,...mutations.gigs.createNew!({actor:requestContext.actor,source:"agent",summary:`Agent created gig (request ${requestContext.requestId}, tool ${toolCallId})`,changeId:`agent-tool:${toolCallId}`},entityIdForToolCall("gig",toolCallId),input)})),
-    })}:{}),
+    ...(mutations.gigs.createNew ? { create_gig: tool({
+      strict: true,
+      description: "Create one new pipeline Gig after explicit user confirmation. Resolve duplicates first and report the persisted record and change ID.",
+      inputSchema: createGigInputSchema,
+      execute: loggedExecution(logger, "create_gig", (input, { toolCallId }) => ({
+        status: "ok" as const,
+        ...mutations.gigs.createNew!({
+          actor: requestContext.actor,
+          source: "agent",
+          summary: `Agent created gig (request ${requestContext.requestId}, tool ${toolCallId})`,
+          changeId: `agent-tool:${toolCallId}`,
+        }, entityIdForToolCall("gig", toolCallId), input),
+      })),
+    }) } : {}),
     update_gig: tool({
       strict: true,
       description: "Update one existing gig using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and report the resulting record and change ID to the user.",
@@ -1216,3 +1232,7 @@ export const gigFinderToolSchemas = {
   update_document: updateDocumentInputSchema,
   revert_change: revertChangeInputSchema,
 } as const;
+
+for (const [name, schema] of Object.entries(gigFinderToolSchemas)) {
+  validateStrictToolJsonSchema(name, z.toJSONSchema(schema));
+}
