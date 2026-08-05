@@ -46,6 +46,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   that may be associated with a gig.
 - **Managed document:** Versioned Markdown or text linked to gigs, people, or
   the Candidate Profile; Person profiles link to exactly one person, while
+  registered legacy Gig descriptions and interview-prep files are imported as
+  version-one managed documents during rollout without deleting the source
+  files.
   Profile context documents link only to the Candidate Profile.
 
 The archive is a dashboard view of closed gigs grouped by outcome; it does not

@@ -40,7 +40,7 @@ import {
 import type { GigRecord } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
 import type { ManagedDocumentService } from "./documents";
-import { ChangeExecutor, type MutationOptions, type MutationResult } from "./changes";
+import { ChangeExecutor, creationPayloadHash, type MutationOptions, type MutationResult } from "./changes";
 import { deepPatch } from "./tracker-services";
 import { gigPersonRelationshipEntitySchema, gigPersonRelationshipInputSchema, type GigPersonRelationshipInput } from "./gig-people";
 
@@ -110,13 +110,7 @@ export class PeopleService {
   }
 
   createNew(context: ChangeContext, id: string, input: PersonInput, options: MutationOptions = {}): MutationResult<PersonRecord> {
-    if(context.changeId&&this.persistence.hasChange(context.changeId)){
-      const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Person ${id}.`);
-      return{record:existing,changeId:context.changeId};
-    }
     const parsed = personInputSchema.parse(input);
-    const duplicate=this.persistence.people.list().find(record=>(parsed.linkedInProfileUrl!==undefined&&parsed.linkedInProfileUrl!==null&&record.linkedInProfileUrl===parsed.linkedInProfileUrl)||(record.name.trim().toLocaleLowerCase()===(parsed.name??"").toLocaleLowerCase()&&(record.company??"").trim().toLocaleLowerCase()===(parsed.company??"").toLocaleLowerCase()));
-    if(duplicate)throw new MutationError("duplicate",`Person already exists: ${duplicate.id}`);
     const person: PersonCreateInput = {
       id,name:parsed.name??"",company:parsed.company??null,title:parsed.title??null,linkedInProfileUrl:parsed.linkedInProfileUrl??null,connectedOn:parsed.connectedOn??null,
       ...(parsed.relationship?.type===undefined?{}:{relationshipType:parsed.relationship.type}),...(parsed.relationship?.strength===undefined?{}:{relationshipStrength:parsed.relationship.strength}),introducedBy:parsed.relationship?.introducedBy??null,relationshipNotes:parsed.relationship?.notes??null,
@@ -125,7 +119,15 @@ export class PeopleService {
     const data=withPersonDefaults(person), timestamp=context.occurredAt??new Date().toISOString();
     const candidate=personFromData({...data,revision:1,isDeleted:false,createdAt:timestamp,updatedAt:timestamp},[]);
     validatePerson(candidate);
-    return this.changes.execute(context,candidate,options,transaction=>this.record(transaction.people.create(data)));
+    const payloadHash=creationPayloadHash(data);
+    if(context.changeId){
+      const fingerprint=this.persistence.creationFingerprint(context.changeId);
+      if(fingerprint){const existing=this.get(id);if(fingerprint.entityType!=="person"||fingerprint.entityId!==id||fingerprint.payloadHash!==payloadHash||!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Person ${id} and payload.`);return{record:existing,changeId:context.changeId};}
+      if(this.persistence.hasChange(context.changeId))throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Person ${id} and payload.`);
+    }
+    const duplicate=this.persistence.people.list().find(record=>(parsed.linkedInProfileUrl!==undefined&&parsed.linkedInProfileUrl!==null&&record.linkedInProfileUrl===parsed.linkedInProfileUrl)||(record.name.trim().toLocaleLowerCase()===(parsed.name??"").toLocaleLowerCase()&&(record.company??"").trim().toLocaleLowerCase()===(parsed.company??"").toLocaleLowerCase()));
+    if(duplicate)throw new MutationError("duplicate",`Person already exists: ${duplicate.id}`);
+    return this.changes.execute(context,candidate,options,transaction=>{transaction.recordCreationFingerprint("person",id,payloadHash);return this.record(transaction.people.create(data))});
   }
 
   update(
@@ -369,21 +371,28 @@ export class GigPeopleService {
   }
 
   createNew(context: ChangeContext, id: string, input: GigPersonRelationshipInput, options: MutationOptions = {}): MutationResult<GigPersonRelationship> {
-    if(context.changeId&&this.persistence.hasChange(context.changeId)){
-      const existing=this.get(id);if(!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match relationship ${id}.`);
-      return{record:existing,changeId:context.changeId};
-    }
     const entity=gigPersonRelationshipEntitySchema.safeParse({id,...gigPersonRelationshipInputSchema.parse(input)});
     if(!entity.success)throw new DomainValidationError(entity.error.issues.map(issue=>issue.message).join("; "));
     const parsed=entity.data;
+    const payloadHash=creationPayloadHash(relationshipToData(parsed));
+    if(context.changeId){
+      const fingerprint=this.persistence.creationFingerprint(context.changeId);
+      if(fingerprint){const existing=this.get(id);if(fingerprint.entityType!=="gig-person"||fingerprint.entityId!==id||fingerprint.payloadHash!==payloadHash||!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match relationship ${id} and payload.`);return{record:existing,changeId:context.changeId};}
+      if(this.persistence.hasChange(context.changeId))throw new MutationError("revision_conflict",`Change ${context.changeId} does not match relationship ${id} and payload.`);
+    }
     if(this.gigs.read(parsed.gigId).status!=="ok")throw new MutationError("not_found",`Gig not found: ${parsed.gigId}`);
     if(this.people.read(parsed.personId).status!=="ok")throw new MutationError("not_found",`Person not found: ${parsed.personId}`);
     const duplicate=this.persistence.gigPeople.list().find(item=>item.gigId===parsed.gigId&&item.personId===parsed.personId&&item.relationship===parsed.relationship);
     if(duplicate)throw new MutationError("duplicate",`Relationship already exists: ${duplicate.id}`);
     const candidate: GigPersonRelationship=parsed;
     if(options.dryRun)return{record:candidate,changeId:null};
-    const result=this.persistence.change(context,transaction=>transaction.gigPeople.create(relationshipToData(candidate),{reversible:true}));
-    return{record:relationshipFromData(result.value),changeId:result.changeId};
+    try{
+      const result=this.persistence.change(context,transaction=>{transaction.recordCreationFingerprint("gig-person",id,payloadHash);return transaction.gigPeople.create(relationshipToData(candidate),{reversible:true})});
+      return{record:relationshipFromData(result.value),changeId:result.changeId};
+    }catch(error){
+      if(error instanceof Error&&(error.message.includes("gig_people_relation_idx")||error.message.includes("UNIQUE constraint failed: gig_people.gig_id, gig_people.person_id, gig_people.relationship")))throw new MutationError("duplicate","Relationship already exists.",{cause:error});
+      throw error;
+    }
   }
 
   read(id: string): ReadResult<GigPersonRelationship> {

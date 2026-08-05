@@ -113,6 +113,7 @@ function application() {
     documents,
     settings,
     hasChange: () => false,
+    creationFingerprint:()=>null,
     change: (changeContext, action) => {
       readChanges += 1;
       return {
@@ -125,6 +126,7 @@ function application() {
           meetings,
           meetingParticipants,
           documents,
+          recordCreationFingerprint:()=>undefined,
           recordEvent: event => event.id ?? event.type,
         } as UnitOfWork),
       };

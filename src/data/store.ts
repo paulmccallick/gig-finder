@@ -201,6 +201,9 @@ export class ChangeTransaction {
       changeId,
     );
   }
+  recordCreationFingerprint(entityType:string,entityId:string,payloadHash:string):void{
+    this.database.query("INSERT INTO creation_idempotency (change_id, entity_type, entity_id, payload_hash) VALUES (?, ?, ?, ?)").run(this.changeId,entityType,entityId,payloadHash);
+  }
   recordEvent(input: BusinessEventInput): string {
     const eventId = input.id ?? id("evt");
     this.database.query("INSERT INTO business_events (id, change_id, type, entity_type, entity_id, occurred_at, summary, data_json, supersedes_event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(eventId, this.changeId, input.type, input.entityType, input.entityId, input.occurredAt, input.summary, JSON.stringify(input.data ?? {}), input.supersedesEventId ?? null);
@@ -231,6 +234,7 @@ export class DataStore {
     }
   }
   hasChange(changeId:string):boolean{return this.database.query("SELECT 1 FROM changes WHERE id = ?").get(changeId)!==null}
+  creationFingerprint(changeId:string){const row=this.database.query("SELECT entity_type, entity_id, payload_hash FROM creation_idempotency WHERE change_id = ?").get(changeId) as {entity_type:string;entity_id:string;payload_hash:string}|null;return row?{entityType:row.entity_type,entityId:row.entity_id,payloadHash:row.payload_hash}:null}
   change<T>(context: ChangeContext, action: (transaction: ChangeTransaction) => T): ChangeResult<T> {
     if (!context.actor.trim() || !context.summary.trim()) throw new Error("Change actor and summary are required.");
     const changeId = context.changeId ?? id("chg");

@@ -92,7 +92,15 @@ persistence writes.
   `candidate_profiles` supplies the Profile relationship target, and current
   Profile context Markdown is a repairable projection of SQLite. The stored
   materialized version identifies failed or interrupted writes for retry.
-  Legacy job-description and interview-prep files remain filesystem artifacts.
+  Rollout migration 0020 changes Gig-Person tuple uniqueness to apply only to
+  active relationships, so a reverted relationship can be recreated with a new
+  durable ID. The filesystem-aware maintenance migration then imports every
+  registered legacy job-description and interview-prep file as a Gig-linked,
+  version-one managed document in one transaction. Deterministic IDs and a
+  migration change ID make retries safe; equivalent existing managed documents
+  are retained without duplication. Missing registered files or ID collisions
+  fail before the migration is recorded. Legacy files are left in place as a
+  rollback source but managed discovery becomes authoritative after import.
 - `application_settings` stores operator preferences outside entity revision
   history; the core service validates values before the generic adapter writes.
 - Person identity, relationship, and outreach share `people` and

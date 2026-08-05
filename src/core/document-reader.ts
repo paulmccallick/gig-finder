@@ -1,4 +1,5 @@
 import type { ManagedDocumentService, ManagedDocumentType } from "./documents";
+import { createHash } from "node:crypto";
 import type { GigRecord } from "./gigs";
 import { page, type Page, type ReadResult } from "./queries";
 import { candidateProfileId, documentIdFromIdentifier, type DocumentLinkEntityType, type DocumentMediaType, type UploadedDocumentProvenance } from "./documents";
@@ -55,6 +56,7 @@ export interface DocumentReaderServices {
 }
 
 const encoded = (value: string) => encodeURIComponent(value);
+const contentHash=(value:string)=>createHash("sha256").update(value).digest("hex");
 const decoded = (value: string) => {
   try {
     return decodeURIComponent(value);
@@ -99,7 +101,10 @@ export class ApplicationDocumentReader implements DocumentReader {
     const gig = this.services.gigs.get(entityId);
     if (!gig) return [];
     const references: DocumentReference[] = [];
-    if (gig.hasJobDescription) {
+    const managedDocuments=this.services.managed?.list("gig",entityId)??[];
+    const managedDescriptions=managedDocuments.filter(document=>document.documentType==="job_description");
+    const legacyDescription=gig.hasJobDescription?await this.services.gigs.description(entityId):null;
+    if (legacyDescription!==null&&!managedDescriptions.some(document=>document.contentHash===contentHash(legacyDescription))) {
       references.push({
         reference: `gig:${encoded(entityId)}:job_description`,
         entityType,
@@ -113,6 +118,7 @@ export class ApplicationDocumentReader implements DocumentReader {
     }
     if (gig.hasInterviewPrep) {
       for (const document of await this.services.gigs.prep(entityId)) {
+        if(managedDocuments.some(managed=>managed.documentType==="interview_prep"&&managed.title===document.name&&managed.contentHash===contentHash(document.content)))continue;
         references.push({
           reference: `gig:${encoded(entityId)}:interview_prep:${encoded(document.name)}`,
           entityType,
@@ -125,7 +131,7 @@ export class ApplicationDocumentReader implements DocumentReader {
         });
       }
     }
-    for (const document of this.services.managed?.list("gig", entityId) ?? []) {
+    for (const document of managedDocuments) {
       references.push({
         reference: document.id,
         entityType,

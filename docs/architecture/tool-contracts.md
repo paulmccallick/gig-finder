@@ -160,11 +160,19 @@ exact managed-document ID and returns bounded metadata such as version, media
 type, content hash, provenance, and creation information; content remains
 available only through `get_document`. Missing owners and documents and
 unsupported version sources use explicit bounded results.
+During rollout, the maintenance migration imports registered legacy Gig
+job-description and interview-prep Markdown into managed version-one documents.
+The mixed reader remains available during migration and the CLI returns its
+mixed result unchanged, so discovery does not lose legacy visibility before a
+successful import.
 
 Successful Gig, Person, Gig-Person relationship, task, and meeting mutations
 return the persisted record and change ID.
 The agent verifies the intended change with the user before invoking a mutation.
-The tool-call ID makes updates idempotent. Reverts create new history and reject
+The tool-call ID makes updates idempotent. Creation retries are accepted only
+when both the durable record ID and normalized domain payload match the
+original write; reused change IDs with different payloads return a conflict.
+Reverts create new history and reject
 later-revision conflicts. Creation reversion is available only where the core
 can prove no later edit or dependent record would be overwritten or orphaned.
 Gig-Person relationship creation is reversible because reverting it only
@@ -172,6 +180,9 @@ soft-deletes that leaf relationship at its original revision. Gig and Person
 creation are non-revertible: either record can acquire dependent relationships,
 tasks, meetings, or documents, and the generic reverter does not cascade or
 orphan those records.
+Relationship tuple uniqueness applies only to active records, allowing the same
+Gig, Person, and relationship type to be recreated under a new ID after its
+prior creation is reverted.
 Failures distinguish validation, not found,
 duplicate, conflict, non-revertible, and unexpected errors. Documents are
 limited to 50,000 characters. Managed document version history remains immutable.

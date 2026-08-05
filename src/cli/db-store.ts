@@ -56,8 +56,7 @@ export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)
 export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
 export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));
 export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person"|"profile",entityId:string)=>withApplication(paths,async app=>{
-  const discovery=await app.documentReader.query({owner:{entityType,entityId},offset:0,limit:50});
-  return discovery.status==="ok"?{...discovery,items:app.documents.list(entityType,entityId)}:discovery;
+  return app.documentReader.query({owner:{entityType,entityId},offset:0,limit:50});
 });
 export const getDocument=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>app.documents.get(documentId));
 export const listDocumentVersions=(paths:TrackerPaths,documentId:string)=>withApplication(paths,app=>{

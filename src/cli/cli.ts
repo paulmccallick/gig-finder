@@ -121,7 +121,7 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
       entity: "document",
       command,
       link: { entityType, entityId },
-      records: discovery.items,
+      records: discovery.items.map(item=>({...item,id:item.reference,type:item.documentType})),
     }, null, 2));
     return true;
   }
