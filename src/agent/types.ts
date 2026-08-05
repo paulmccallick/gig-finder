@@ -34,4 +34,5 @@ export interface GigFinderAgentOptions {
   tools?: import("./gig-finder-tools").GigFinderTools;
   canUpdateRecords?: boolean;
   profileDocuments?: ProfileDocumentContext[];
+  now?: () => Date;
 }

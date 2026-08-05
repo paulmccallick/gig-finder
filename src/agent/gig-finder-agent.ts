@@ -3,7 +3,10 @@ import {
   streamText,
   type ModelMessage,
 } from "ai";
-import { buildGigFinderInstructions } from "./system-prompt";
+import {
+  buildCurrentTurnContext,
+  buildGigFinderInstructions,
+} from "./system-prompt";
 import type { GigFinderAgentOptions } from "./types";
 
 function textCharacters(messages: ModelMessage[]) {
@@ -28,6 +31,12 @@ export class GigFinderAgent {
     let wasAborted = false;
     const log = this.options.logger;
     const model = this.options.model;
+    const now = this.options.now?.() ?? new Date();
+    const instructions = `${buildGigFinderInstructions(this.options.profile, {
+      liveRecords: this.options.tools !== undefined,
+      canUpdateRecords: this.options.canUpdateRecords,
+      profileDocuments: this.options.profileDocuments,
+    })}\n\n${buildCurrentTurnContext(now)}`;
     const modelIdentity = typeof model === "string"
       ? { provider: "registry", modelId: model }
       : { provider: model.provider, modelId: model.modelId };
@@ -42,11 +51,7 @@ export class GigFinderAgent {
     log.debug(interaction, "Starting model interaction");
     const result = streamText({
       model,
-      instructions: buildGigFinderInstructions(this.options.profile, {
-        liveRecords: this.options.tools !== undefined,
-        canUpdateRecords: this.options.canUpdateRecords,
-        profileDocuments: this.options.profileDocuments,
-      }),
+      instructions,
       messages,
       tools: this.options.tools,
       stopWhen: isStepCount(5),
