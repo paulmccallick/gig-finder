@@ -10,6 +10,12 @@ SCOPE OF WORK:
 - Read relevant tests and repository guidance first.
 - Do not edit files, approve changes, merge branches, or invent unrequested requirements.
 - Create one comment for each issue with a severity level of P1, P2, P3
+- review the architecture overview and adrs.  Ensure the changes are aligned to those files.
+
+RULES:
+ - Do not edit the architecture overview or adrs
+ - do not edit product documentation.
+ - all issues must be posted to the pull request as comments
 
 CRITICAL DIRECTIVE:
 You must strictly enforce the type-safety constraints, architectural boundaries, and pragmatic design rules defined in the root `AGENTS.md` file under the section "##Development rules"

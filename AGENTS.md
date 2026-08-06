@@ -9,13 +9,13 @@ Project](https://github.com/users/paulmccallick/projects/5).
 
 ## GitHub workflow
 
-The GitHub Project is the source of truth. Use Backlog for unrefined work,
-Grooming while defining requirements, Development while implementing or
-verifying, and Done only after user sign-off. Ask before moving an issue to its
-next status. Create feature branches from `main`; changes to `main` require a
-pull request linked with `Closes #<issue>`. A merge closes the issue and hides
-it from the board. Production changes are done only after their merge image is
-published, deployed locally, and verified.
+- The GitHub Project is the source of truth for issue status.
+  - Backlog is for unrefined work,
+  - Grooming is for defining requirements
+  - Development is while implementing and verification
+  - Done is means the issue has been signed off and deployed to production
+- Create feature branches from `main`
+- merges to main require a pull request linked with `Closes #<issue>`.
 
 ## Development rules
 
@@ -35,3 +35,11 @@ published, deployed locally, and verified.
 - Limit scope to the requested feature
 - Apply SOLID principles
 - Be pragmatic - avoid unecessary obfuscation
+
+## Sub Agent workflow
+
+- development requires the user to ask for the issue to be implemented
+- once all tests are passing the developer must commit, push, and create a PR
+- a PR should spawn the code reviewer sub agent to do a code review
+- the developer should resolve any found issues, and push
+- fixes will initiate a code review
