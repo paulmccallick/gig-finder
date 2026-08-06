@@ -169,6 +169,8 @@ describe("conversation service", () => {
   test("preserves a staged attachment capability across a clarification turn", async () => {
     const repository = new MemoryConversations();
     const reference = "staged-document:11111111-1111-4111-8111-111111111111";
+    const recordId = "gig_22222222-2222-4222-8222-222222222222";
+    const documentId = "doc_33333333-3333-4333-8333-333333333333";
     const modelTurns: ConversationMessage[][] = [];
     let turn = 0;
     const runtime: ConversationAgentRuntime = {
@@ -189,13 +191,18 @@ describe("conversation service", () => {
     const service = new ConversationService(repository, { read: async () => null }, runtime);
     await service.respond({
       conversationId: "conversation-upload",
-      message: user("user-1", `Please save this.\n\nAttached staged document: ${reference}`),
+      message: user(
+        "user-1",
+        `Please save this for record ${recordId} and compare ${documentId}.\n\nAttached staged document: ${reference}`,
+      ),
       requestId: "request-1",
     });
     expect(JSON.stringify(repository.messages("conversation-upload").find(message => message.id === "user-1")))
       .not.toContain(`Attached staged document: ${reference}`);
     expect(repository.messages("conversation-upload")[0]?.parts)
       .toContainEqual({ type: "attachment", reference });
+    expect(JSON.stringify(repository.messages("conversation-upload")[0])).toContain(recordId);
+    expect(JSON.stringify(repository.messages("conversation-upload")[0])).toContain(documentId);
 
     await service.respond({
       conversationId: "conversation-upload",
@@ -203,6 +210,8 @@ describe("conversation service", () => {
       requestId: "request-2",
     });
     expect(JSON.stringify(modelTurns[1])).toContain(`Internal staged attachment reference: ${reference}`);
+    expect(JSON.stringify(modelTurns[1])).toContain(recordId);
+    expect(JSON.stringify(modelTurns[1])).toContain(documentId);
   });
 
   test("rejects malformed stored attachment capabilities before model context", async () => {
@@ -314,6 +323,9 @@ test("conversation prose sanitizer covers internal classes without hiding ordina
   }).parts.every(part => part.type === "text" || part.type === "reasoning"
     ? part.text.includes(publicUuid) && !part.text.includes("private")
     : true)).toBe(true);
+  expect(sanitizeConversationMessage({
+    id: "user", role: "user", parts: [{ type: "text", text: value }],
+  }).parts[0]).toMatchObject({ text: expect.stringContaining("gig-private-record") });
 });
 
 test("conversation list and load sanitize legacy titles and prose", () => {

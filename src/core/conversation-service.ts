@@ -115,9 +115,18 @@ export function sanitizeConversationText(value: string) {
 export function sanitizeConversationMessage(message: ConversationMessage): ConversationMessage {
   return {
     ...message,
-    parts: message.parts.map(part => part.type === "text" || part.type === "reasoning"
-      ? { ...part, text: sanitizeConversationText(part.text) }
-      : part),
+    parts: message.parts.map(part => {
+      if (part.type !== "text" && part.type !== "reasoning") return part;
+      return {
+        ...part,
+        text: message.role === "assistant"
+          ? sanitizeConversationText(part.text)
+          : part.text.replace(
+              new RegExp(`\\bstaged-document:${uuid}\\b`, "gi"),
+              "[attached document]",
+            ),
+      };
+    }),
   };
 }
 
