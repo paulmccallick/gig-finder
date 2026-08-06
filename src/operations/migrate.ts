@@ -20,9 +20,6 @@ try {
     legacyMeetingParticipants: loadLegacyMeetingParticipants(
       context.meetingParticipantMigration,
     ),
-    unresolvedBusinessEventsCsv:context.unresolvedBusinessEventsCsv,
-    businessEventReviewCsv:context.businessEventReviewCsv,
-    requireBusinessEventReview:context.requireBusinessEventReview,
     onInteractionMigrationReport:report=>{interactionMigration=report},
   });
   const legacyArtifacts = await migrateLegacyGigArtifacts(database, context.artifacts);

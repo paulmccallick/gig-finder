@@ -10,11 +10,6 @@ Environment variables override file configuration:
   `GIG_FINDER_DATABASE`, `GIG_FINDER_PROFILE`,
   `GIG_FINDER_PROFILE_DOCUMENTS`, `GIG_FINDER_ARTIFACTS`,
   `GIG_FINDER_BACKUP_ROOT`, `LOG_DIRECTORY`, and `GIG_FINDER_ACTOR`.
-- Migration: `GIG_FINDER_BUSINESS_EVENT_REVIEW` optionally points to the
-  ignored authoritative Business Event review CSV used by the Interaction
-  migration. An explicitly configured file is required to exist and contain a
-  valid review; without the override, unresolved events are reported and block
-  migration.
 - Server: `HOST`, `PORT`, `STATIC_ROOT`, `APP_REVISION`, and `LOG_LEVEL`.
 - Agent: `CODEX_HOME`, `CODEX_AGENT_MODEL`, and `AI_SDK_DEVTOOLS`. The local
   deployment script maps host-side `GIG_FINDER_CODEX_HOME` to container-side

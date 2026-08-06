@@ -1,35 +1,180 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
 
-export interface InteractionMigrationReport { meetings:number;meetingHistory:number;meetingParticipants:number;meetingParticipantHistory:number;businessEvents:number;excludedBusinessEvents:number;eventSources:number;personLastContacts:number;expectedInteractions:number;expectedSources:number;importedInteractions:number;importedSources:number;resolvedBusinessEvents:number;unresolvedBusinessEvents:number;duplicates:number;validationFailures:number;unresolvedCsv:string|null }
-const csv=(value:unknown)=>`"${(typeof value==="string"?value:value===null||value===undefined?"":JSON.stringify(value)).replaceAll('"','""')}"`;
-const tableExists=(db:Database,name:string)=>Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
-
-const reviewOutcomes=new Set(["interaction_resolved","not_an_interaction","interaction_participants_unresolved","interaction_resolved_person_record_required"]);
-function parseCsv(content:string){const rows:string[][]=[];let row:string[]=[],field="",quoted=false;for(let index=0;index<content.length;index++){const char=content[index];if(quoted){if(char==='"'&&content[index+1]==='"'){field+='"';index++}else if(char==='"')quoted=false;else field+=char}else if(char==='"')quoted=true;else if(char===','){row.push(field);field=""}else if(char==='\n'){row.push(field.replace(/\r$/,""));rows.push(row);row=[];field=""}else field+=char}if(quoted)throw new Error("Business Event review CSV contains an unterminated quoted field.");if(field||row.length){row.push(field.replace(/\r$/,""));rows.push(row)}return rows}
-function stageBusinessEventReview(db:Database,filename?:string,requiredFile=false){db.exec("DROP TABLE IF EXISTS temp.interaction_event_review; CREATE TEMP TABLE interaction_event_review(event_id text PRIMARY KEY,outcome text NOT NULL,resolved_person_id text,review_notes text); DROP TABLE IF EXISTS temp.interaction_review_person; CREATE TEMP TABLE interaction_review_person(event_id text NOT NULL,person_id text NOT NULL,PRIMARY KEY(event_id,person_id))");if(!filename)return;if(!existsSync(filename)){if(requiredFile)throw new Error(`Configured Business Event review CSV does not exist: ${filename}`);return}const rows=parseCsv(readFileSync(filename,"utf8"));const header=rows.shift();if(!header||header.every(value=>!value.trim()))throw new Error("Business Event review CSV is empty.");const required=["event_id","review_outcome","resolved_person_id","review_notes"];const indexes=Object.fromEntries(required.map(name=>[name,header.indexOf(name)]));if(Object.values(indexes).some(index=>index<0))throw new Error(`Business Event review CSV is missing required columns: ${required.join(", ")}.`);const insert=db.query("INSERT INTO interaction_event_review(event_id,outcome,resolved_person_id,review_notes) VALUES(?,?,?,?)"),insertPerson=db.query("INSERT INTO interaction_review_person(event_id,person_id) VALUES(?,?)");let decisionCount=0;for(const [offset,values] of rows.entries()){if(values.every(value=>value===""))continue;const eventId=values[indexes.event_id!]?.trim(),outcome=values[indexes.review_outcome!]?.trim(),rawPersonIds=values[indexes.resolved_person_id!]?.trim()??"",personIds=rawPersonIds&&db.query("SELECT 1 FROM people WHERE id=? AND is_deleted=0").get(rawPersonIds)?[rawPersonIds]:rawPersonIds.split("|").map(value=>value.trim()).filter(Boolean),notes=values[indexes.review_notes!]?.trim()||null;if(!eventId||!outcome||!reviewOutcomes.has(outcome))throw new Error(`Business Event review CSV row ${offset+2} has an invalid event ID or outcome.`);if(!db.query("SELECT 1 FROM business_events WHERE id=?").get(eventId))throw new Error(`Business Event review CSV row ${offset+2} references an unknown event.`);if(outcome==="interaction_resolved"&&!personIds.length)throw new Error(`Business Event review CSV row ${offset+2} resolves an interaction without a Person ID.`);insert.run(eventId,outcome,rawPersonIds||null,notes);decisionCount++;for(const personId of personIds)insertPerson.run(eventId,personId)}if(!decisionCount)throw new Error("Business Event review CSV contains no review decisions.")}
-
-export function prepareInteractionMigration(db:Database,unresolvedCsv:string,businessEventReviewCsv?:string,requireBusinessEventReview=false):InteractionMigrationReport|null{
-  if(tableExists(db,"interactions"))return null;
-  db.exec("DROP TABLE IF EXISTS temp.interaction_person_resolution; CREATE TEMP TABLE interaction_person_resolution(event_id text NOT NULL,person_id text NOT NULL,evidence text NOT NULL,PRIMARY KEY(event_id,person_id))");
-  db.exec("DROP TABLE IF EXISTS temp.interaction_event_mapping; CREATE TEMP TABLE interaction_event_mapping(type text PRIMARY KEY,kind text NOT NULL,channel text NOT NULL,direction text NOT NULL,status text NOT NULL); INSERT INTO interaction_event_mapping VALUES ('networking_outreach_sent','message','other','outbound','completed'),('networking_follow_up_sent','message','other','outbound','completed'),('warm_introduction_received','message','other','inbound','completed'),('interview_scheduled','interview','other','mutual','confirmed'),('interview_completed','interview','other','mutual','completed'),('recruiter_screen_completed','interview','other','mutual','completed'),('phone_screen_completed','call','phone','mutual','completed'),('email_sent','message','email','outbound','completed'),('email_received','message','email','inbound','completed'),('linkedin_message_sent','message','linkedin','outbound','completed')");
-  if(!tableExists(db,"business_events")){db.exec("DROP TABLE IF EXISTS temp.interaction_event_review; CREATE TEMP TABLE interaction_event_review(event_id text PRIMARY KEY,outcome text NOT NULL,resolved_person_id text,review_notes text); DROP TABLE IF EXISTS temp.interaction_review_person; CREATE TEMP TABLE interaction_review_person(event_id text NOT NULL,person_id text NOT NULL,PRIMARY KEY(event_id,person_id)); DROP TABLE IF EXISTS temp.interaction_person_contacts; CREATE TEMP TABLE interaction_person_contacts(source_key text,person_id text,name text,last_contacted text,last_contact_method text,last_contact_summary text,revision integer,origin_change_id text,recorded_at text); DROP TABLE IF EXISTS temp.interaction_migration_expected; CREATE TEMP TABLE interaction_migration_expected(meetings integer,meeting_history integer,meeting_participants integer,meeting_participant_history integer,business_events integer,event_sources integer,person_imports integer,expected_interactions integer,expected_sources integer); INSERT INTO interaction_migration_expected VALUES(0,0,0,0,0,0,0,0,0)");return null}
-  stageBusinessEventReview(db,businessEventReviewCsv,requireBusinessEventReview);
-  db.exec(`INSERT OR IGNORE INTO interaction_person_resolution SELECT r.event_id,p.id,'authoritative review Person ID' FROM interaction_review_person r JOIN people p ON p.id=r.person_id AND p.is_deleted=0`);
-  db.exec(`INSERT OR IGNORE INTO interaction_person_resolution SELECT b.id,p.id,'entity_type=person;entity_id exact match' FROM business_events b JOIN people p ON b.entity_type IN ('person','contact') AND p.id=b.entity_id AND p.is_deleted=0`);
-  if(tableExists(db,"meeting_participants"))db.exec(`INSERT OR IGNORE INTO interaction_person_resolution SELECT b.id,mp.person_id,'entity_type=meeting;participant join' FROM business_events b JOIN meeting_participants mp ON b.entity_type='meeting' AND mp.meeting_id=b.entity_id AND mp.is_deleted=0 JOIN people p ON p.id=mp.person_id AND p.is_deleted=0`);
-  if(tableExists(db,"gig_people"))db.exec(`INSERT OR IGNORE INTO interaction_person_resolution SELECT b.id,gp.person_id,'entity_type=gig;sole active gig relationship' FROM business_events b JOIN gig_people gp ON b.entity_type IN ('gig','job') AND gp.gig_id=b.entity_id AND gp.is_deleted=0 JOIN people p ON p.id=gp.person_id AND p.is_deleted=0 WHERE (SELECT count(DISTINCT x.person_id) FROM gig_people x WHERE x.gig_id=b.entity_id AND x.is_deleted=0)=1`);
-  db.exec(`INSERT OR IGNORE INTO interaction_person_resolution SELECT b.id,p.id,'data_json.personId exact match' FROM business_events b JOIN people p ON p.id=json_extract(b.data_json,'$.personId') AND p.is_deleted=0 WHERE json_valid(b.data_json)`);
-  if(tableExists(db,"tasks"))db.exec(`INSERT OR IGNORE INTO interaction_person_resolution SELECT b.id,p.id,'entity_type=task;task person reference' FROM business_events b JOIN tasks t ON b.entity_type='task' AND b.entity_id=t.id JOIN people p ON t.related_entity_type='person' AND t.related_entity_id=p.id AND p.is_deleted=0`);
-  db.exec(`DELETE FROM interaction_person_resolution WHERE event_id IN (SELECT event_id FROM interaction_event_review WHERE outcome='interaction_resolved') AND NOT EXISTS(SELECT 1 FROM interaction_review_person r WHERE r.event_id=interaction_person_resolution.event_id AND r.person_id=interaction_person_resolution.person_id)`);
-  db.exec(`DROP TABLE IF EXISTS temp.interaction_person_contacts; CREATE TEMP TABLE interaction_person_contacts AS WITH snapshots AS (SELECT 'current:'||p.id source_key,p.id person_id,p.name,p.last_contacted,p.last_contact_method,p.last_contact_summary,p.revision,NULL origin_change_id,p.updated_at recorded_at FROM people p WHERE p.last_contacted IS NOT NULL UNION ALL SELECT 'history:'||ph.history_id,ph.id,ph.name,ph.last_contacted,ph.last_contact_method,ph.last_contact_summary,ph.revision,ph.change_id,ph.recorded_at FROM person_history ph JOIN people p ON p.id=ph.id AND p.is_deleted=0 WHERE ph.last_contacted IS NOT NULL), ranked AS (SELECT *,row_number() OVER (PARTITION BY person_id,last_contacted,coalesce(last_contact_method,''),coalesce(last_contact_summary,'') ORDER BY CASE WHEN origin_change_id IS NULL THEN 0 ELSE 1 END,revision DESC) rank FROM snapshots) SELECT source_key,person_id,name,last_contacted,last_contact_method,last_contact_summary,revision,origin_change_id,recorded_at FROM ranked s WHERE rank=1 AND NOT EXISTS(SELECT 1 FROM business_events b JOIN interaction_person_resolution r ON r.event_id=b.id AND r.person_id=s.person_id WHERE substr(b.occurred_at,1,10)=s.last_contacted AND coalesce(b.summary,'')=coalesce(s.last_contact_summary,'') AND NOT EXISTS(SELECT 1 FROM interaction_event_review v WHERE v.event_id=b.id AND v.outcome='not_an_interaction')) AND NOT EXISTS(SELECT 1 FROM meetings m JOIN meeting_participants mp ON mp.meeting_id=m.id AND mp.person_id=s.person_id AND mp.is_deleted=0 WHERE substr(m.starts_at,1,10)=s.last_contacted AND coalesce(m.description,'')=coalesce(s.last_contact_summary,''))`);
-  const unresolved=db.query(`SELECT b.id,b.type,b.entity_type,b.entity_id,b.occurred_at,b.summary,b.data_json,coalesce((SELECT group_concat(gp.person_id,'|') FROM gig_people gp WHERE b.entity_type IN ('gig','job') AND gp.gig_id=b.entity_id AND gp.is_deleted=0),(SELECT group_concat(gp.person_id,'|') FROM tasks t JOIN gig_people gp ON t.related_entity_type='gig' AND gp.gig_id=t.related_entity_id AND gp.is_deleted=0 WHERE b.entity_type='task' AND t.id=b.entity_id),(SELECT json_extract(b.data_json,'$.personId') WHERE json_valid(b.data_json))) candidates,coalesce(v.outcome,'unreviewed') review_outcome,v.review_notes,CASE WHEN v.outcome='interaction_participants_unresolved' THEN 'Reviewed interaction still requires individual participants' WHEN v.outcome='interaction_resolved_person_record_required' THEN 'Reviewed interaction requires creation of its Person record' WHEN v.outcome='interaction_resolved' AND (SELECT count(*) FROM interaction_review_person p WHERE p.event_id=b.id)<>(SELECT count(*) FROM interaction_person_resolution r WHERE r.event_id=b.id) THEN 'One or more reviewed Person IDs are missing or deleted' WHEN NOT json_valid(b.data_json) THEN 'data_json is invalid JSON' WHEN json_type(b.data_json)<>'object' THEN 'data_json must be a JSON object' ELSE 'No exact Person, Meeting participant, explicit personId, task-person, or sole active Gig-person relationship resolved' END failure_reason FROM business_events b LEFT JOIN interaction_event_review v ON v.event_id=b.id WHERE coalesce(v.outcome,'')<>'not_an_interaction' AND (v.outcome IN ('interaction_participants_unresolved','interaction_resolved_person_record_required') OR NOT json_valid(b.data_json) OR json_type(b.data_json)<>'object' OR (v.outcome='interaction_resolved' AND (SELECT count(*) FROM interaction_review_person p WHERE p.event_id=b.id)<>(SELECT count(*) FROM interaction_person_resolution r WHERE r.event_id=b.id)) OR (v.outcome IS NULL AND NOT EXISTS(SELECT 1 FROM interaction_person_resolution r WHERE r.event_id=b.id))) ORDER BY b.occurred_at,b.id`).all() as Array<Record<string,unknown>>;
-  if(unresolved.length){mkdirSync(path.dirname(unresolvedCsv),{recursive:true});const header=["event_id","type","entity_type","entity_id","occurred_at","summary","data_json","candidate_person_ids","evidence","review_outcome","review_notes","failure_reason"];const rows=unresolved.map(row=>[row.id,row.type,row.entity_type,row.entity_id,row.occurred_at,row.summary,row.data_json,row.candidates,"Deterministic and authoritative review rules evaluated",row.review_outcome,row.review_notes,row.failure_reason].map(csv).join(","));writeFileSync(unresolvedCsv,[header.join(","),...rows].join("\n")+"\n");throw new Error(`Interaction migration blocked: ${unresolved.length} reviewed or unresolved Business Event(s) still require a known Person. Review ${unresolvedCsv}`)}
-  const counts=db.query(`SELECT (SELECT count(*) FROM meetings) meetings,(SELECT count(*) FROM meeting_history) meeting_history,(SELECT count(*) FROM meeting_participants) meeting_participants,(SELECT count(*) FROM meeting_participant_history) meeting_participant_history,(SELECT count(*) FROM business_events) business_events,(SELECT count(*) FROM interaction_event_review WHERE outcome='not_an_interaction') excluded_events,(SELECT count(*) FROM event_sources s WHERE NOT EXISTS(SELECT 1 FROM interaction_event_review r WHERE r.event_id=s.event_id AND r.outcome='not_an_interaction')) event_sources,(SELECT count(*) FROM people WHERE last_contacted IS NOT NULL)+(SELECT count(*) FROM person_history WHERE last_contacted IS NOT NULL) person_contacts,(SELECT count(*) FROM interaction_person_contacts) person_imports,(SELECT count(DISTINCT event_id) FROM interaction_person_resolution WHERE NOT EXISTS(SELECT 1 FROM interaction_event_review r WHERE r.event_id=interaction_person_resolution.event_id AND r.outcome='not_an_interaction')) resolved,(SELECT count(*) FROM meetings WHERE external_calendar_id IS NOT NULL OR external_event_id IS NOT NULL) calendar_sources`).get() as Record<string,number>;
-  const includedBusinessEvents=counts.business_events!-counts.excluded_events!,expectedInteractions=counts.meetings!+includedBusinessEvents+counts.person_imports!,expectedSources=counts.event_sources!+counts.calendar_sources!;
-  db.exec("DROP TABLE IF EXISTS temp.interaction_migration_expected; CREATE TEMP TABLE interaction_migration_expected(meetings integer,meeting_history integer,meeting_participants integer,meeting_participant_history integer,business_events integer,event_sources integer,person_imports integer,expected_interactions integer,expected_sources integer)");db.query("INSERT INTO interaction_migration_expected VALUES(?,?,?,?,?,?,?,?,?)").run(counts.meetings!,counts.meeting_history!,counts.meeting_participants!,counts.meeting_participant_history!,includedBusinessEvents,counts.event_sources!,counts.person_imports!,expectedInteractions,expectedSources);
-  return{meetings:counts.meetings!,meetingHistory:counts.meeting_history!,meetingParticipants:counts.meeting_participants!,meetingParticipantHistory:counts.meeting_participant_history!,businessEvents:counts.business_events!,excludedBusinessEvents:counts.excluded_events!,eventSources:counts.event_sources!,personLastContacts:counts.person_contacts!,expectedInteractions,expectedSources,importedInteractions:0,importedSources:0,resolvedBusinessEvents:counts.resolved!,unresolvedBusinessEvents:0,duplicates:counts.person_contacts!-counts.person_imports!,validationFailures:0,unresolvedCsv:null};
+export interface InteractionMigrationReport {
+  meetings: number;
+  meetingHistory: number;
+  meetingParticipants: number;
+  meetingParticipantHistory: number;
+  personLastContacts: number;
+  expectedInteractions: number;
+  expectedSources: number;
+  importedInteractions: number;
+  importedSources: number;
+  duplicates: number;
 }
 
-export function completeInteractionMigrationReport(db:Database,report:InteractionMigrationReport){return{...report,importedInteractions:(db.query("SELECT count(*) count FROM interactions").get() as {count:number}).count,importedSources:(db.query("SELECT count(*) count FROM interaction_sources").get() as {count:number}).count}}
+function tableExists(database: Database, name: string) {
+  return Boolean(database.query(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).get(name));
+}
+
+function createEmptyPreparation(database: Database) {
+  database.exec(`
+    DROP TABLE IF EXISTS temp.interaction_person_contacts;
+    CREATE TEMP TABLE interaction_person_contacts (
+      source_key text,
+      person_id text,
+      name text,
+      last_contacted text,
+      last_contact_method text,
+      last_contact_summary text,
+      revision integer,
+      origin_change_id text,
+      recorded_at text
+    );
+    DROP TABLE IF EXISTS temp.interaction_migration_expected;
+    CREATE TEMP TABLE interaction_migration_expected (
+      meetings integer,
+      meeting_history integer,
+      meeting_participants integer,
+      meeting_participant_history integer,
+      person_imports integer,
+      expected_interactions integer,
+      expected_sources integer
+    );
+    INSERT INTO interaction_migration_expected VALUES (0, 0, 0, 0, 0, 0, 0);
+  `);
+}
+
+export function prepareInteractionMigration(
+  database: Database,
+): InteractionMigrationReport | null {
+  if (tableExists(database, "interactions")) return null;
+  if (!tableExists(database, "meetings")) {
+    createEmptyPreparation(database);
+    return null;
+  }
+
+  database.exec(`
+    DROP TABLE IF EXISTS temp.interaction_person_contacts;
+    CREATE TEMP TABLE interaction_person_contacts AS
+    WITH snapshots AS (
+      SELECT
+        'current:' || people.id AS source_key,
+        people.id AS person_id,
+        people.name,
+        people.last_contacted,
+        people.last_contact_method,
+        people.last_contact_summary,
+        people.revision,
+        NULL AS origin_change_id,
+        people.updated_at AS recorded_at
+      FROM people
+      WHERE people.last_contacted IS NOT NULL
+      UNION ALL
+      SELECT
+        'history:' || person_history.history_id,
+        person_history.id,
+        person_history.name,
+        person_history.last_contacted,
+        person_history.last_contact_method,
+        person_history.last_contact_summary,
+        person_history.revision,
+        person_history.change_id,
+        person_history.recorded_at
+      FROM person_history
+      JOIN people ON people.id = person_history.id AND people.is_deleted = 0
+      WHERE person_history.last_contacted IS NOT NULL
+    ), ranked AS (
+      SELECT *, row_number() OVER (
+        PARTITION BY person_id, last_contacted,
+          coalesce(last_contact_method, ''), coalesce(last_contact_summary, '')
+        ORDER BY CASE WHEN origin_change_id IS NULL THEN 0 ELSE 1 END, revision DESC
+      ) AS rank
+      FROM snapshots
+    )
+    SELECT source_key, person_id, name, last_contacted, last_contact_method,
+      last_contact_summary, revision, origin_change_id, recorded_at
+    FROM ranked
+    WHERE rank = 1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM meetings
+        JOIN meeting_participants
+          ON meeting_participants.meeting_id = meetings.id
+          AND meeting_participants.person_id = ranked.person_id
+          AND meeting_participants.is_deleted = 0
+        WHERE substr(meetings.starts_at, 1, 10) = ranked.last_contacted
+          AND coalesce(meetings.description, '') = coalesce(ranked.last_contact_summary, '')
+      );
+  `);
+
+  const counts = database.query(`
+    SELECT
+      (SELECT count(*) FROM meetings) AS meetings,
+      (SELECT count(*) FROM meeting_history) AS meeting_history,
+      (SELECT count(*) FROM meeting_participants) AS meeting_participants,
+      (SELECT count(*) FROM meeting_participant_history) AS meeting_participant_history,
+      (SELECT count(*) FROM people WHERE last_contacted IS NOT NULL)
+        + (SELECT count(*) FROM person_history WHERE last_contacted IS NOT NULL)
+        AS person_contacts,
+      (SELECT count(*) FROM interaction_person_contacts) AS person_imports,
+      (SELECT count(*) FROM meetings
+        WHERE external_calendar_id IS NOT NULL OR external_event_id IS NOT NULL)
+        AS calendar_sources
+  `).get() as Record<string, number>;
+  const expectedInteractions = counts.meetings! + counts.person_imports!;
+  const expectedSources = counts.calendar_sources!;
+
+  database.exec(`
+    DROP TABLE IF EXISTS temp.interaction_migration_expected;
+    CREATE TEMP TABLE interaction_migration_expected (
+      meetings integer,
+      meeting_history integer,
+      meeting_participants integer,
+      meeting_participant_history integer,
+      person_imports integer,
+      expected_interactions integer,
+      expected_sources integer
+    );
+  `);
+  database.query("INSERT INTO interaction_migration_expected VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(
+      counts.meetings!,
+      counts.meeting_history!,
+      counts.meeting_participants!,
+      counts.meeting_participant_history!,
+      counts.person_imports!,
+      expectedInteractions,
+      expectedSources,
+    );
+
+  return {
+    meetings: counts.meetings!,
+    meetingHistory: counts.meeting_history!,
+    meetingParticipants: counts.meeting_participants!,
+    meetingParticipantHistory: counts.meeting_participant_history!,
+    personLastContacts: counts.person_contacts!,
+    expectedInteractions,
+    expectedSources,
+    importedInteractions: 0,
+    importedSources: 0,
+    duplicates: counts.person_contacts! - counts.person_imports!,
+  };
+}
+
+export function completeInteractionMigrationReport(
+  database: Database,
+  report: InteractionMigrationReport,
+) {
+  return {
+    ...report,
+    importedInteractions: (database.query(
+      "SELECT count(*) AS count FROM interactions",
+    ).get() as { count: number }).count,
+    importedSources: (database.query(
+      "SELECT count(*) AS count FROM interaction_sources",
+    ).get() as { count: number }).count,
+  };
+}

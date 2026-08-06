@@ -148,7 +148,8 @@ export class PeopleService {
     }, options).record;
   }
 }
-/* Legacy Meeting and Business Event services were removed by migration 0021.
+/* Legacy Meeting services were removed by migration 0021. Business Events
+remain preserved legacy storage without public runtime capabilities.
 export class MeetingService {
   constructor(
     private readonly persistence: Persistence,

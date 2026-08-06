@@ -46,4 +46,4 @@ export interface InteractionSource {
   sourceTimestamp: string | null; sourceUri: string | null; importedAt: string;
   contentHash: string | null; excerpt: string | null; originChangeId: string | null;
 }
-export interface InteractionLegacyRef { id: string; interactionId: string; legacyType: "meeting" | "business_event" | "person_last_contact"; legacyId: string; legacyRevision: number | null; originChangeId: string | null }
+export interface InteractionLegacyRef { id: string; interactionId: string; legacyType: "meeting" | "person_last_contact"; legacyId: string; legacyRevision: number | null; originChangeId: string | null }

@@ -27,10 +27,9 @@ flowchart LR
   on client or persistence packages.
 - `src/data/` implements core persistence ports, SQLite transactions, auditing,
   private context resolution, managed filesystem projections, and guarded
-  legacy migrations. The Interaction migration may consume an ignored,
-  operator-supplied Business Event review CSV: reviewed Person IDs are staged
-  transiently, reviewed non-interactions are excluded, and unresolved reviewed
-  interactions block migration before legacy tables are changed.
+  legacy migrations. Interaction rollout migrates Meetings and historical
+  Person contact state while leaving legacy Business Events and Event Sources
+  intact for separately approved follow-up work.
 - `src/agent/` adapts core capabilities to model-facing tools and AI SDK Core.
   Agent policy is separate from the configured candidate profile.
 - `src/web/` owns HTTP, AI SDK UI adaptation, uploads and conversion, static

@@ -133,6 +133,36 @@ export const interactionParticipantHistory=sqliteTable("interaction_participant_
 export const interactionSources=sqliteTable("interaction_sources",{id:text("id").primaryKey(),interactionId:text("interaction_id").notNull().references(()=>interactions.id),sourceSystem:text("source_system").notNull(),externalId:text("external_id"),sourceTimestamp:text("source_timestamp"),sourceUri:text("source_uri"),importedAt:text("imported_at").notNull(),contentHash:text("content_hash"),excerpt:text("excerpt"),originChangeId:text("origin_change_id").references(()=>changes.id)},table=>[index("interaction_sources_interaction_idx").on(table.interactionId),uniqueIndex("interaction_sources_identity_idx").on(table.sourceSystem,table.externalId)]);
 export const interactionLegacyRefs=sqliteTable("interaction_legacy_refs",{id:text("id").primaryKey(),interactionId:text("interaction_id").notNull().references(()=>interactions.id),legacyType:text("legacy_type").notNull(),legacyId:text("legacy_id").notNull(),legacyRevision:integer("legacy_revision"),originChangeId:text("origin_change_id").references(()=>changes.id)},table=>[uniqueIndex("interaction_legacy_refs_identity_idx").on(table.legacyType,table.legacyId,table.legacyRevision)]);
 
+export const businessEvents = sqliteTable("business_events", {
+  id: text("id").primaryKey(),
+  changeId: text("change_id").references(() => changes.id),
+  type: text("type").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+  summary: text("summary").notNull(),
+  dataJson: text("data_json").notNull().default("{}"),
+  supersedesEventId: text("supersedes_event_id"),
+}, table => [
+  index("business_events_entity_idx").on(table.entityType, table.entityId, table.occurredAt),
+  index("business_events_change_idx").on(table.changeId),
+]);
+
+export const eventSources = sqliteTable("event_sources", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id").notNull().references(() => businessEvents.id),
+  sourceSystem: text("source_system").notNull(),
+  externalId: text("external_id"),
+  sourceTimestamp: text("source_timestamp"),
+  sourceUri: text("source_uri"),
+  importedAt: text("imported_at").notNull(),
+  contentHash: text("content_hash"),
+  excerpt: text("excerpt"),
+}, table => [
+  index("event_sources_event_idx").on(table.eventId),
+  uniqueIndex("event_sources_external_idx").on(table.sourceSystem, table.externalId),
+]);
+
 export const managedDocuments = sqliteTable("managed_documents", {
   id: text("id").primaryKey(),
   documentType: text("document_type", {
