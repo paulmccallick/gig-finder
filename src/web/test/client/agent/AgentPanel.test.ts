@@ -65,6 +65,23 @@ describe("agent activity presentation", () => {
     expect(currentAgentActivity("error")).toBeNull();
   });
 
+  test("new empty reasoning and text parts supersede completed tool activity", () => {
+    const completedTool = {
+      type: "dynamic-tool" as const,
+      toolName: "get_document",
+      toolCallId: "call-complete",
+      state: "output-available" as const,
+      input: {},
+      output: { status: "ok" },
+    };
+    expect(currentAgentActivity("streaming", [completedTool, {
+      type: "reasoning", text: "",
+    }])).toEqual({ label: "Thinking", tone: "active" });
+    expect(currentAgentActivity("streaming", [completedTool, {
+      type: "text", text: "",
+    }])).toEqual({ label: "Writing response", tone: "active" });
+  });
+
   test("presents staged attachments without their transport reference", () => {
     expect(userMessageText([{
       type: "text",

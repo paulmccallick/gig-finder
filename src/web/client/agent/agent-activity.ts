@@ -66,10 +66,10 @@ export function currentAgentActivity(
     if (!part) continue;
     const tool = toolActivity(part);
     if (tool) return tool;
-    if (part.type === "reasoning" && part.text.length > 0) {
+    if (part.type === "reasoning") {
       return { label: "Thinking", tone: "active" };
     }
-    if (part.type === "text" && part.text.length > 0) {
+    if (part.type === "text") {
       return { label: "Writing response", tone: "active" };
     }
   }
