@@ -18,6 +18,8 @@ export interface GigFinderContextPaths {
   backups: string;
   meetingParticipantMigration: string;
   unresolvedBusinessEventsCsv: string;
+  businessEventReviewCsv: string;
+  requireBusinessEventReview: boolean;
   actor: string;
 }
 
@@ -125,6 +127,9 @@ export function resolveGigFinderContext(
       environment.JOB_SEARCH_MEETING_PARTICIPANT_MIGRATION,
     ) ?? path.join(root, "data", "migration", "0010-meeting-participants.json"),
     unresolvedBusinessEventsCsv:path.join(root,"data","migration","0021-unresolved-business-events.csv"),
+    businessEventReviewCsv:optionalAbsolute(environment.GIG_FINDER_BUSINESS_EVENT_REVIEW)
+      ?? path.join(root,"data","migration","0021-business-event-review.csv"),
+    requireBusinessEventReview:Boolean(environment.GIG_FINDER_BUSINESS_EVENT_REVIEW?.trim()),
     actor: environment.GIG_FINDER_ACTOR?.trim()
       || environment.JOB_SEARCH_ACTOR?.trim()
       || config.actor,

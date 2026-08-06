@@ -51,8 +51,10 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   search generally.
 - **Interaction:** An immutable-history communication or encounter with one or
   more known people. It records kind, channel, direction, status, timing,
-  optional gig association, source provenance, and supersession; every legacy
-  Business Event must resolve to an existing Person before rollout.
+  optional gig association, source provenance, and supersession. Reviewed
+  legacy Business Events classified as non-interactions are excluded; every
+  event classified as an Interaction must resolve to existing People before
+  rollout.
 - **Managed document:** Versioned Markdown or text linked to gigs, people, or
   the Candidate Profile. Person profiles link to exactly one person; Profile
   context documents link only to the Candidate Profile.

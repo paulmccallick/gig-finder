@@ -17,6 +17,8 @@ export function openDatabase(filename: string, options: { create?: boolean } = {
 export interface DatabaseMigrationOptions {
   legacyMeetingParticipants?: readonly LegacyMeetingParticipant[];
   unresolvedBusinessEventsCsv?: string;
+  businessEventReviewCsv?: string;
+  requireBusinessEventReview?: boolean;
   onInteractionMigrationReport?: (report:InteractionMigrationReport)=>void;
 }
 
@@ -93,7 +95,7 @@ export function migrateDatabase(
     database,
     options.legacyMeetingParticipants ?? [],
   );
-  const report=prepareInteractionMigration(database,options.unresolvedBusinessEventsCsv??path.resolve("tmp/unresolved-business-events.csv"));
+  const report=prepareInteractionMigration(database,options.unresolvedBusinessEventsCsv??path.resolve("tmp/unresolved-business-events.csv"),options.businessEventReviewCsv,options.requireBusinessEventReview);
   database.exec("PRAGMA foreign_keys = OFF");
   try {
     migrate(drizzle(database), { migrationsFolder });

@@ -30,6 +30,9 @@ if (command === "backup") {
       legacyMeetingParticipants: loadLegacyMeetingParticipants(
         context.meetingParticipantMigration,
       ),
+      unresolvedBusinessEventsCsv: context.unresolvedBusinessEventsCsv,
+      businessEventReviewCsv: context.businessEventReviewCsv,
+      requireBusinessEventReview: context.requireBusinessEventReview,
     });
     const legacyArtifacts = await migrateLegacyGigArtifacts(database, context.artifacts);
     const validation = validateDatabase(database);

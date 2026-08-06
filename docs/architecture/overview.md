@@ -26,7 +26,11 @@ flowchart LR
   while web presentation omits system-added capabilities. Core has no dependency
   on client or persistence packages.
 - `src/data/` implements core persistence ports, SQLite transactions, auditing,
-  private context resolution, and managed filesystem projections.
+  private context resolution, managed filesystem projections, and guarded
+  legacy migrations. The Interaction migration may consume an ignored,
+  operator-supplied Business Event review CSV: reviewed Person IDs are staged
+  transiently, reviewed non-interactions are excluded, and unresolved reviewed
+  interactions block migration before legacy tables are changed.
 - `src/agent/` adapts core capabilities to model-facing tools and AI SDK Core.
   Agent policy is separate from the configured candidate profile.
 - `src/web/` owns HTTP, AI SDK UI adaptation, uploads and conversion, static
