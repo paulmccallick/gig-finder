@@ -263,7 +263,7 @@ test("GigFinderAgent preserves delayed reasoning and tool activity through the f
   const activity = panel.locator(".agent-thinking");
   await expect(activity).toContainText("Thinking");
   await expect(activity).toHaveAttribute("aria-live", "polite");
-  await expect(activity).toHaveAttribute("aria-busy", "false");
+  await expect(activity).toHaveAttribute("aria-busy", "true");
   expect(await activity.evaluate(element => element.parentElement?.classList.contains("agent-messages"))).toBe(false);
   await expect(panel.getByLabel("Agent reasoning").first()).toContainText("current opportunities");
   await expect(activity).toContainText("Searching gigs");
@@ -400,6 +400,8 @@ test("document upload stages without the agent and attaches to the next message"
   );
   await panel.getByRole("button", { name: /Send/ }).click();
   await expect.poll(() => agentRequests).toBe(1);
+  await expect(panel.locator(".agent-message.is-user").last()).toContainText("Attached document");
+  await expect(panel.locator(".agent-message.is-user").last()).not.toContainText(stagedReference);
   await expect(panel.getByRole("button", { name: "Discard" })).toBeDisabled();
   releaseAgentResponse();
   await expect(panel).toContainText("saved the uploaded source");
@@ -423,7 +425,7 @@ test("GigFinderAgent reopens and switches persisted conversations", async ({ pag
       body: JSON.stringify({
         conversation,
         messages: [
-          { id: `user-${id}`, role: "user", parts: [{ type: "text", text: `Question for ${conversation.title}` }] },
+          { id: `user-${id}`, role: "user", parts: [{ type: "text", text: `Question for ${conversation.title}\n\nAttached staged document: [attached document]` }] },
           { id: `assistant-${id}`, role: "assistant", parts: [
             { type: "reasoning", text: `Reasoning for ${conversation.title}` },
             { type: "tool-list_gigs", toolCallId: "restored-secret-call", state: "output-available", input: { id: "restored-secret-input" }, output: { id: "restored-secret-output" } },
@@ -438,6 +440,8 @@ test("GigFinderAgent reopens and switches persisted conversations", async ({ pag
   const selector = panel.getByLabel("Conversation");
   await expect(selector).toHaveValue("conversation-latest");
   await expect(panel).toContainText("Answer for Latest strategy");
+  await expect(panel.locator(".agent-message.is-user")).toContainText("Attached document");
+  await expect(panel).not.toContainText("Attached staged document");
   await expect(panel).toContainText("Reasoning for Latest strategy");
   await expect(panel).toContainText("Searching gigs complete");
   await expect(panel).not.toContainText("restored-secret");

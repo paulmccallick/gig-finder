@@ -5,6 +5,7 @@ import {
   hasSuccessfulMutation,
   parseStagedUpload,
   savedUploadReferences,
+  userMessageText,
 } from "../../../client/agent/AgentPanel";
 import {
   agentToolLabels,
@@ -62,6 +63,17 @@ describe("agent activity presentation", () => {
       .toEqual({ label: "Thinking", tone: "active" });
     expect(currentAgentActivity("streaming")).toEqual({ label: "Working", tone: "active" });
     expect(currentAgentActivity("error")).toBeNull();
+  });
+
+  test("presents staged attachments without their transport reference", () => {
+    expect(userMessageText([{
+      type: "text",
+      text: "Review this.\n\nAttached staged document: staged-document:11111111-1111-4111-8111-111111111111",
+    }])).toBe("Review this.\n\nAttached document");
+    expect(userMessageText([{
+      type: "text",
+      text: "Review this.\n\nAttached staged document: [attached document]",
+    }])).toBe("Review this.\n\nAttached document");
   });
 });
 

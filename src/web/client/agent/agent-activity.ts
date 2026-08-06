@@ -60,6 +60,7 @@ export function currentAgentActivity(
   parts: UIMessage["parts"] = [],
 ): AgentActivity | null {
   if (status !== "submitted" && status !== "streaming") return null;
+  if (status === "submitted") return { label: "Thinking", tone: "active" };
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     const part = parts[index];
     if (!part) continue;
@@ -72,5 +73,5 @@ export function currentAgentActivity(
       return { label: "Writing response", tone: "active" };
     }
   }
-  return { label: status === "submitted" ? "Thinking" : "Working", tone: "active" };
+  return { label: "Working", tone: "active" };
 }

@@ -58,7 +58,8 @@ export function toUIMessage(message: ConversationMessage): UIMessage {
   return {
     id: message.id,
     role: message.role,
-    parts: message.parts.map(part => {
+    parts: message.parts.flatMap(part => {
+      if (part.type === "attachment") return [];
       if (part.type !== "tool") return part;
       return {
         type: `tool-${part.toolName}`,

@@ -41,8 +41,14 @@ function messageText(parts: UIMessage["parts"]) {
   return parts.filter(part => part.type === "text").map(part => part.text ?? "").join("");
 }
 
+const stagedAttachmentDisplayPattern = /(?:\n\n)?Attached staged document: (?:staged-document:[0-9a-f-]+|\[attached document\])/gi;
+
+export function userMessageText(parts: UIMessage["parts"]) {
+  return messageText(parts).replace(stagedAttachmentDisplayPattern, "\n\nAttached document").trim();
+}
+
 function MessageParts({ message }: { message: UIMessage }) {
-  if (message.role === "user") return <p>{messageText(message.parts)}</p>;
+  if (message.role === "user") return <p>{userMessageText(message.parts)}</p>;
   return <div className="agent-message-parts">
     {message.parts.map((part, index) => {
       if (part.type === "text" && part.text) {
@@ -705,7 +711,7 @@ export function AgentPanel({
       </div>
 
       {activity && (
-        <div className={`agent-thinking is-${activity.tone}`} role="status" aria-live="polite" aria-busy="false">
+        <div className={`agent-thinking is-${activity.tone}`} role="status" aria-live="polite" aria-busy={active}>
           <span /><span /><span /><b>{activity.label}</b>
         </div>
       )}

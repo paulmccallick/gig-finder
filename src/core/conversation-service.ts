@@ -1,8 +1,11 @@
+import { stagedDocumentReferencePattern } from "./staged-documents";
+
 export type ConversationRole = "user" | "assistant";
 
 export type ConversationPart =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
+  | { type: "attachment"; reference: string }
   | { type: "step-start" }
   | {
       type: "tool";
@@ -92,6 +95,135 @@ const defaults = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const internalIdentifierPatterns: ReadonlyArray<[RegExp, string]> = [
+  [new RegExp(`\\bstaged-document:${uuid}\\b`, "gi"), "[attached document]"],
+  [new RegExp(`\\bdoc_${uuid}\\b`, "gi"), "[document]"],
+  [new RegExp(`\\b(?:gig|person|task|meeting|gig_person|relationship)_${uuid}\\b`, "gi"), "[record]"],
+  [/\bagent-(?:tool|revert):[A-Za-z0-9][A-Za-z0-9:_-]{2,200}\b/gi, "[change]"],
+  [/\b(?:tool(?:[- ]call)?|change|document|record|gig|person|task|meeting|relationship)\s+ID\s*(?:is|=|:|#)?\s*["']?[A-Za-z0-9][A-Za-z0-9:_-]{2,200}["']?/gi, "[internal identifier]"],
+  [/\b(?:call|toolu)_[A-Za-z0-9][A-Za-z0-9_-]{7,200}\b/g, "[tool call]"],
+];
+
+export function sanitizeConversationText(value: string) {
+  return internalIdentifierPatterns.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    value,
+  );
+}
+
+export function sanitizeConversationMessage(message: ConversationMessage): ConversationMessage {
+  return {
+    ...message,
+    parts: message.parts.map(part => part.type === "text" || part.type === "reasoning"
+      ? { ...part, text: sanitizeConversationText(part.text) }
+      : part),
+  };
+}
+
+const stagedReferenceCapturePattern = /\bstaged-document:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+
+function userMessageForPersistence(message: ConversationMessage): ConversationMessage {
+  const references = message.parts.flatMap(part => part.type === "text"
+    ? [...part.text.matchAll(stagedReferenceCapturePattern)].map(match => match[0])
+    : []);
+  const sanitized = sanitizeConversationMessage(message);
+  return {
+    ...sanitized,
+    parts: [
+      ...sanitized.parts,
+      ...[...new Set(references)].map(reference => ({
+        type: "attachment" as const,
+        reference,
+      })),
+    ],
+  };
+}
+
+function attachmentsForModel(messages: ConversationMessage[]) {
+  return messages.map(message => ({
+    ...message,
+    parts: message.parts.map(part => part.type === "attachment"
+      ? { type: "text" as const, text: `Internal staged attachment reference: ${part.reference}` }
+      : part),
+  }));
+}
+
+function sanitizeConversation(conversation: Conversation): Conversation {
+  return {
+    ...conversation,
+    title: conversation.title === null ? null : sanitizeConversationText(conversation.title),
+  };
+}
+
+const streamingSanitizerTailTokens = 6;
+
+function stableStreamingPrefixCharacters(value: string) {
+  const starts = [...value.matchAll(/\S+/g)].map(match => match.index);
+  return starts.length > streamingSanitizerTailTokens
+    ? starts[starts.length - streamingSanitizerTailTokens] ?? 0
+    : 0;
+}
+
+function sanitizeConversationStream(stream: ReadableStream<ConversationStreamEvent>) {
+  const pending = new Map<string, string>();
+  const keyFor = (kind: "text" | "reasoning", id: string) => `${kind}:${id}`;
+  const flush = (
+    controller: TransformStreamDefaultController<ConversationStreamEvent>,
+    kind: "text" | "reasoning",
+    id: string,
+    final: boolean,
+  ) => {
+    const key = keyFor(kind, id);
+    const value = pending.get(key) ?? "";
+    const emitCharacters = final ? value.length : stableStreamingPrefixCharacters(value);
+    if (emitCharacters === 0) return;
+    const emit = value.slice(0, emitCharacters);
+    pending.set(key, value.slice(emitCharacters));
+    controller.enqueue({
+      type: `${kind}-delta`,
+      id,
+      delta: sanitizeConversationText(emit),
+    });
+    if (final) pending.delete(key);
+  };
+  const flushAll = (controller: TransformStreamDefaultController<ConversationStreamEvent>) => {
+    for (const key of [...pending.keys()]) {
+      const separator = key.indexOf(":");
+      const kind = key.slice(0, separator) as "text" | "reasoning";
+      flush(controller, kind, key.slice(separator + 1), true);
+    }
+  };
+  return stream.pipeThrough(new TransformStream<ConversationStreamEvent, ConversationStreamEvent>({
+    transform(event, controller) {
+      if (event.type === "text-start" || event.type === "reasoning-start") {
+        const kind = event.type === "text-start" ? "text" : "reasoning";
+        pending.set(keyFor(kind, event.id), "");
+        controller.enqueue(event);
+        return;
+      }
+      if (event.type === "text-delta" || event.type === "reasoning-delta") {
+        const kind = event.type === "text-delta" ? "text" : "reasoning";
+        const key = keyFor(kind, event.id);
+        pending.set(key, `${pending.get(key) ?? ""}${event.delta}`);
+        flush(controller, kind, event.id, false);
+        return;
+      }
+      if (event.type === "text-end" || event.type === "reasoning-end") {
+        const kind = event.type === "text-end" ? "text" : "reasoning";
+        flush(controller, kind, event.id, true);
+        controller.enqueue(event);
+        return;
+      }
+      if (event.type === "finish" || event.type === "error") flushAll(controller);
+      controller.enqueue(event);
+    },
+    flush(controller) {
+      flushAll(controller);
+    },
+  }));
+}
+
 function messageText(message: ConversationMessage) {
   return message.parts
     .filter(part => part.type === "text")
@@ -113,9 +245,10 @@ export function compactMessageForPersistence(
   message: ConversationMessage,
   maxToolResultCharacters = defaults.maxPersistedToolResultCharacters,
 ): ConversationMessage {
+  const sanitized = sanitizeConversationMessage(message);
   return {
-    ...message,
-    parts: message.parts.map(part => {
+    ...sanitized,
+    parts: sanitized.parts.map(part => {
       if (part.type !== "tool" || part.state !== "output-available") {
         return part;
       }
@@ -202,12 +335,15 @@ export class ConversationService {
   list() {
     return this.repository.listRecent(
       this.options.recentConversationLimit ?? defaults.recentConversationLimit,
-    );
+    ).map(sanitizeConversation);
   }
 
   load(id: string) {
     const conversation = this.repository.get(id);
-    return conversation ? { conversation, messages: this.repository.messages(id) } : null;
+    return conversation ? {
+      conversation: sanitizeConversation(conversation),
+      messages: this.repository.messages(id).map(sanitizeConversationMessage),
+    } : null;
   }
 
   async respond(input: {
@@ -228,7 +364,9 @@ export class ConversationService {
       throw new ConversationValidationError(`A message is limited to ${maxText} characters.`);
     }
     const existing = this.repository.get(input.conversationId);
-    const stored = existing ? this.repository.messages(input.conversationId) : [];
+    const stored = existing
+      ? this.repository.messages(input.conversationId).map(sanitizeConversationMessage)
+      : [];
     const history = [...stored, userMessage];
     if (!history.every(isConversationMessage)) {
       throw new ConversationValidationError("Stored conversation history is invalid.");
@@ -240,20 +378,25 @@ export class ConversationService {
       * (this.options.charactersPerToken ?? defaults.charactersPerToken);
     const selected = latestCompleteTurns(history, characterBudget);
     const hydrated = await hydrateLatestDocuments(selected, this.documents);
-    const modelMessages = latestCompleteTurns(hydrated, characterBudget);
-    return this.runtime.stream({
+    const modelMessages = latestCompleteTurns(
+      attachmentsForModel(hydrated),
+      characterBudget,
+    );
+    const stream = await this.runtime.stream({
       messages: modelMessages,
       requestId: input.requestId,
       signal: input.signal,
       onEnd: async ({ responseMessage, isAborted, finishReason }) => {
         if (isAborted || finishReason === "error") return;
         const persisted = compactMessageForPersistence(responseMessage);
-        const fallback = fallbackTitle(userMessage);
-        let title = existing?.title ?? fallback;
+        const fallback = sanitizeConversationText(fallbackTitle(userMessage));
+        let title = existing?.title ? sanitizeConversationText(existing.title) : fallback;
         if (!existing) {
           try {
             title = cleanTitle(
-              await this.runtime.title({ userMessage, assistantMessage: persisted }),
+              sanitizeConversationText(
+                await this.runtime.title({ userMessage, assistantMessage: persisted }),
+              ),
               fallback,
             );
           } catch {
@@ -263,18 +406,23 @@ export class ConversationService {
         this.repository.saveTurn({
           conversationId: input.conversationId,
           title,
-          userMessage,
+          userMessage: userMessageForPersistence(userMessage),
           assistantMessage: persisted,
           occurredAt: new Date().toISOString(),
         });
       },
     });
+    return sanitizeConversationStream(stream);
   }
 }
 
 function isConversationPart(value: unknown): value is ConversationPart {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   if (value.type === "text" || value.type === "reasoning") return typeof value.text === "string";
+  if (value.type === "attachment") {
+    return typeof value.reference === "string"
+      && stagedDocumentReferencePattern.test(value.reference);
+  }
   if (value.type === "step-start") return true;
   if (value.type !== "tool") return false;
   return typeof value.toolName === "string"
