@@ -6,7 +6,7 @@ import {
   fitRatings,
   gigInputSchema,
   gigPersonRelationships,
-  meetingStatuses,
+  interactionStatuses,
   pipelineStages,
   taskPriorities,
   taskStatuses,
@@ -14,7 +14,7 @@ import {
   type ChangeContext,
   type Gig,
   type ManagedDocumentRecord,
-  type MeetingRecord,
+  type InteractionRecord,
   type PersonRecord,
   type TaskRecord,
   StagedDocumentService,
@@ -42,9 +42,10 @@ const documentMutations = {
   update: () => { throw new Error("not executed"); },
 };
 
-const meetingMutations: GigFinderMutationCapabilities["meetings"] = {
+const interactionMutations: GigFinderMutationCapabilities["interactions"] = {
   create: () => { throw new Error("not executed"); },
   update: () => { throw new Error("not executed"); },
+  delete: () => { throw new Error("not executed"); },
 };
 
 const taskMutations: GigFinderMutationCapabilities["tasks"] = {
@@ -128,7 +129,7 @@ const reader = {
       nextOffset: null,
     },
   }), read: (id) => ({ status: "not_found" as const, id }) },
-  meetings: {
+  interactions: {
     query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
     read: id => ({ status: "not_found" as const, id }),
   },
@@ -143,7 +144,7 @@ const mutations: GigFinderMutationCapabilities = {
   people: { createNew: () => { throw new Error("not executed"); }, update: () => { throw new Error("not executed"); } },
   gigPeople: { createNew: () => { throw new Error("not executed"); } },
   tasks: taskMutations,
-  meetings: meetingMutations,
+  interactions: interactionMutations,
   changes: { revert: () => { throw new Error("not executed"); } },
   documents: documentMutations,
 };
@@ -187,9 +188,12 @@ const nullRelationshipsInput = {
   offset: null,
   limit: null,
 } as const;
-const nullMeetingsInput = {
+const nullInteractionsInput = {
   personIds: null,
   gigIds: null,
+  kinds: null,
+  channels: null,
+  directions: null,
   statuses: null,
   startsFrom: null,
   startsThrough: null,
@@ -210,8 +214,8 @@ describe("GigFinderAgent tools", () => {
       "get_gig_person_relationship",
       "list_tasks",
       "get_task",
-      "list_meetings",
-      "get_meeting",
+      "list_interactions",
+      "get_interaction",
       "list_documents",
       "list_document_versions",
       "get_document",
@@ -238,8 +242,8 @@ describe("GigFinderAgent tools", () => {
       "get_gig_person_relationship",
       "list_tasks",
       "get_task",
-      "list_meetings",
-      "get_meeting",
+      "list_interactions",
+      "get_interaction",
       "list_documents",
       "list_document_versions",
       "get_document",
@@ -250,8 +254,9 @@ describe("GigFinderAgent tools", () => {
       "create_gig_person_relationship",
       "create_task",
       "update_task",
-      "create_meeting",
-      "update_meeting",
+      "create_interaction",
+      "update_interaction",
+      "delete_interaction",
       "create_document",
       "update_document",
       "revert_change",
@@ -261,8 +266,9 @@ describe("GigFinderAgent tools", () => {
     expect(tools.update_person.strict).toBe(true);
     expect(tools.create_task.strict).toBe(true);
     expect(tools.update_task.strict).toBe(true);
-    expect(tools.create_meeting.strict).toBe(true);
-    expect(tools.update_meeting.strict).toBe(true);
+    expect(tools.create_interaction.strict).toBe(true);
+    expect(tools.update_interaction.strict).toBe(true);
+    expect(tools.delete_interaction.strict).toBe(true);
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
@@ -285,7 +291,7 @@ describe("GigFinderAgent tools", () => {
     const mutationNames = new Set([
       "create_gig", "update_gig", "update_person", "create_person",
       "create_gig_person_relationship", "create_task", "update_task",
-      "create_meeting", "update_meeting", "create_document", "update_document",
+      "create_interaction", "update_interaction", "delete_interaction", "create_document", "update_document",
       "revert_change",
     ]);
     const registryNames = Object.keys(gigFinderToolSchemas);
@@ -392,26 +398,31 @@ describe("GigFinderAgent tools", () => {
     expect(relationshipQueries).toEqual([0, 1]);
   });
 
-  test("reads meetings with participant, gig, date, status, and text filters", async () => {
+  test("reads interactions with participant, gig, kind, channel, direction, date, status, and text filters", async () => {
     const logEntries: Array<Record<string, unknown>> = [];
     const meetingLogger = {
       debug: (entry: Record<string, unknown>) => logEntries.push(entry),
       warn: (entry: Record<string, unknown>) => logEntries.push(entry),
       error: (entry: Record<string, unknown>) => logEntries.push(entry),
     } as unknown as Logger;
-    const record: MeetingRecord = {
-      id: "meeting-1",
-      title: "Hiring manager interview",
+    const record: InteractionRecord = {
+      id: "interaction-1",
+      subject: "Hiring manager interview",
+      kind: "interview",
+      channel: "video",
+      direction: "mutual",
       startsAt: "2026-07-30T10:00:00-07:00",
       endsAt: "2026-07-30T11:00:00-07:00",
       timezone: "America/Los_Angeles",
       location: "Video",
-      description: "Platform discussion",
+      summary: "Platform discussion",
+      notes: null,
       status: "completed",
       gigId: "gig-1",
       personIds: ["person-1", "person-2"],
-      externalCalendarId: null,
-      externalEventId: null,
+      supersedesInteractionId: null,
+      originChangeId: null,
+      structuredData: {},
       revision: 1,
       isDeleted: false,
       createdAt: "2026-07-29T12:00:00.000Z",
@@ -420,7 +431,7 @@ describe("GigFinderAgent tools", () => {
     const inputs: unknown[] = [];
     const tools = createGigFinderTools({
       ...reader,
-      meetings: {
+      interactions: {
         query: input => {
           inputs.push(input);
           return { status: "ok" as const, items: [record], page: { offset: 0, limit: 10, returned: 1, total: 1, hasMore: false, nextOffset: null } };
@@ -432,24 +443,27 @@ describe("GigFinderAgent tools", () => {
     }, meetingLogger);
     const options = { toolCallId: "call-meeting", messages: [], abortSignal: undefined, context: {} };
     const input = {
-      ...nullMeetingsInput,
+      ...nullInteractionsInput,
       personIds: ["person-1", "person-2"],
       gigIds: ["gig-1"],
-      statuses: ["completed"] as Array<"confirmed" | "completed">,
+      kinds: ["interview"] as Array<"interview">,
+      channels: ["video"] as Array<"video">,
+      directions: ["mutual"] as Array<"mutual">,
+      statuses: ["completed"] as Array<"completed">,
       startsFrom: "2026-07-01T00:00:00-07:00",
       startsThrough: "2026-07-31T23:59:59-07:00",
       query: "platform",
       offset: 0,
       limit: 10,
     };
-    expect(await tools.list_meetings.execute?.(input, options)).toMatchObject({
+    expect(await tools.list_interactions.execute?.(input, options)).toMatchObject({
       status: "ok",
-      items: [{ id: "meeting-1", personIds: ["person-1", "person-2"], gigId: "gig-1" }],
+      items: [{ id: "interaction-1", personIds: ["person-1", "person-2"], gigId: "gig-1" }],
     });
     expect(inputs).toEqual([input]);
     expect(logEntries[0]).toMatchObject({
       event: "agent.tool.started",
-      toolName: "list_meetings",
+      toolName: "list_interactions",
       appliedFilters: {
         personIds: ["person-1", "person-2"],
         gigIds: ["gig-1"],
@@ -461,9 +475,9 @@ describe("GigFinderAgent tools", () => {
       pagination: { offset: 0, limit: 10 },
     });
     expect(JSON.stringify(logEntries)).not.toContain("Hiring manager interview");
-    expect(await tools.get_meeting.execute?.({ id: "meeting-1" }, options)).toMatchObject({
+    expect(await tools.get_interaction.execute?.({ id: "interaction-1" }, options)).toMatchObject({
       status: "ok",
-      record: { id: "meeting-1", personIds: ["person-1", "person-2"] },
+      record: { id: "interaction-1", personIds: ["person-1", "person-2"] },
     });
   });
 
@@ -600,7 +614,7 @@ describe("GigFinderAgent tools", () => {
       id: "person-1",
       changes: [{ operation: "set", field: "updatedAt", value: "2026-07-27" }],
     }).success).toBe(false);
-    expect(gigFinderToolSchemas.update_meeting.safeParse({
+    expect(gigFinderToolSchemas.update_interaction.safeParse({
       id: "meeting-1",
       changes: [
         { operation: "set", field: "status", value: "completed" },
@@ -608,15 +622,18 @@ describe("GigFinderAgent tools", () => {
         { operation: "clear", field: "location", value: null },
       ],
     }).success).toBe(true);
-    expect(gigFinderToolSchemas.update_meeting.safeParse({
+    expect(gigFinderToolSchemas.update_interaction.safeParse({
       id: "meeting-1",
       changes: [{ operation: "set", field: "externalEventId", value: "event" }],
     }).success).toBe(false);
   });
 
-  test("uses a strict meeting creation schema with nullable optional values", () => {
+  test("uses a strict interaction creation schema with nullable optional values", () => {
     const input = {
-      title: "Coffee",
+      subject: "Coffee",
+      kind: "meeting" as const,
+      channel: "in_person" as const,
+      direction: "mutual" as const,
       startsAt: "2026-07-31T08:00:00-07:00",
       endsAt: "2026-07-31T09:00:00-07:00",
       timezone: "America/Los_Angeles",
@@ -624,18 +641,20 @@ describe("GigFinderAgent tools", () => {
       personIds: ["person-1"],
       gigId: null,
       location: null,
-      description: null,
+      summary: null,
+      notes: null,
+      supersedesInteractionId: null,
     };
-    expect(gigFinderToolSchemas.create_meeting.parse(input)).toEqual(input);
-    expect(gigFinderToolSchemas.create_meeting.safeParse({
+    expect(gigFinderToolSchemas.create_interaction.parse(input)).toEqual(input);
+    expect(gigFinderToolSchemas.create_interaction.safeParse({
       ...input,
       personIds: ["person-1", "person-1"],
     }).success).toBe(false);
-    expect(gigFinderToolSchemas.create_meeting.safeParse({
+    expect(gigFinderToolSchemas.create_interaction.safeParse({
       ...input,
       timezone: "Mars/Olympus",
     }).success).toBe(false);
-    const jsonSchema = z.toJSONSchema(gigFinderToolSchemas.create_meeting);
+    const jsonSchema = z.toJSONSchema(gigFinderToolSchemas.create_interaction);
     expect(jsonSchema.required?.sort()).toEqual(
       Object.keys(jsonSchema.properties ?? {}).sort(),
     );
@@ -745,7 +764,7 @@ describe("GigFinderAgent tools", () => {
         gigs: { update: () => { throw new Error("not executed"); } },
         people: { update: () => { throw new Error("not executed"); } },
         tasks: taskMutations,
-        meetings: meetingMutations,
+        interactions: interactionMutations,
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
           create: (context, input) => {
@@ -837,7 +856,7 @@ describe("GigFinderAgent tools", () => {
       gigs: { update: () => { throw new Error("not executed"); } },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
-      meetings: meetingMutations,
+      interactions: interactionMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
     };
     const successfulTools = createGigFinderTools(reader, capturingLogger, {
@@ -891,7 +910,7 @@ describe("GigFinderAgent tools", () => {
         gigs: { update: () => { throw new Error("not executed"); } },
         people: { update: () => { throw new Error("not executed"); } },
         tasks: taskMutations,
-        meetings: meetingMutations,
+        interactions: interactionMutations,
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: {
           create: () => { throw new Error("not executed"); },
@@ -959,14 +978,14 @@ describe("GigFinderAgent tools", () => {
     const contactSchema = z.toJSONSchema(
       gigFinderToolSchemas.update_person,
     );
-    const meetingSchema = z.toJSONSchema(gigFinderToolSchemas.update_meeting);
+    const meetingSchema = z.toJSONSchema(gigFinderToolSchemas.update_interaction);
     const taskSchema = z.toJSONSchema(gigFinderToolSchemas.update_task);
     const descriptions = JSON.stringify({ gigSchema, contactSchema, meetingSchema, taskSchema });
     for (const value of [
       ...pipelineStages,
       ...fitRatings,
       ...personStatuses,
-      ...meetingStatuses,
+      ...interactionStatuses,
       ...taskTypes,
       ...taskStatuses,
       ...taskPriorities,
@@ -987,7 +1006,7 @@ describe("GigFinderAgent tools", () => {
         } },
         people: { update: () => { throw new Error("not executed"); } },
         tasks: taskMutations,
-        meetings: meetingMutations,
+        interactions: interactionMutations,
         changes: { revert: () => { throw new Error("not executed"); } },
         documents: documentMutations,
       },
@@ -1072,7 +1091,7 @@ describe("GigFinderAgent tools", () => {
       } },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
-      meetings: meetingMutations,
+      interactions: interactionMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -1122,7 +1141,7 @@ describe("GigFinderAgent tools", () => {
       gigs:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"gig",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never,update:()=>{throw new Error("not executed")}},
       people:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"person",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never,update:()=>{throw new Error("not executed")}},
       gigPeople:{createNew:((context:ChangeContext,id:string,input:object)=>{created.push({kind:"relationship",id,changeId:context.changeId});return{changeId:context.changeId??null,record:{id,...input}}}) as never},
-      tasks:taskMutations,meetings:meetingMutations,changes:{revert:()=>{throw new Error("not executed")}},documents:documentMutations,
+      tasks:taskMutations,interactions:interactionMutations,changes:{revert:()=>{throw new Error("not executed")}},documents:documentMutations,
     };
     const discoveryReader: GigFinderReadCapabilities={...reader,documents:{...reader.documents,
       query:async input=>({status:"ok",items:[],page:{offset:input.offset??0,limit:input.limit??20,returned:0,total:0,hasMore:false,nextOffset:null}}),
@@ -1252,16 +1271,16 @@ describe("GigFinderAgent tools", () => {
     expect(JSON.stringify(entries)).not.toContain("Private task notes");
   });
 
-  test("creates and updates meetings through the shared mutation boundary", async () => {
+  test("creates, updates, and deletes interactions through the shared mutation boundary", async () => {
     const entries: Array<Record<string, unknown>> = [];
     const meetingLogger = {
       debug: (entry: Record<string, unknown>) => entries.push(entry),
       warn: () => undefined,
       error: () => undefined,
     } as unknown as Logger;
-    let created: { context: ChangeContext; meeting: MeetingRecord } | undefined;
+    let created: { context: ChangeContext; meeting: InteractionRecord } | undefined;
     let updated: { context: ChangeContext; id: string; patch: unknown } | undefined;
-    const record = (input: Omit<MeetingRecord, "revision" | "isDeleted" | "createdAt" | "updatedAt">): MeetingRecord => ({
+    const record = (input: Omit<InteractionRecord, "revision" | "isDeleted" | "createdAt" | "updatedAt">): InteractionRecord => ({
       ...input,
       revision: 1,
       isDeleted: false,
@@ -1273,9 +1292,9 @@ describe("GigFinderAgent tools", () => {
       meetingLogger,
       {
         ...mutations,
-        meetings: {
-          create: (context, input) => {
-            const persisted = record(input);
+        interactions: {
+          create: (context, id, input) => {
+            const persisted = record({ id, ...input } as Omit<InteractionRecord, "revision" | "isDeleted" | "createdAt" | "updatedAt">);
             created = { context, meeting: persisted };
             return { changeId: context.changeId ?? null, record: persisted };
           },
@@ -1285,7 +1304,10 @@ describe("GigFinderAgent tools", () => {
               changeId: context.changeId ?? null,
               record: record({
                 id,
-                title: "Coffee",
+                subject: "Coffee",
+                kind: "meeting",
+                channel: "in_person",
+                direction: "mutual",
                 startsAt: "2026-07-31T08:00:00-07:00",
                 endsAt: "2026-07-31T09:00:00-07:00",
                 timezone: "America/Los_Angeles",
@@ -1293,22 +1315,31 @@ describe("GigFinderAgent tools", () => {
                 personIds: ["person-1", "person-2"],
                 gigId: null,
                 location: null,
-                description: "Discussed the role",
-                externalCalendarId: null,
-                externalEventId: null,
+                summary: "Discussed the role",
+                notes: null,
+                supersedesInteractionId: null,
+                originChangeId: null,
+                structuredData: {},
               }),
             };
           },
+          delete: (context, id, expectedRevision) => ({
+            changeId: context.changeId ?? null,
+            record: { ...created!.meeting, id, revision: expectedRevision + 1, isDeleted: true },
+          }),
         },
       },
       { actor: "Candidate", requestId: "request-meeting" },
     );
-    if (!("create_meeting" in tools) || !("update_meeting" in tools)) {
+    if (!("create_interaction" in tools) || !("update_interaction" in tools)) {
       throw new Error("Meeting mutation tools were not registered.");
     }
 
-    const createdResult = await tools.create_meeting.execute?.({
-      title: "Private meeting title",
+    const createdResult = await tools.create_interaction.execute?.({
+      subject: "Private meeting title",
+      kind: "meeting",
+      channel: "in_person",
+      direction: "mutual",
       startsAt: "2026-07-31T08:00:00-07:00",
       endsAt: "2026-07-31T09:00:00-07:00",
       timezone: "America/Los_Angeles",
@@ -1316,27 +1347,28 @@ describe("GigFinderAgent tools", () => {
       personIds: ["person-1"],
       gigId: null,
       location: "Private location",
-      description: "Private meeting description",
+      summary: "Private meeting description",
+      notes: null,
+      supersedesInteractionId: null,
     }, { toolCallId: "call-create-meeting", messages: [], abortSignal: undefined, context: {} });
 
     expect(created?.context).toEqual({
       actor: "Candidate",
       source: "agent",
-      summary: "Agent created meeting (request request-meeting, tool call-create-meeting)",
+      summary: "Agent created interaction (request request-meeting, tool call-create-meeting)",
       changeId: "agent-tool:call-create-meeting",
     });
     expect(created?.meeting).toMatchObject({
-      id: expect.stringMatching(/^meeting_[0-9a-f-]{36}$/),
+      id: expect.stringMatching(/^interaction_[0-9a-f-]{36}$/),
       personIds: ["person-1"],
-      externalCalendarId: null,
-      externalEventId: null,
+      structuredData: {},
     });
     expect(createdResult).toMatchObject({
       status: "ok",
       changeId: "agent-tool:call-create-meeting",
     });
 
-    await tools.update_meeting.execute?.({
+    await tools.update_interaction.execute?.({
       id: created!.meeting.id,
       changes: [
         { operation: "set", field: "status", value: "completed" },
@@ -1349,7 +1381,7 @@ describe("GigFinderAgent tools", () => {
       context: {
         actor: "Candidate",
         source: "agent",
-        summary: `Agent updated meeting ${created!.meeting.id} (request request-meeting, tool call-update-meeting)`,
+        summary: `Agent updated interaction ${created!.meeting.id} (request request-meeting, tool call-update-meeting)`,
         changeId: "agent-tool:call-update-meeting",
       },
       id: created!.meeting.id,
@@ -1359,8 +1391,13 @@ describe("GigFinderAgent tools", () => {
         location: null,
       },
     });
+    const deleted = await tools.delete_interaction.execute?.({
+      id: created!.meeting.id,
+      expectedRevision: 1,
+    }, { toolCallId: "call-delete-interaction", messages: [], abortSignal: undefined, context: {} });
+    expect(deleted).toMatchObject({ status: "ok", record: { isDeleted: true, revision: 2 } });
     expect(entries[0]).toMatchObject({
-      toolName: "create_meeting",
+      toolName: "create_interaction",
       participantIds: ["person-1"],
       appliedFilters: {},
     });
@@ -1376,7 +1413,7 @@ describe("GigFinderAgent tools", () => {
       } },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
-      meetings: meetingMutations,
+      interactions: interactionMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -1432,7 +1469,7 @@ describe("GigFinderAgent tools", () => {
       } },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
-      meetings: meetingMutations,
+      interactions: interactionMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -1463,7 +1500,7 @@ describe("GigFinderAgent tools", () => {
       gigs: { update: () => { throw new Error("not executed"); } },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
-      meetings: meetingMutations,
+      interactions: interactionMutations,
       changes: { revert: (context, targetChangeId) => {
         received = { context, targetChangeId };
         return {
@@ -1543,7 +1580,7 @@ describe("GigFinderAgent tools", () => {
       }) },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
-      meetings: meetingMutations,
+      interactions: interactionMutations,
       changes: { revert: () => { throw new Error("not executed"); } },
       documents: documentMutations,
     };
@@ -1595,10 +1632,10 @@ describe("GigFinderAgent tools", () => {
       ...nullRelationshipsInput,
       relationships: [...gigPersonRelationships],
     }).relationships).toEqual([...gigPersonRelationships]);
-    expect(gigFinderToolSchemas.list_meetings.parse({
-      ...nullMeetingsInput,
-      statuses: [...meetingStatuses],
-    }).statuses).toEqual([...meetingStatuses]);
+    expect(gigFinderToolSchemas.list_interactions.parse({
+      ...nullInteractionsInput,
+      statuses: [...interactionStatuses],
+    }).statuses).toEqual([...interactionStatuses]);
   });
 
   test("rejects unknown fields, invalid enums, empty arrays, and pagination outside bounds", () => {
@@ -1618,9 +1655,9 @@ describe("GigFinderAgent tools", () => {
       people: z.toJSONSchema(gigFinderToolSchemas.list_people),
       tasks: z.toJSONSchema(gigFinderToolSchemas.list_tasks),
       relationships: z.toJSONSchema(gigFinderToolSchemas.list_gig_person_relationships),
-      meetings: z.toJSONSchema(gigFinderToolSchemas.list_meetings),
+      interactions: z.toJSONSchema(gigFinderToolSchemas.list_interactions),
     });
-    for (const value of [...pipelineStages, ...fitRatings, ...personStatuses, ...taskTypes, ...gigPersonRelationships, ...meetingStatuses]) {
+    for (const value of [...pipelineStages, ...fitRatings, ...personStatuses, ...taskTypes, ...gigPersonRelationships, ...interactionStatuses]) {
       expect(schemas).toContain(`"${value}"`);
     }
   });
@@ -1642,7 +1679,7 @@ describe("GigFinderAgent tools", () => {
       [gigFinderToolSchemas.list_people, nullPeopleInput],
       [gigFinderToolSchemas.list_tasks, nullTasksInput],
       [gigFinderToolSchemas.list_gig_person_relationships, nullRelationshipsInput],
-      [gigFinderToolSchemas.list_meetings, nullMeetingsInput],
+      [gigFinderToolSchemas.list_interactions, nullInteractionsInput],
     ] as const) {
       const jsonSchema = z.toJSONSchema(schema);
       expect(jsonSchema.required?.sort()).toEqual(

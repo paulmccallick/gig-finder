@@ -6,7 +6,7 @@ import type {
   RelationshipStrength,
 } from "./people";
 import type { GigPersonRelationshipType } from "./people";
-import type { MeetingStatus } from "./meetings";
+import type { InteractionChannel, InteractionDirection, InteractionKind, InteractionStatus } from "./interactions";
 import type {
   TaskPriority,
   TaskRecord,
@@ -65,10 +65,13 @@ export interface GigPersonRelationshipQueryInput extends PageInput {
   relationships?: GigPersonRelationshipType[];
 }
 
-export interface MeetingQueryInput extends PageInput {
+export interface InteractionQueryInput extends PageInput {
   personIds?: string[];
   gigIds?: string[];
-  statuses?: MeetingStatus[];
+  kinds?: InteractionKind[];
+  channels?: InteractionChannel[];
+  directions?: InteractionDirection[];
+  statuses?: InteractionStatus[];
   startsFrom?: string;
   startsThrough?: string;
   query?: string;

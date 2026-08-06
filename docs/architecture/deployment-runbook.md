@@ -1,6 +1,6 @@
 # Deployment runbook
 
-Production runs the immutable image published for a merged commit. The release
+Production runs the Docker image published for a merged commit. The release
 model and rollback guarantees are defined by [ADR 0007](decisions/0007-immutable-production-deployment.md).
 
 ## Layout
@@ -39,7 +39,7 @@ GIG_FINDER_CODEX_HOME=/absolute/codex/home \
   bin/deploy-local.sh sha-<40-character-commit-sha>
 ```
 
-The script synchronizes private inputs, pulls the immutable image, creates and
+The script synchronizes private inputs, pulls the Docker image, creates and
 verifies a backup, migrates and validates SQLite, replaces the container, and
 checks `/healthz` for the requested revision. On failure it restores the backup
 and prior container.

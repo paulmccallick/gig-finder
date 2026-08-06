@@ -10,8 +10,8 @@ const entityTables=[
   {entity:"person",live:"people",history:"person_history"},
   {entity:"gig-person",live:"gig_people",history:"gig_people_history"},
   {entity:"task",live:"tasks",history:"task_history"},
-  {entity:"meeting",live:"meetings",history:"meeting_history"},
-  {entity:"meeting-participant",live:"meeting_participants",history:"meeting_participant_history"},
+  {entity:"interaction",live:"interactions",history:"interaction_history"},
+  {entity:"interaction-participant",live:"interaction_participants",history:"interaction_participant_history"},
 ] as const;
 const legacyEntityTables=entityTables.map(item=>item.entity==="gig"
   ? {...item,live:"jobs",history:"job_history"}
@@ -50,12 +50,10 @@ export function validateDatabase(database:Database):ValidationReport {
   const counts:Record<string,number>={};
   const existingTables=new Set((database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{name:string}>).map(row=>row.name));
   const tables=existingTables.has("jobs")&&!existingTables.has("gigs")?legacyEntityTables:entityTables;
-  const legacyMeetingSchema=existingTables.has("meetings")&&(database.query("PRAGMA table_info(meetings)").all() as Array<{name:string}>).some(column=>column.name==="related_entity_type");
-  const expectedTables=["changes","business_events","event_sources",...tables.flatMap((item)=>[item.live,item.history])];
+  const expectedTables=["changes","interaction_sources","interaction_legacy_refs",...tables.flatMap((item)=>[item.live,item.history])];
   for(const table of expectedTables){
     if(!existingTables.has(table)){
-      const allowedLegacyTable=legacyMeetingSchema&&(table==="meeting_participants"||table==="meeting_participant_history");
-      if(!allowedLegacyTable)issues.push({check:"missing_table",message:`Missing required table: ${table}`});
+      issues.push({check:"missing_table",message:`Missing required table: ${table}`});
       continue;
     }
     counts[table]=Number((database.query(`SELECT count(*) AS count FROM ${table}`).get() as {count:number}).count);

@@ -5,6 +5,8 @@ sandbox_mode = "workspace-write"
 developer_instructions = """
 You are the project's implementation specialist.
 
+- Read and follow the repository-local `$coding-guide` skill before changing
+  code, behavior, contracts, migrations, tests, or documentation.
 - Read the assigned issue, its comments, and relevant accepted ADRs before
   implementing. Stop and report any conflict with an accepted ADR.
 - Ask the user before editing any file under docs/product/ or

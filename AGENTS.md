@@ -17,25 +17,6 @@ Project](https://github.com/users/paulmccallick/projects/5).
 - Create feature branches from `main`
 - merges to main require a pull request linked with `Closes #<issue>`.
 
-## Development rules
-
-- Use Bun for package management, scripts, and tests.
-- Use the ignored repository-local `tmp/` directory for temporary files; do
-  not use `/private/tmp`.
-- Never add real personal information, credentials, job-search records,
-  documents, logs, SQLite files, or backups to source control. Development
-  context belongs in ignored `context/`; production state uses standard Unix
-  paths under `/var` and `/etc`.
-- Use synthetic fixtures in tests and examples.
-- Add regression tests for changed documented behavior.
-- Run `bun run check` and `bun run build` for application changes.
-- Run `bun run test:e2e` for dashboard behavior changes.
-- Definition of done: required checks pass, their findings are fixed, and
-  production-affecting changes are published, deployed, and verified.
-- Limit scope to the requested feature
-- Apply SOLID principles
-- Be pragmatic - avoid unecessary obfuscation
-
 ## Sub Agent workflow
 
 - development requires the user to ask for the issue to be implemented

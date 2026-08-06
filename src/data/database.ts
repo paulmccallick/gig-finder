@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import path from "node:path";
 import type { LegacyMeetingParticipant } from "./meeting-migration";
+import { completeInteractionMigrationReport, prepareInteractionMigration, type InteractionMigrationReport } from "./interaction-migration";
 
 export const migrationsFolder = path.resolve(import.meta.dir, "migrations");
 
@@ -15,6 +16,8 @@ export function openDatabase(filename: string, options: { create?: boolean } = {
 
 export interface DatabaseMigrationOptions {
   legacyMeetingParticipants?: readonly LegacyMeetingParticipant[];
+  unresolvedBusinessEventsCsv?: string;
+  onInteractionMigrationReport?: (report:InteractionMigrationReport)=>void;
 }
 
 function hasColumn(database: Database, table: string, column: string) {
@@ -90,9 +93,11 @@ export function migrateDatabase(
     database,
     options.legacyMeetingParticipants ?? [],
   );
+  const report=prepareInteractionMigration(database,options.unresolvedBusinessEventsCsv??path.resolve("tmp/unresolved-business-events.csv"));
   database.exec("PRAGMA foreign_keys = OFF");
   try {
     migrate(drizzle(database), { migrationsFolder });
+    if(report)options.onInteractionMigrationReport?.(completeInteractionMigrationReport(database,report));
   } catch (error) {
     if (preparedMeetingBackfill) {
       database.exec("DROP TABLE IF EXISTS meeting_participant_backfill");

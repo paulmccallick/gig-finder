@@ -84,8 +84,7 @@ const person: PersonData = {
   linkedInProfileUrl: "https://www.linkedin.com/in/alex-example", connectedOn: "2024-01-01",
   relationshipType: "former_peer", relationshipStrength: "strong", introducedBy: null,
   relationshipNotes: "Worked together on a product launch.", priority: "high",
-  status: "active_relationship", lastContacted: "2026-07-20", lastContactMethod: "email",
-  lastContactSummary: "Discussed the open role.", nextAction: "Send follow-up",
+  status: "active_relationship", nextAction: "Send follow-up",
   nextActionDue: "2026-07-23", whyInteresting: "Knows the hiring team.",
   notesJson: "[]", tagsJson: "[]",
 };

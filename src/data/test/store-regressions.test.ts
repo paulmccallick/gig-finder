@@ -1,0 +1,9 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { DataStore, migrateDatabase, openDatabase } from "..";
+import type { PersonData } from "../../core/models";
+let database:ReturnType<typeof openDatabase>,store:DataStore;
+const person:PersonData={id:"person",name:"Synthetic Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:"professional_contact",relationshipStrength:"unknown",introducedBy:null,relationshipNotes:null,priority:"unranked",status:"not_contacted",nextAction:null,nextActionDue:null,whyInteresting:null,notesJson:"[]",tagsJson:"[]"};
+beforeEach(()=>{database=openDatabase(":memory:");migrateDatabase(database);store=new DataStore(database)});afterEach(()=>database.close());
+test("audited transactions roll back atomically",()=>{expect(()=>store.change({actor:"test",source:"test",summary:"rollback"},tx=>{tx.people.create(person);throw new Error("fail")})).toThrow("fail");expect(store.people.get(person.id)).toBeNull();expect(database.query("SELECT count(*) count FROM changes").get()).toEqual({count:0})});
+test("stale revisions are rejected",()=>{store.change({actor:"test",source:"test",summary:"seed"},tx=>tx.people.create(person));store.change({actor:"test",source:"test",summary:"update"},tx=>tx.people.update(person.id,1,{title:"Director"}));expect(()=>store.change({actor:"test",source:"test",summary:"stale"},tx=>tx.people.update(person.id,1,{title:"VP"}))).toThrow("revision")});
+test("explicit change IDs and creation fingerprints remain idempotent",()=>{const context={actor:"test",source:"test" as const,summary:"seed",changeId:"fixed-change"};store.change(context,tx=>{tx.people.create(person);tx.recordCreationFingerprint("person",person.id,"hash")});expect(store.creationFingerprint("fixed-change")).toEqual({entityType:"person",entityId:person.id,payloadHash:"hash"});expect(()=>store.change(context,()=>undefined)).toThrow("already been applied")});

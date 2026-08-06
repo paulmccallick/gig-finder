@@ -104,7 +104,8 @@ function validateTask(t:TaskRecord){
 
 export class GigDomainService {
   constructor(private p:Persistence,private artifacts:ArtifactPort,private changes:ChangeExecutor,private documents:ManagedDocumentService){}
-  private record(r:GigData){return{...gigFromData(r),documents:this.documents.summaries("gig",r.id)}}
+  private record(r:GigData):GigRecord;
+  private record(r:GigData){const interactions=this.p.interactions.list().filter(item=>item.gigId===r.id).sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id)).map(item=>({id:item.id,subject:item.subject,kind:item.kind as import("./interactions").InteractionKind,channel:item.channel as import("./interactions").InteractionChannel,status:item.status as import("./interactions").InteractionStatus,startsAt:item.startsAt}));return{...gigFromData(r),documents:this.documents.summaries("gig",r.id),interactions}}
   get(id:string){const r=this.p.gigs.get(id);return r?this.record(r):null}
   list(){return this.p.gigs.list().map(r=>this.record(r))}
   read(id:string):ReadResult<GigRecord>{const record=this.get(id);return record?{status:"ok",record}:{status:"not_found",id}}

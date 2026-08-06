@@ -13,12 +13,15 @@ const repoRoot = path.resolve(import.meta.dir, "../..");
 const context = resolveGigFinderContext(repoRoot);
 const backup = await createManagedBackup(context.database, context.backups);
 const database = openDatabase(context.database, { create: false });
+let interactionMigration:unknown=null;
 
 try {
   migrateDatabase(database, {
     legacyMeetingParticipants: loadLegacyMeetingParticipants(
       context.meetingParticipantMigration,
     ),
+    unresolvedBusinessEventsCsv:context.unresolvedBusinessEventsCsv,
+    onInteractionMigrationReport:report=>{interactionMigration=report},
   });
   const legacyArtifacts = await migrateLegacyGigArtifacts(database, context.artifacts);
   const validation = validateDatabase(database);
@@ -33,6 +36,7 @@ try {
     integrity: validation.integrity,
     foreignKeyViolations: validation.foreignKeyViolations,
     legacyArtifacts,
+    interactionMigration,
   }, null, 2));
 } finally {
   database.close();

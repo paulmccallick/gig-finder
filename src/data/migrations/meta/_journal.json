@@ -148,6 +148,13 @@
       "when": 1785955000000,
       "tag": "0020_active_gig_people",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1786029342647,
+      "tag": "0021_harsh_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

@@ -50,7 +50,7 @@ flowchart LR
 - [ADR 0004: Share one domain input contract across create and update](decisions/0004-share-domain-input-contracts.md) makes entity-owned input schemas the source for all client adapters.
 - [ADR 0005: Store mutations as revisioned, audited transactions](decisions/0005-revisioned-audited-change-transactions.md) defines atomic revision history, audit envelopes, and safe reversion.
 - [ADR 0006: Make database document state authoritative](decisions/0006-authoritative-document-state.md) treats filesystem content as imports or repairable projections.
-- [ADR 0007: Deploy immutable images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
+- [ADR 0007: Deploy Docker images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
 - [ADR 0008: Adapt domain capabilities to strict agent tools](decisions/0008-agent-tool-contracts.md) defines tool patches, schema strictness, and generated contract documentation.
 
 Runtime settings are documented in [Configuration](configuration.md). Production

@@ -6,7 +6,7 @@
 ## Context
 
 GigFinder has accumulated different creation and update patterns across Gigs,
-People, relationships, Tasks, Meetings, and documents. Issue #62 exposed the
+People, relationships, Tasks, Interactions, and documents. Issue #62 exposed the
 choice by adding creation-only schemas while update schemas remained separate.
 That resembles conventional create/update DTOs, but duplicates field names,
 enums, nullability, descriptions, and validation, allowing contracts to drift.
@@ -36,7 +36,7 @@ Both schemas live with their domain in `src/core`, for example:
 - Gig in `src/core/gigs.ts`;
 - Person in `src/core/people.ts`;
 - Task in `src/core/tasks.ts`; and
-- Meeting in `src/core/meetings.ts`.
+- Interaction in `src/core/interactions.ts`.
 
 Relationships with substantial behavior receive their own domain module.
 Centralized `create-contracts.ts` and `update-contracts.ts` files are not used;

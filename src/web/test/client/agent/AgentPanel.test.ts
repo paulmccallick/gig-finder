@@ -17,11 +17,11 @@ describe("agent activity presentation", () => {
   test("maps every current tool to a friendly label", () => {
     expect(Object.keys(agentToolLabels).sort()).toEqual([
       "create_document", "create_gig", "create_gig_person_relationship",
-      "create_meeting", "create_person", "create_task", "get_document",
-      "get_gig", "get_gig_person_relationship", "get_meeting", "get_person",
+      "create_interaction", "create_person", "create_task", "delete_interaction", "get_document",
+      "get_gig", "get_gig_person_relationship", "get_interaction", "get_person",
       "get_task", "list_document_versions", "list_documents", "list_gig_person_relationships",
-      "list_gigs", "list_meetings", "list_people", "list_tasks", "revert_change",
-      "search_gigs_and_people", "update_document", "update_gig", "update_meeting",
+      "list_gigs", "list_interactions", "list_people", "list_tasks", "revert_change",
+      "search_gigs_and_people", "update_document", "update_gig", "update_interaction",
       "update_person", "update_task",
     ]);
     for (const label of Object.values(agentToolLabels)) {

@@ -1,5 +1,5 @@
 import type { AuditQuery } from "./services";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, MeetingData, MeetingParticipantData, PersonData, RevertedRecord, TaskData } from "./models";
+import type { ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, RevertedRecord, TaskData } from "./models";
 import type {
   DocumentLinkEntityType,
   ManagedDocumentData,
@@ -33,8 +33,8 @@ export interface ApplicationSettingsRepository {
   get(key: string): string | null;
   set(key: string, value: string): void;
 }
-export interface UnitOfWork{gigs:ReversibleCreateRepository<GigData>;people:ReversibleCreateRepository<PersonData>;gigPeople:ReversibleCreateRepository<GigPersonData>;tasks:ReversibleCreateRepository<TaskData>;meetings:WriteRepository<MeetingData>;meetingParticipants:ReversibleCreateRepository<MeetingParticipantData>;documents:DocumentWriteRepository;recordCreationFingerprint(entityType:string,entityId:string,payloadHash:string):void;recordEvent(input:BusinessEventInput):string}
-export interface Persistence{gigs:ReadRepository<GigData>;people:ReadRepository<PersonData>;gigPeople:ReadRepository<GigPersonData>;tasks:ReadRepository<TaskData>;meetings:ReadRepository<MeetingData>;meetingParticipants:ReadRepository<MeetingParticipantData>;documents:DocumentReadRepository;settings:ApplicationSettingsRepository;hasChange(changeId:string):boolean;creationFingerprint(changeId:string):{entityType:string;entityId:string;payloadHash:string}|null;change<T>(context:ChangeContext,action:(transaction:UnitOfWork)=>T):ChangeResult<T>;revertChange(context:ChangeContext,targetChangeId:string):ChangeResult<RevertedRecord[]>}
+export interface UnitOfWork{gigs:ReversibleCreateRepository<GigData>;people:ReversibleCreateRepository<PersonData>;gigPeople:ReversibleCreateRepository<GigPersonData>;tasks:ReversibleCreateRepository<TaskData>;interactions:ReversibleCreateRepository<InteractionData>;interactionParticipants:ReversibleCreateRepository<InteractionParticipantData>;documents:DocumentWriteRepository;recordCreationFingerprint(entityType:string,entityId:string,payloadHash:string):void}
+export interface Persistence{gigs:ReadRepository<GigData>;people:ReadRepository<PersonData>;gigPeople:ReadRepository<GigPersonData>;tasks:ReadRepository<TaskData>;interactions:ReadRepository<InteractionData>;interactionParticipants:ReadRepository<InteractionParticipantData>;documents:DocumentReadRepository;settings:ApplicationSettingsRepository;hasChange(changeId:string):boolean;creationFingerprint(changeId:string):{entityType:string;entityId:string;payloadHash:string}|null;change<T>(context:ChangeContext,action:(transaction:UnitOfWork)=>T):ChangeResult<T>;revertChange(context:ChangeContext,targetChangeId:string):ChangeResult<RevertedRecord[]>}
 export interface AuditPort{query(query:AuditQuery):Record<string,unknown>|Record<string,unknown>[]|null}
 export interface ArtifactPort{jobDescription(gigId:string):Promise<string>;interviewPrep(gigId:string):Promise<{name:string;content:string}[]>;jobDescriptionExists(gigId:string):Promise<boolean>;interviewPrepExists(gigId:string):Promise<boolean>;verify(expectations:{gigs:{id:string;hasJobDescription:boolean;hasInterviewPrep:boolean}[]}):Promise<ArtifactVerification>}
 export interface ArtifactVerification{ok:boolean;errors:string[];unregistered:string[]}

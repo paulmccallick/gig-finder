@@ -9,9 +9,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - The CLI reads and updates the same records and linked documents with audited mutations and
   non-persisting dry-run previews where available.
 - The agent window uses the candidate profile; reads complete current gigs,
-  people, gig-person relationships, tasks, meetings, and registered documents;
-  creates gigs, people, gig-person relationships, tasks, meetings, and managed
-  documents; updates supported records and documents; and discovers managed
+  people, gig-person relationships, tasks, interactions, and registered documents;
+  creates gigs, people, gig-person relationships, tasks, interactions, and managed
+  documents; updates supported records and documents; deletes interactions; and discovers managed
   document version history before reading an exact version.
 - Named Profile context-document descriptions are always visible to the agent;
   it reads their versioned content on demand by document ID.
@@ -45,12 +45,14 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   linked to people, tasks, registered artifacts, and versioned managed
   documents.
 - **Person:** An individual whose identity, relationship, priority, status,
-  outreach, notes, tags, documents, gigs, and meetings share one record.
+  outreach, notes, tags, documents, gigs, and interactions share one record.
 - **Gig-person relationship:** A typed connection between one gig and one person.
 - **Task:** A job-search action related to a gig, person, or the
   search generally.
-- **Meeting:** A scheduled or completed interaction with one or more people
-  that may be associated with a gig.
+- **Interaction:** An immutable-history communication or encounter with one or
+  more known people. It records kind, channel, direction, status, timing,
+  optional gig association, source provenance, and supersession; every legacy
+  Business Event must resolve to an existing Person before rollout.
 - **Managed document:** Versioned Markdown or text linked to gigs, people, or
   the Candidate Profile. Person profiles link to exactly one person; Profile
   context documents link only to the Candidate Profile.
@@ -77,8 +79,8 @@ lifecycle behavior, audit semantics, and results. The CLI and agent are adapters
 over those contracts and do not maintain independent domain rules.
 
 Agent tools cannot delete gigs, people, tasks, relationships, or managed
-documents, perform operator artifact maintenance, read or write Business
-Events, or access arbitrary files, email, calendars, or external services.
+documents, perform operator artifact maintenance, read or write legacy
+Business Events, or access arbitrary files, email, calendars, or external services.
 Agent mutations are audited and idempotent. Eligible creations and updates can
 be reverted when no later edit or dependent record would be overwritten or
 orphaned. The agent verifies the intended change with the user before mutating

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coding Guide"
+  short_description: "Project development and verification rules"
+  default_prompt: "Use $coding-guide when implementing or reviewing GigFinder code changes."

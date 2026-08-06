@@ -5,7 +5,7 @@ import {
   personInputFieldPaths,
   personInputSchema,
 } from "../core/people";
-import { meetingClearableInputFieldPaths, meetingInputFieldPaths, meetingInputSchema } from "../core/meetings";
+import { interactionClearableInputFieldPaths, interactionInputFieldPaths, interactionInputSchema } from "../core/interactions";
 import { taskClearableInputFieldPaths, taskInputFieldPaths, taskInputSchema } from "../core/tasks";
 
 function schemaAtPath(root:z.ZodObject, path:string):z.ZodType {
@@ -105,11 +105,11 @@ export const personChangesSchema = operationListSchema(
   { linkedInProfileUrl: z.string().trim().min(1).nullable().describe("LinkedIn profile URL, or null.") },
 );
 
-export const meetingChangesSchema = operationListSchema(
-  meetingInputFieldPaths,
-  meetingClearableInputFieldPaths,
+export const interactionChangesSchema = operationListSchema(
+  interactionInputFieldPaths.filter(field => field !== "structuredData") as [string, ...string[]],
+  interactionClearableInputFieldPaths,
   new Set(),
-  meetingInputSchema,
+  interactionInputSchema,
 );
 
 export const taskChangesSchema = operationListSchema(
