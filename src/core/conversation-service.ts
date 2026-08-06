@@ -1,4 +1,4 @@
-import { stagedDocumentReferencePattern } from "./staged-documents";
+import { isStagedDocumentReference } from "./staged-documents";
 
 export type ConversationRole = "user" | "assistant";
 
@@ -121,11 +121,13 @@ export function sanitizeConversationMessage(message: ConversationMessage): Conve
   };
 }
 
-const stagedReferenceCapturePattern = /\bstaged-document:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+const stagedReferenceCandidatePattern = /\bstaged-document:[A-Za-z0-9-]+\b/g;
 
 function userMessageForPersistence(message: ConversationMessage): ConversationMessage {
   const references = message.parts.flatMap(part => part.type === "text"
-    ? [...part.text.matchAll(stagedReferenceCapturePattern)].map(match => match[0])
+    ? [...part.text.matchAll(stagedReferenceCandidatePattern)]
+        .map(match => match[0])
+        .filter(isStagedDocumentReference)
     : []);
   const sanitized = sanitizeConversationMessage(message);
   return {
@@ -421,7 +423,7 @@ function isConversationPart(value: unknown): value is ConversationPart {
   if (value.type === "text" || value.type === "reasoning") return typeof value.text === "string";
   if (value.type === "attachment") {
     return typeof value.reference === "string"
-      && stagedDocumentReferencePattern.test(value.reference);
+      && isStagedDocumentReference(value.reference);
   }
   if (value.type === "step-start") return true;
   if (value.type !== "tool") return false;

@@ -231,6 +231,22 @@ describe("conversation service", () => {
     expect(invoked).toBe(false);
   });
 
+  test("rejects malformed incoming attachment capabilities", async () => {
+    const service = new ConversationService(new MemoryConversations(), { read: async () => null }, {
+      async stream() { return new ReadableStream(); },
+      async title() { return "Unused"; },
+    });
+    await expect(service.respond({
+      conversationId: "conversation-malformed-input",
+      message: {
+        id: "user-malformed",
+        role: "user",
+        parts: [{ type: "attachment", reference: "staged-document:not-a-uuid" }],
+      },
+      requestId: "request-malformed",
+    })).rejects.toThrow("A valid user message is required.");
+  });
+
   test("hydrates only the latest reference for each document ID", async () => {
     const repository = new MemoryConversations();
     repository.conversations.push({
