@@ -67,3 +67,21 @@ test("web owns the mapping between AI SDK UI and conversation tool parts", () =>
   expect(toUIMessage(conversationMessage as Parameters<typeof toUIMessage>[0]))
     .toEqual(uiMessage);
 });
+
+test("web omits structured staged attachment capabilities from restored messages", () => {
+  expect(toUIMessage({
+    id: "user-attachment",
+    role: "user",
+    parts: [
+      { type: "text", text: "Attached staged document: [attached document]" },
+      {
+        type: "attachment",
+        reference: "staged-document:11111111-1111-4111-8111-111111111111",
+      },
+    ],
+  })).toEqual({
+    id: "user-attachment",
+    role: "user",
+    parts: [{ type: "text", text: "Attached staged document: [attached document]" }],
+  });
+});

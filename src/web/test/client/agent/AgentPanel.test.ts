@@ -5,7 +5,94 @@ import {
   hasSuccessfulMutation,
   parseStagedUpload,
   savedUploadReferences,
+  userMessageText,
 } from "../../../client/agent/AgentPanel";
+import {
+  agentToolLabels,
+  currentAgentActivity,
+  toolActivity,
+} from "../../../client/agent/agent-activity";
+
+describe("agent activity presentation", () => {
+  test("maps every current tool to a friendly label", () => {
+    expect(Object.keys(agentToolLabels).sort()).toEqual([
+      "create_document", "create_gig", "create_gig_person_relationship",
+      "create_meeting", "create_person", "create_task", "get_document",
+      "get_gig", "get_gig_person_relationship", "get_meeting", "get_person",
+      "get_task", "list_document_versions", "list_documents", "list_gig_person_relationships",
+      "list_gigs", "list_meetings", "list_people", "list_tasks", "revert_change",
+      "search_gigs_and_people", "update_document", "update_gig", "update_meeting",
+      "update_person", "update_task",
+    ]);
+    for (const label of Object.values(agentToolLabels)) {
+      expect(label).not.toMatch(/_|\b(?:id|database|payload)\b/i);
+    }
+  });
+
+  test("derives ordered reasoning, tool, answer, and terminal tool states without payloads", () => {
+    const reasoning = [{ type: "reasoning" as const, text: "Checking the relevant role." }];
+    expect(currentAgentActivity("streaming", reasoning)).toEqual({ label: "Thinking", tone: "active" });
+
+    const tool = {
+      type: "dynamic-tool" as const,
+      toolName: "list_gigs",
+      toolCallId: "secret-call-id",
+      state: "input-available" as const,
+      input: { company: "secret-payload" },
+    };
+    expect(currentAgentActivity("streaming", [...reasoning, tool])).toEqual({
+      label: "Searching gigs", tone: "active",
+    });
+    expect(JSON.stringify(toolActivity(tool))).not.toContain("secret");
+    expect(currentAgentActivity("streaming", [...reasoning, tool, {
+      type: "text", text: "Here is the result.",
+    }])).toEqual({ label: "Writing response", tone: "active" });
+    expect(currentAgentActivity("ready", [tool])).toBeNull();
+
+    expect(toolActivity({ ...tool, state: "output-available", output: { id: "record-1" } }))
+      .toEqual({ label: "Searching gigs complete", tone: "success" });
+    expect(toolActivity({ ...tool, state: "output-error", errorText: "private failure" }))
+      .toEqual({ label: "Searching gigs failed", tone: "error" });
+    expect(toolActivity({ ...tool, state: "output-denied", approval: { id: "approval-1", approved: false } }))
+      .toEqual({ label: "Searching gigs cancelled", tone: "cancelled" });
+  });
+
+  test("keeps activity visible throughout submitted and streaming states", () => {
+    expect(currentAgentActivity("submitted")).toEqual({ label: "Thinking", tone: "active" });
+    expect(currentAgentActivity("submitted", [{ type: "text", text: "A prior answer." }]))
+      .toEqual({ label: "Thinking", tone: "active" });
+    expect(currentAgentActivity("streaming")).toEqual({ label: "Working", tone: "active" });
+    expect(currentAgentActivity("error")).toBeNull();
+  });
+
+  test("new empty reasoning and text parts supersede completed tool activity", () => {
+    const completedTool = {
+      type: "dynamic-tool" as const,
+      toolName: "get_document",
+      toolCallId: "call-complete",
+      state: "output-available" as const,
+      input: {},
+      output: { status: "ok" },
+    };
+    expect(currentAgentActivity("streaming", [completedTool, {
+      type: "reasoning", text: "",
+    }])).toEqual({ label: "Thinking", tone: "active" });
+    expect(currentAgentActivity("streaming", [completedTool, {
+      type: "text", text: "",
+    }])).toEqual({ label: "Writing response", tone: "active" });
+  });
+
+  test("presents staged attachments without their transport reference", () => {
+    expect(userMessageText([{
+      type: "text",
+      text: "Review this.\n\nAttached staged document: staged-document:11111111-1111-4111-8111-111111111111",
+    }])).toBe("Review this.\n\nAttached document");
+    expect(userMessageText([{
+      type: "text",
+      text: "Review this.\n\nAttached staged document: [attached document]",
+    }])).toBe("Review this.\n\nAttached document");
+  });
+});
 
 describe("agent dashboard refresh signal", () => {
   test("recognizes successful task, update, and revert tool output", () => {

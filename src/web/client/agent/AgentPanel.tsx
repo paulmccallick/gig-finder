@@ -29,6 +29,7 @@ import {
   loadConversations,
 } from "../data/conversations";
 import type { Conversation } from "../../../core/conversation-service";
+import { currentAgentActivity, toolActivity } from "./agent-activity";
 
 const starterPrompts = [
   "What kinds of roles should I prioritize?",
@@ -38,6 +39,36 @@ const starterPrompts = [
 
 function messageText(parts: UIMessage["parts"]) {
   return parts.filter(part => part.type === "text").map(part => part.text ?? "").join("");
+}
+
+const stagedAttachmentDisplayPattern = /(?:\n\n)?Attached staged document: (?:staged-document:[0-9a-f-]+|\[attached document\])/gi;
+
+export function userMessageText(parts: UIMessage["parts"]) {
+  return messageText(parts).replace(stagedAttachmentDisplayPattern, "\n\nAttached document").trim();
+}
+
+function MessageParts({ message }: { message: UIMessage }) {
+  if (message.role === "user") return <p>{userMessageText(message.parts)}</p>;
+  return <div className="agent-message-parts">
+    {message.parts.map((part, index) => {
+      if (part.type === "text" && part.text) {
+        return <p className="agent-answer" key={`text-${index}`}>{part.text}</p>;
+      }
+      if (part.type === "reasoning" && part.text) {
+        return <section className="agent-reasoning" aria-label="Agent reasoning" key={`reasoning-${index}`}>
+          <strong>Reasoning</strong>
+          <p>{part.text}</p>
+        </section>;
+      }
+      const activity = toolActivity(part);
+      return activity
+        ? <div className={`agent-tool-activity is-${activity.tone}`} key={`tool-${index}`}>
+            <i aria-hidden="true" />
+            <span>{activity.label}</span>
+          </div>
+        : null;
+    })}
+  </div>;
 }
 
 export function hasSuccessfulMutation(parts: Parameters<typeof messageText>[0]) {
@@ -240,6 +271,11 @@ export function AgentPanel({
   });
   const previousStatusRef = useRef(status);
   const active = status === "submitted" || status === "streaming";
+  const latestMessage = messages.at(-1);
+  const latestAssistantParts = status === "streaming" && latestMessage?.role === "assistant"
+    ? latestMessage.parts
+    : undefined;
+  const activity = currentAgentActivity(status, latestAssistantParts);
   const activeRef = useRef(active);
   const resizeRef = useRef<{
     pointerId: number;
@@ -650,7 +686,7 @@ export function AgentPanel({
         </div>
       </header>
 
-      <div className="agent-messages" ref={scrollRef} aria-live="polite" aria-busy={active}>
+      <div className="agent-messages" ref={scrollRef} aria-live="polite">
         {messages.length === 0 && (
           <div className="agent-empty">
             <span className="agent-empty-mark" aria-hidden="true">JS</span>
@@ -669,18 +705,21 @@ export function AgentPanel({
               <span>{message.role === "user" ? "YOU" : "AGENT"}</span>
               <i />
             </header>
-            <p>{messageText(message.parts)}</p>
+            <MessageParts message={message} />
           </article>
         ))}
-        {status === "submitted" && (
-          <div className="agent-thinking"><span /><span /><span /><b>ASSESSING SEARCH CONTEXT</b></div>
-        )}
       </div>
+
+      {activity && (
+        <div className={`agent-thinking is-${activity.tone}`} role="status" aria-live="polite" aria-busy={active}>
+          <span /><span /><span /><b>{activity.label}</b>
+        </div>
+      )}
 
       {(error || interactionFailure || conversationFailure) && (
         <div className="agent-error" role="alert">
           <span>RESPONSE INTERRUPTED</span>
-          <p>{conversationFailure || interactionFailure || error?.message || "The GigFinderAgent could not complete that response."}</p>
+          <p>{conversationFailure || interactionFailure || (error ? "The GigFinderAgent could not complete that response. Please retry." : "The GigFinderAgent could not complete that response.")}</p>
           <button type="button" onClick={retry} disabled={modelSaving}>Retry response</button>
           <button type="button" onClick={() => {
             clearError();

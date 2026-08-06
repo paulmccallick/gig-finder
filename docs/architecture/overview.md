@@ -20,7 +20,10 @@ flowchart LR
 ## Package boundaries
 
 - `src/core/` owns domain models, client-neutral contracts, validation, ports,
-  conversation orchestration, and application services. It has no dependency
+  conversation orchestration, framework-neutral sanitization of assistant text
+  and reasoning, and application services. User-authored identifiers and
+  structured tool and attachment data remain available for follow-up operations
+  while web presentation omits system-added capabilities. Core has no dependency
   on client or persistence packages.
 - `src/data/` implements core persistence ports, SQLite transactions, auditing,
   private context resolution, and managed filesystem projections.

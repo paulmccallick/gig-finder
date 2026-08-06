@@ -203,6 +203,81 @@ test("GigFinderAgent streams guidance and remains available across dashboard vie
   await panel.getByRole("button", { name: "Close GigFinder" }).click();
 });
 
+test("GigFinderAgent preserves delayed reasoning and tool activity through the final answer", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    const interceptedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.endsWith("/api/agent/messages")) return originalFetch(input, init);
+      const events = [
+        { delay: 120, value: { type: "start", messageId: "assistant-delayed" } },
+        { delay: 120, value: { type: "start-step" } },
+        { delay: 120, value: { type: "reasoning-start", id: "reasoning-1" } },
+        { delay: 180, value: { type: "reasoning-delta", id: "reasoning-1", delta: "I’ll check the current opportunities first." } },
+        { delay: 120, value: { type: "reasoning-end", id: "reasoning-1" } },
+        { delay: 120, value: { type: "tool-input-start", toolCallId: "raw-call-secret", toolName: "list_gigs", dynamic: true } },
+        { delay: 180, value: { type: "tool-input-available", toolCallId: "raw-call-secret", toolName: "list_gigs", input: { recordId: "raw-record-secret" }, dynamic: true } },
+        { delay: 180, value: { type: "tool-output-available", toolCallId: "raw-call-secret", output: { status: "ok", id: "raw-result-secret" }, dynamic: true } },
+        { delay: 120, value: { type: "reasoning-start", id: "reasoning-2" } },
+        { delay: 180, value: { type: "reasoning-delta", id: "reasoning-2", delta: "One role merits a closer look." } },
+        { delay: 120, value: { type: "reasoning-end", id: "reasoning-2" } },
+        { delay: 120, value: { type: "text-start", id: "text-delayed" } },
+        { delay: 180, value: { type: "text-delta", id: "text-delayed", delta: "Prioritize the Example Company engineering role." } },
+        { delay: 100, value: { type: "text-end", id: "text-delayed" } },
+        { delay: 50, value: { type: "finish-step" } },
+        { delay: 50, value: { type: "finish" } },
+      ];
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({
+        start(controller) {
+          const send = (index: number) => {
+            const event = events[index];
+            if (!event) {
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+              return;
+            }
+            window.setTimeout(() => {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event.value)}\n\n`));
+              send(index + 1);
+            }, event.delay);
+          };
+          send(0);
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "x-vercel-ai-ui-message-stream": "v1",
+        },
+      });
+    };
+    Object.defineProperty(window, "fetch", { configurable: true, value: interceptedFetch });
+  });
+
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "GigFinder" });
+  await panel.getByLabel("Message GigFinderAgent").fill("What should I prioritize?");
+  await panel.getByRole("button", { name: /Send/ }).click();
+  const activity = panel.locator(".agent-thinking");
+  await expect(activity).toContainText("Thinking");
+  await expect(activity).toHaveAttribute("aria-live", "polite");
+  await expect(activity).toHaveAttribute("aria-busy", "true");
+  expect(await activity.evaluate(element => element.parentElement?.classList.contains("agent-messages"))).toBe(false);
+  await expect(panel.getByLabel("Agent reasoning").first()).toContainText("current opportunities");
+  await expect(activity).toContainText("Searching gigs");
+  await expect(panel.locator(".agent-tool-activity")).toContainText("Searching gigs complete");
+  await expect(panel.getByLabel("Agent reasoning").nth(1)).toContainText("closer look");
+  await expect(panel).toContainText("Prioritize the Example Company engineering role.");
+  await expect(activity).toBeHidden();
+  const transcript = await panel.locator(".agent-messages").innerText();
+  expect(transcript.indexOf("current opportunities")).toBeLessThan(transcript.indexOf("Searching gigs complete"));
+  expect(transcript.indexOf("Searching gigs complete")).toBeLessThan(transcript.indexOf("closer look"));
+  expect(transcript.indexOf("closer look")).toBeLessThan(transcript.indexOf("Prioritize the Example Company"));
+  expect(transcript).not.toMatch(/raw-(?:call|record|result)-secret/);
+});
+
 test("GigFinderAgent surfaces and retries an interrupted empty response", async ({ page }) => {
   let attempts = 0;
   await page.route("**/api/agent/messages", async route => {
@@ -325,6 +400,8 @@ test("document upload stages without the agent and attaches to the next message"
   );
   await panel.getByRole("button", { name: /Send/ }).click();
   await expect.poll(() => agentRequests).toBe(1);
+  await expect(panel.locator(".agent-message.is-user").last()).toContainText("Attached document");
+  await expect(panel.locator(".agent-message.is-user").last()).not.toContainText(stagedReference);
   await expect(panel.getByRole("button", { name: "Discard" })).toBeDisabled();
   releaseAgentResponse();
   await expect(panel).toContainText("saved the uploaded source");
@@ -348,8 +425,12 @@ test("GigFinderAgent reopens and switches persisted conversations", async ({ pag
       body: JSON.stringify({
         conversation,
         messages: [
-          { id: `user-${id}`, role: "user", parts: [{ type: "text", text: `Question for ${conversation.title}` }] },
-          { id: `assistant-${id}`, role: "assistant", parts: [{ type: "text", text: `Answer for ${conversation.title}` }] },
+          { id: `user-${id}`, role: "user", parts: [{ type: "text", text: `Question for ${conversation.title}\n\nAttached staged document: [attached document]` }] },
+          { id: `assistant-${id}`, role: "assistant", parts: [
+            { type: "reasoning", text: `Reasoning for ${conversation.title}` },
+            { type: "tool-list_gigs", toolCallId: "restored-secret-call", state: "output-available", input: { id: "restored-secret-input" }, output: { id: "restored-secret-output" } },
+            { type: "text", text: `Answer for ${conversation.title}` },
+          ] },
         ],
       }),
     });
@@ -359,6 +440,11 @@ test("GigFinderAgent reopens and switches persisted conversations", async ({ pag
   const selector = panel.getByLabel("Conversation");
   await expect(selector).toHaveValue("conversation-latest");
   await expect(panel).toContainText("Answer for Latest strategy");
+  await expect(panel.locator(".agent-message.is-user")).toContainText("Attached document");
+  await expect(panel).not.toContainText("Attached staged document");
+  await expect(panel).toContainText("Reasoning for Latest strategy");
+  await expect(panel).toContainText("Searching gigs complete");
+  await expect(panel).not.toContainText("restored-secret");
   await selector.selectOption("conversation-older");
   await expect(panel).toContainText("Answer for Earlier interview");
 });

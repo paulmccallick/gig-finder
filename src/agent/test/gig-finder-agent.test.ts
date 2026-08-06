@@ -176,6 +176,9 @@ describe("GigFinderAgent instructions", () => {
     expect(genericGigFinderAgentSystemPrompt).not.toContain("Jordan");
     expect(genericGigFinderAgentSystemPrompt).not.toContain("Consumer services");
     expect(genericGigFinderAgentSystemPrompt).not.toContain("Senior Director");
+    expect(genericGigFinderAgentSystemPrompt).toContain("Never expose internal record");
+    expect(genericGigFinderAgentSystemPrompt).toContain("structured results already present in conversation context");
+    expect(genericGigFinderAgentSystemPrompt).toContain("ask one concise");
   });
 
   test("states the configured live-data boundary", () => {

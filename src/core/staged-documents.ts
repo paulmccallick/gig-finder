@@ -9,7 +9,10 @@ import {
 } from "./documents";
 import { DomainValidationError } from "./errors";
 
-export const stagedDocumentReferencePattern = /^staged-document:[0-9a-f-]+$/i;
+export const stagedDocumentReferencePattern = /^staged-document:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const isStagedDocumentReference = (value: string) =>
+  stagedDocumentReferencePattern.test(value);
 
 export interface StagedDocument {
   reference: string;
@@ -128,7 +131,7 @@ export class StagedDocumentService implements StagedDocumentAccess {
 
   get(reference: string): StagedDocument | null {
     this.removeExpired();
-    if (!stagedDocumentReferencePattern.test(reference)) return null;
+    if (!isStagedDocumentReference(reference)) return null;
     return this.documents.get(reference) ?? null;
   }
 
