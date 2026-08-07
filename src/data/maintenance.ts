@@ -185,7 +185,6 @@ export async function restoreVerifiedBackup(
   now=new Date(),
 ){
   const selected=verifyBackup(backupPath);
-  if(!selected.validation.ok)throw new Error(`Backup is not valid: ${backupPath}`);
 
   const preRestore=await createManagedBackup(databasePath,backupRoot,now);
   const temporary=`${databasePath}.restore-${process.pid}-${Date.now()}`;
@@ -193,12 +192,12 @@ export async function restoreVerifiedBackup(
   try{
     await writeFile(temporary,await readFile(backupPath),{flag:"wx"});
     const staged=verifyBackup(temporary);
-    if(!staged.validation.ok)throw new Error(`Staged restore is not valid: ${temporary}`);
+    if(staged.sha256!==selected.sha256)throw new Error(`Staged restore checksum mismatch: ${temporary}`);
     await rename(databasePath,displaced);
     try{
       await rename(temporary,databasePath);
       const restored=verifyBackup(databasePath);
-      if(!restored.validation.ok)throw new Error(`Restored database is not valid: ${databasePath}`);
+      if(restored.sha256!==selected.sha256)throw new Error(`Restored database checksum mismatch: ${databasePath}`);
       await unlink(displaced);
       return{restored,preRestore};
     }catch(error){
