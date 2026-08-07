@@ -355,8 +355,22 @@ function startBuiltServer(
       ...extraEnv,
     },
     stdout: "ignore",
-    stderr: "inherit",
+    stderr: "ignore",
   });
+}
+
+async function initializeState(stateRoot: string, revision: string) {
+  try {
+    await command("bun", ["dist/server/maintenance.js", "initialize"], {
+      env: {
+        ...process.env,
+        GIG_FINDER_CONTEXT_ROOT: stateRoot,
+        LOG_LEVEL: "error",
+      },
+    });
+  } catch (error) {
+    throw new SmokeFailure("health-and-migrations", revision, "database-initialize", reason(error));
+  }
 }
 
 async function runDeterministic(revision: string) {
@@ -369,6 +383,7 @@ async function runDeterministic(revision: string) {
   process.once("SIGTERM", interrupt);
   try {
     resources.stateRoot = await createStateRoot("deterministic");
+    await initializeState(resources.stateRoot, revision);
     const mockPort = await freePort();
     const mock = Bun.spawn(["bun", "dist/server/smoke-provider-server.js"], {
       cwd: repositoryRoot,
@@ -467,6 +482,7 @@ async function runLive(revision: string) {
   }
   await command("bun", ["run", "build"], { stdout: "inherit", stderr: "inherit" });
   const stateRoot = await createStateRoot("live");
+  await initializeState(stateRoot, revision);
   const port = await freePort();
   const server = startBuiltServer(revision, stateRoot, port, "live", { CODEX_HOME: codexHome });
   const cleanup = async () => {
