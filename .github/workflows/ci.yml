@@ -39,15 +39,8 @@ jobs:
         run: bun run test:e2e
       - name: Build production artifacts
         run: bun run build
-      - name: Build exact-revision production image
-        run: >-
-          docker build
-          --build-arg GIT_REVISION=${{ github.sha }}
-          --tag gig-finder-smoke:${{ github.sha }}
-          .
       - name: Run deterministic production smoke test
         env:
-          SMOKE_IMAGE: gig-finder-smoke:${{ github.sha }}
           SMOKE_REVISION: ${{ github.sha }}
         run: bun run smoke:deterministic
 

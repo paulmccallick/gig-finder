@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { gigFinderToolSchemas } from "../src/agent/gig-finder-tools";
@@ -84,10 +84,6 @@ async function createStateRoot(runMode: Mode) {
     path.join(root, "profile/candidate-profile.json"),
   );
   await writeFile(path.join(root, "upload.md"), "# Synthetic role\n\nSMOKE_DOCUMENT_CONTENT_67\n");
-  await chmod(root, 0o777);
-  for (const directory of ["data", "profile", "profile/documents", "artifacts", "logs", "backups"]) {
-    await chmod(path.join(root, directory), 0o777);
-  }
   return root;
 }
 
@@ -310,121 +306,106 @@ async function deterministicScenarios(baseURL: string, revision: string) {
   return { conversation, gigId, personId, documentId };
 }
 
-interface DockerResources {
-  containers: string[];
-  network?: string;
-  volume?: string;
+interface LocalResources {
+  processes: Array<{ kill(): void; exited: Promise<number> }>;
   stateRoot?: string;
-  builtImage?: string;
 }
 
-async function cleanupDocker(resources: DockerResources) {
-  for (const container of resources.containers.reverse()) {
-    try { await command("docker", ["stop", "--time", "3", container]); } catch { /* best effort */ }
-  }
-  if (resources.network) {
-    try { await command("docker", ["network", "rm", resources.network]); } catch { /* best effort */ }
-  }
-  if (resources.volume) {
-    try { await command("docker", ["volume", "rm", resources.volume]); } catch { /* best effort */ }
-  }
-  if (resources.builtImage) {
-    try { await command("docker", ["image", "rm", resources.builtImage]); } catch { /* best effort */ }
+async function cleanupLocal(resources: LocalResources) {
+  for (const process of resources.processes.reverse()) {
+    process.kill();
+    await Promise.race([process.exited, Bun.sleep(3_000)]);
   }
   if (resources.stateRoot) await rm(resources.stateRoot, { recursive: true, force: true });
 }
 
-async function mappedPort(container: string, containerPort: string) {
-  const mapping = await command("docker", ["port", container, containerPort]);
-  const port = Number(mapping.split("\n")[0]?.match(/:(\d+)$/)?.[1]);
-  if (!Number.isInteger(port)) throw new Error(`Could not resolve mapped port for ${containerPort}.`);
+async function freePort() {
+  const listener = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+  const port = listener.port;
+  listener.stop(true);
   return port;
 }
 
-async function seedDockerVolume(image: string, stateRoot: string, volume: string, resources: DockerResources) {
-  const helper = await command("docker", [
-    "run", "--detach", "--rm", "--user", "root",
-    "-v", `${volume}:/var/lib/gig-finder`, image,
-    "bun", "-e", "await Bun.sleep(300000)",
-  ]);
-  resources.containers.push(helper);
-  await command("docker", ["cp", `${stateRoot}/.`, `${helper}:/var/lib/gig-finder`]);
-  await command("docker", ["exec", helper, "chmod", "-R", "a+rwX", "/var/lib/gig-finder"]);
-  await command("docker", ["stop", "--time", "3", helper]);
-  resources.containers = resources.containers.filter(id => id !== helper);
-}
-
-async function startApplicationContainer(image: string, network: string, volume: string) {
-  const id = await command("docker", [
-    "run", "--detach", "--rm", "--network", network,
-    "-p", "127.0.0.1::3001",
-    "-e", "GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder",
-    "-e", "GIG_FINDER_SMOKE_MODE=deterministic",
-    "-e", "GIG_FINDER_SMOKE_PROVIDER_URL=http://smoke-provider:4010",
-    "-e", "LOG_LEVEL=error",
-    "-v", `${volume}:/var/lib/gig-finder`, image,
-  ]);
-  return { id, baseURL: `http://127.0.0.1:${await mappedPort(id, "3001/tcp")}` };
+function startBuiltServer(
+  revision: string,
+  stateRoot: string,
+  port: number,
+  smokeMode: Mode,
+  extraEnv: Record<string, string> = {},
+) {
+  return Bun.spawn(["bun", "dist/server/server.js"], {
+    cwd: repositoryRoot,
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      STATIC_ROOT: path.join(repositoryRoot, "dist/client"),
+      APP_REVISION: revision,
+      GIG_FINDER_CONTEXT_ROOT: stateRoot,
+      GIG_FINDER_SMOKE_MODE: smokeMode,
+      AI_SDK_DEVTOOLS: "false",
+      LOG_LEVEL: "error",
+      ...extraEnv,
+    },
+    stdout: "ignore",
+    stderr: "ignore",
+  });
 }
 
 async function runDeterministic(revision: string) {
   const startedAt = Date.now();
-  const resources: DockerResources = { containers: [] };
-  const interrupt = () => void cleanupDocker(resources).finally(() => process.exit(130));
+  await requireClean(revision);
+  await command("bun", ["run", "build"], { stdout: "inherit", stderr: "inherit" });
+  const resources: LocalResources = { processes: [] };
+  const interrupt = () => void cleanupLocal(resources).finally(() => process.exit(130));
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
   try {
-    const suppliedImage = Bun.env.SMOKE_IMAGE?.trim();
-    let image = suppliedImage;
-    if (!image) {
-      await requireClean(revision);
-      image = `gig-finder-smoke:${revision}`;
-      await command("docker", ["build", "--build-arg", `GIT_REVISION=${revision}`, "--tag", image, "."], { stdout: "inherit", stderr: "inherit" });
-      resources.builtImage = image;
-    }
     resources.stateRoot = await createStateRoot("deterministic");
-    resources.volume = `gig-finder-smoke-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
-    await command("docker", ["volume", "create", resources.volume]);
-    await seedDockerVolume(image, resources.stateRoot, resources.volume, resources);
-    resources.network = `gig-finder-smoke-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
-    await command("docker", ["network", "create", resources.network]);
-    const mockId = await command("docker", [
-      "run", "--detach", "--rm", "--network", resources.network, "--network-alias", "smoke-provider",
-      "-p", "127.0.0.1::4010", "-e", "PORT=4010", image, "bun", "dist/server/smoke-provider-server.js",
-    ]);
-    resources.containers.push(mockId);
-    const mockBaseURL = `http://127.0.0.1:${await mappedPort(mockId, "4010/tcp")}`;
-    await command("docker", [
-      "run", "--rm", "-e", "GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder",
-      "-v", `${resources.volume}:/var/lib/gig-finder`, image,
-      "bun", "dist/server/maintenance.js", "initialize",
-    ]);
-    let application = await startApplicationContainer(image, resources.network, resources.volume);
-    resources.containers.push(application.id);
-    await waitForHealth(application.baseURL, revision, "deterministic-health");
-    const state = await deterministicScenarios(application.baseURL, revision);
+    const mockPort = await freePort();
+    const mock = Bun.spawn(["bun", "dist/server/smoke-provider-server.js"], {
+      cwd: repositoryRoot,
+      env: { ...process.env, HOST: "127.0.0.1", PORT: String(mockPort) },
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    resources.processes.push(mock);
+    const mockBaseURL = `http://127.0.0.1:${mockPort}`;
+    await waitForEndpoint(`${mockBaseURL}/status`, revision, "mock-provider-health");
 
-    await command("docker", ["stop", "--time", "3", application.id]);
-    resources.containers = resources.containers.filter(id => id !== application.id);
-    application = await startApplicationContainer(image, resources.network, resources.volume);
-    resources.containers.push(application.id);
-    await waitForHealth(application.baseURL, revision, "restart-health");
-    const conversations = await (await fetch(`${application.baseURL}/api/agent/conversations`)).json() as { conversations?: unknown[] };
-    const restored = await (await fetch(`${application.baseURL}/api/agent/conversations/${state.conversation}`)).json() as JsonRecord;
+    const appPort = await freePort();
+    let application = startBuiltServer(revision, resources.stateRoot, appPort, "deterministic", {
+      GIG_FINDER_SMOKE_PROVIDER_URL: mockBaseURL,
+    });
+    resources.processes.push(application);
+    const baseURL = `http://127.0.0.1:${appPort}`;
+    await waitForHealth(baseURL, revision, "deterministic-health");
+    const state = await deterministicScenarios(baseURL, revision);
+
+    application.kill();
+    await Promise.race([application.exited, Bun.sleep(3_000)]);
+    resources.processes = resources.processes.filter(process => process !== application);
+    application = startBuiltServer(revision, resources.stateRoot, appPort, "deterministic", {
+      GIG_FINDER_SMOKE_PROVIDER_URL: mockBaseURL,
+    });
+    resources.processes.push(application);
+    await waitForHealth(baseURL, revision, "restart-health");
+    const conversations = await (await fetch(`${baseURL}/api/agent/conversations`)).json() as { conversations?: unknown[] };
+    const restored = await (await fetch(`${baseURL}/api/agent/conversations/${state.conversation}`)).json() as JsonRecord;
     if (!Array.isArray(conversations.conversations) || !record(restored.conversation) || !Array.isArray(restored.messages)) {
       throw new SmokeFailure("restart-persistence", revision, "restart-load", "Conversation did not survive application restart.");
     }
     const hydrationText = "SMOKE_DOCUMENT_CONTENT_67";
     const hydration = Buffer.from(hydrationText).toString("base64url");
     await sendMessage(
-      application.baseURL,
+      baseURL,
       revision,
       state.conversation,
       `SMOKE_HYDRATION:restart-hydration:${hydration}`,
       "document-hydration",
     );
-    const gigs = await (await fetch(`${application.baseURL}/api/gigs`)).json() as unknown;
-    const people = await (await fetch(`${application.baseURL}/api/people`)).json() as unknown;
+    const gigs = await (await fetch(`${baseURL}/api/gigs`)).json() as unknown;
+    const people = await (await fetch(`${baseURL}/api/people`)).json() as unknown;
     if (!JSON.stringify(gigs).includes(state.gigId) || !JSON.stringify(people).includes(state.personId)) {
       throw new SmokeFailure("restart-persistence", revision, "restart-records", "Synthetic records did not survive application restart.");
     }
@@ -439,7 +420,6 @@ async function runDeterministic(revision: string) {
     return {
       mode: "deterministic",
       revision,
-      image,
       tools: seenTools.length,
       registryValidations: providerStatus.registryValidations,
       restart: "passed",
@@ -449,15 +429,23 @@ async function runDeterministic(revision: string) {
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", interrupt);
-    await cleanupDocker(resources);
+    await cleanupLocal(resources);
   }
 }
 
-async function freePort() {
-  const listener = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
-  const port = listener.port;
-  listener.stop(true);
-  return port;
+async function waitForEndpoint(url: string, revision: string, correlationId: string) {
+  let last = "not ready";
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
+      if (response.ok) return;
+      last = `status ${response.status}`;
+    } catch (error) {
+      last = reason(error);
+    }
+    await Bun.sleep(250);
+  }
+  throw new SmokeFailure("provider-health", revision, correlationId, last);
 }
 
 async function runLive(revision: string) {
@@ -472,25 +460,9 @@ async function runLive(revision: string) {
   await command("bun", ["run", "build"], { stdout: "inherit", stderr: "inherit" });
   const stateRoot = await createStateRoot("live");
   const port = await freePort();
-  const server = Bun.spawn(["bun", "dist/server/server.js"], {
-    cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      HOST: "127.0.0.1",
-      PORT: String(port),
-      STATIC_ROOT: path.join(repositoryRoot, "dist/client"),
-      APP_REVISION: revision,
-      GIG_FINDER_CONTEXT_ROOT: stateRoot,
-      GIG_FINDER_SMOKE_MODE: "live",
-      CODEX_HOME: codexHome,
-      AI_SDK_DEVTOOLS: "false",
-      LOG_LEVEL: "error",
-    },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  const server = startBuiltServer(revision, stateRoot, port, "live", { CODEX_HOME: codexHome });
   const cleanup = async () => {
-    server.kill("SIGTERM");
+    server.kill();
     await Promise.race([server.exited, Bun.sleep(3_000)]);
     await rm(stateRoot, { recursive: true, force: true });
   };

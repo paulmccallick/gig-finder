@@ -26,14 +26,14 @@ bun run smoke:deterministic
 bun run smoke:live
 ```
 
-Deterministic mode builds and tags that commit's production Docker image when
-`SMOKE_IMAGE` is absent. CI instead passes the image it already built together
-with `SMOKE_REVISION`. The harness creates a unique Docker network, random host
-ports, a new SQLite database, and isolated synthetic configuration, profile,
-documents, artifacts, logs, and backups under ignored `tmp/`. It validates the
-embedded revision, migrations and health, every registered tool, audited
-mutations, upload and document hydration, conversation resume, and an
-application restart against the same database. No Codex credentials are used.
+Deterministic mode runs `bun run build`, starts the built production server and
+a smoke-only mock provider on random loopback ports, and creates a new
+file-backed SQLite database with isolated synthetic configuration, profile,
+documents, artifacts, logs, and backups under ignored `tmp/`. CI supplies
+`SMOKE_REVISION` to confirm the checkout revision. The harness validates
+migrations and health, every registered tool, audited mutations, upload and
+document hydration, conversation resume, and an application restart against
+the same database. No Codex credentials are used.
 
 Live mode requires an existing local Codex login in `CODEX_HOME` (or the
 default `~/.codex`). It refuses a dirty worktree, runs `bun run build`, starts
@@ -48,11 +48,11 @@ conversation; normal subscription access rather than API-key billing is used.
 Both commands print one bounded JSON result containing the tested revision and
 duration. Failures name the phase, revision, correlation ID, tool when known,
 and a short reason without printing schemas, document content, prompts, or
-credentials. Success, failure, timeout, and interruption all stop processes,
-remove containers and networks, and delete the unique temporary state. A
-commit after either run invalidates its evidence; developers and independent
-reviewers must rerun both commands against the new exact HEAD and record the
-results in the pull request smoke-evidence block.
+credentials. Success, failure, timeout, and interruption stop child processes
+and delete the unique temporary state. A commit after either run invalidates
+its evidence; developers and independent reviewers must rerun both commands
+against the new exact HEAD and record the results in the pull request
+smoke-evidence block.
 
 ## Initial bootstrap
 
