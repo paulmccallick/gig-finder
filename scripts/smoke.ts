@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { gigFinderToolSchemas } from "../src/agent/gig-finder-tools";
@@ -87,7 +87,7 @@ async function createStateRoot(runMode: Mode) {
   return root;
 }
 
-async function waitForHealth(baseURL: string, expectedRevision: string, correlationId: string) {
+async function waitForHealth(baseURL: string, expectedRevision: string, correlationId: string, logPath?: string) {
   let last = "not ready";
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
@@ -99,6 +99,13 @@ async function waitForHealth(baseURL: string, expectedRevision: string, correlat
       last = reason(error);
     }
     await Bun.sleep(250);
+  }
+  if (logPath) {
+    try {
+      const log = await readFile(logPath, "utf8");
+      const latest = log.trim().split("\n").at(-1);
+      if (latest) last = reason(latest);
+    } catch { /* startup can fail before logging is configured */ }
   }
   throw new SmokeFailure("health-and-migrations", expectedRevision, correlationId, last);
 }
@@ -379,7 +386,8 @@ async function runDeterministic(revision: string) {
     });
     resources.processes.push(application);
     const baseURL = `http://127.0.0.1:${appPort}`;
-    await waitForHealth(baseURL, revision, "deterministic-health");
+    const serverLog = path.join(resources.stateRoot, "logs/server.log");
+    await waitForHealth(baseURL, revision, "deterministic-health", serverLog);
     const state = await deterministicScenarios(baseURL, revision);
 
     application.kill();
@@ -389,7 +397,7 @@ async function runDeterministic(revision: string) {
       GIG_FINDER_SMOKE_PROVIDER_URL: mockBaseURL,
     });
     resources.processes.push(application);
-    await waitForHealth(baseURL, revision, "restart-health");
+    await waitForHealth(baseURL, revision, "restart-health", serverLog);
     const conversations = await (await fetch(`${baseURL}/api/agent/conversations`)).json() as { conversations?: unknown[] };
     const restored = await (await fetch(`${baseURL}/api/agent/conversations/${state.conversation}`)).json() as JsonRecord;
     if (!Array.isArray(conversations.conversations) || !record(restored.conversation) || !Array.isArray(restored.messages)) {
@@ -471,7 +479,7 @@ async function runLive(revision: string) {
   process.once("SIGTERM", interrupt);
   try {
     const baseURL = `http://127.0.0.1:${port}`;
-    await waitForHealth(baseURL, revision, "live-health");
+    await waitForHealth(baseURL, revision, "live-health", path.join(stateRoot, "logs/server.log"));
     const timeoutMs = Number(Bun.env.SMOKE_LIVE_TIMEOUT_MS ?? "90000");
     const response = await sendMessage(
       baseURL,
