@@ -181,7 +181,10 @@ async function invokeTool(
   }
   const output = outputEvent.output;
   if ("status" in output && output.status !== "ok") {
-    throw new SmokeFailure("tool-operation", revision, result.correlationId, `Tool returned ${String(output.status)}.`, tool);
+    const detail = typeof output.error === "string"
+      ? output.error
+      : typeof output.message === "string" ? output.message : String(output.status);
+    throw new SmokeFailure("tool-operation", revision, result.correlationId, `Tool returned ${reason(detail)}.`, tool);
   }
   if (mutationTools.has(tool) && typeof output.changeId !== "string") {
     throw new SmokeFailure("audited-mutation", revision, result.correlationId, "Mutation did not return an audit change ID.", tool);
@@ -310,6 +313,7 @@ async function deterministicScenarios(baseURL: string, revision: string) {
 interface DockerResources {
   containers: string[];
   network?: string;
+  volume?: string;
   stateRoot?: string;
   builtImage?: string;
 }
@@ -320,6 +324,9 @@ async function cleanupDocker(resources: DockerResources) {
   }
   if (resources.network) {
     try { await command("docker", ["network", "rm", resources.network]); } catch { /* best effort */ }
+  }
+  if (resources.volume) {
+    try { await command("docker", ["volume", "rm", resources.volume]); } catch { /* best effort */ }
   }
   if (resources.builtImage) {
     try { await command("docker", ["image", "rm", resources.builtImage]); } catch { /* best effort */ }
@@ -334,7 +341,20 @@ async function mappedPort(container: string, containerPort: string) {
   return port;
 }
 
-async function startApplicationContainer(image: string, network: string, stateRoot: string) {
+async function seedDockerVolume(image: string, stateRoot: string, volume: string, resources: DockerResources) {
+  const helper = await command("docker", [
+    "run", "--detach", "--rm", "--user", "root",
+    "-v", `${volume}:/var/lib/gig-finder`, image,
+    "bun", "-e", "await Bun.sleep(300000)",
+  ]);
+  resources.containers.push(helper);
+  await command("docker", ["cp", `${stateRoot}/.`, `${helper}:/var/lib/gig-finder`]);
+  await command("docker", ["exec", helper, "chmod", "-R", "a+rwX", "/var/lib/gig-finder"]);
+  await command("docker", ["stop", "--time", "3", helper]);
+  resources.containers = resources.containers.filter(id => id !== helper);
+}
+
+async function startApplicationContainer(image: string, network: string, volume: string) {
   const id = await command("docker", [
     "run", "--detach", "--rm", "--network", network,
     "-p", "127.0.0.1::3001",
@@ -342,7 +362,7 @@ async function startApplicationContainer(image: string, network: string, stateRo
     "-e", "GIG_FINDER_SMOKE_MODE=deterministic",
     "-e", "GIG_FINDER_SMOKE_PROVIDER_URL=http://smoke-provider:4010",
     "-e", "LOG_LEVEL=error",
-    "-v", `${stateRoot}:/var/lib/gig-finder`, image,
+    "-v", `${volume}:/var/lib/gig-finder`, image,
   ]);
   return { id, baseURL: `http://127.0.0.1:${await mappedPort(id, "3001/tcp")}` };
 }
@@ -363,27 +383,30 @@ async function runDeterministic(revision: string) {
       resources.builtImage = image;
     }
     resources.stateRoot = await createStateRoot("deterministic");
+    resources.volume = `gig-finder-smoke-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
+    await command("docker", ["volume", "create", resources.volume]);
+    await seedDockerVolume(image, resources.stateRoot, resources.volume, resources);
     resources.network = `gig-finder-smoke-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
     await command("docker", ["network", "create", resources.network]);
     const mockId = await command("docker", [
       "run", "--detach", "--rm", "--network", resources.network, "--network-alias", "smoke-provider",
-      "-p", "127.0.0.1::4010", image, "bun", "dist/server/smoke-provider-server.js",
+      "-p", "127.0.0.1::4010", "-e", "PORT=4010", image, "bun", "dist/server/smoke-provider-server.js",
     ]);
     resources.containers.push(mockId);
     const mockBaseURL = `http://127.0.0.1:${await mappedPort(mockId, "4010/tcp")}`;
     await command("docker", [
       "run", "--rm", "-e", "GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder",
-      "-v", `${resources.stateRoot}:/var/lib/gig-finder`, image,
+      "-v", `${resources.volume}:/var/lib/gig-finder`, image,
       "bun", "dist/server/maintenance.js", "initialize",
     ]);
-    let application = await startApplicationContainer(image, resources.network, resources.stateRoot);
+    let application = await startApplicationContainer(image, resources.network, resources.volume);
     resources.containers.push(application.id);
     await waitForHealth(application.baseURL, revision, "deterministic-health");
     const state = await deterministicScenarios(application.baseURL, revision);
 
     await command("docker", ["stop", "--time", "3", application.id]);
     resources.containers = resources.containers.filter(id => id !== application.id);
-    application = await startApplicationContainer(image, resources.network, resources.stateRoot);
+    application = await startApplicationContainer(image, resources.network, resources.volume);
     resources.containers.push(application.id);
     await waitForHealth(application.baseURL, revision, "restart-health");
     const conversations = await (await fetch(`${application.baseURL}/api/agent/conversations`)).json() as { conversations?: unknown[] };
