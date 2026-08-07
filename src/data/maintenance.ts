@@ -40,6 +40,12 @@ export interface DailyBackupResult {
   pruned:string[];
 }
 
+function requireIntrinsicValidity(report:BackupReport,description:string){
+  if(report.validation.integrity!=="ok"||report.validation.foreignKeyViolations>0){
+    throw new Error(`${description} failed intrinsic validation: ${report.validation.issues.map((issue)=>issue.message).join("; ")}`);
+  }
+}
+
 export function validateDatabase(database:Database):ValidationReport {
   const issues:ValidationIssue[]=[];
   const integrityRows=database.query("PRAGMA integrity_check").all() as Record<string,unknown>[];
@@ -80,7 +86,9 @@ export async function createVerifiedBackup(databasePath:string,outputPath:string
     await mkdir(path.dirname(outputPath),{recursive:true});
     await writeFile(temporary,contents,{flag:"wx"});
     await rename(temporary,outputPath);
-    return verifyBackup(outputPath);
+    const backup=verifyBackup(outputPath);
+    try{requireIntrinsicValidity(backup,"Backup");}catch(error){await unlink(outputPath);throw error;}
+    return backup;
   }finally{
     source.close();
     await unlink(temporary).catch(()=>undefined);
@@ -185,6 +193,7 @@ export async function restoreVerifiedBackup(
   now=new Date(),
 ){
   const selected=verifyBackup(backupPath);
+  requireIntrinsicValidity(selected,"Backup");
 
   const preRestore=await createManagedBackup(databasePath,backupRoot,now);
   const temporary=`${databasePath}.restore-${process.pid}-${Date.now()}`;
@@ -192,11 +201,13 @@ export async function restoreVerifiedBackup(
   try{
     await writeFile(temporary,await readFile(backupPath),{flag:"wx"});
     const staged=verifyBackup(temporary);
+    requireIntrinsicValidity(staged,"Staged restore");
     if(staged.sha256!==selected.sha256)throw new Error(`Staged restore checksum mismatch: ${temporary}`);
     await rename(databasePath,displaced);
     try{
       await rename(temporary,databasePath);
       const restored=verifyBackup(databasePath);
+      requireIntrinsicValidity(restored,"Restored database");
       if(restored.sha256!==selected.sha256)throw new Error(`Restored database checksum mismatch: ${databasePath}`);
       await unlink(displaced);
       return{restored,preRestore};
