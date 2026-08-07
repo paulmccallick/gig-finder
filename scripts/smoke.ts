@@ -481,6 +481,19 @@ async function waitForEndpoint(url: string, revision: string, correlationId: str
   throw new SmokeFailure("provider-health", revision, correlationId, last);
 }
 
+async function latestLoggedError(logPath: string) {
+  try {
+    const lines = (await readFile(logPath, "utf8")).trim().split("\n").reverse();
+    for (const line of lines) {
+      const parsed: unknown = JSON.parse(line);
+      if (!record(parsed) || Number(parsed.level) < 50) continue;
+      if (record(parsed.err) && typeof parsed.err.message === "string") return reason(parsed.err.message);
+      if (typeof parsed.msg === "string") return reason(parsed.msg);
+    }
+  } catch { /* a provider failure can occur before a log file is written */ }
+  return null;
+}
+
 async function runLive(revision: string) {
   const startedAt = Date.now();
   await requireClean(revision);
@@ -507,15 +520,24 @@ async function runLive(revision: string) {
     const baseURL = `http://127.0.0.1:${port}`;
     await waitForHealth(baseURL, revision, "live-health", path.join(stateRoot, "logs/server.log"));
     const timeoutMs = Number(Bun.env.SMOKE_LIVE_TIMEOUT_MS ?? "90000");
-    const response = await sendMessage(
-      baseURL,
-      revision,
-      "smoke-live-67",
-      "This is a bounded synthetic pre-release smoke check. Do not create, update, delete, or revert anything. Reply briefly that the registry is accepted, or make one harmless read-only list call.",
-      "live-provider",
-      undefined,
-      timeoutMs,
-    );
+    let response: Awaited<ReturnType<typeof sendMessage>>;
+    try {
+      response = await sendMessage(
+        baseURL,
+        revision,
+        "smoke-live-67",
+        "This is a bounded synthetic pre-release smoke check. Do not create, update, delete, or revert anything. Reply briefly that the registry is accepted, or make one harmless read-only list call.",
+        "live-provider",
+        undefined,
+        timeoutMs,
+      );
+    } catch (error) {
+      if (error instanceof SmokeFailure) {
+        const detail = await latestLoggedError(path.join(stateRoot, "logs/server.log"));
+        if (detail) throw new SmokeFailure(error.phase, revision, error.correlationId, detail, error.tool);
+      }
+      throw error;
+    }
     const tools = response.events
       .filter(event => event.type === "tool-input-available" && typeof event.toolName === "string")
       .map(event => String(event.toolName));
