@@ -1,7 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "./errors";
 import { MutationError } from "../core/errors";
-import type { BusinessEventInput, ChangeContext, ChangeResult, EntityRecord, EventSourceInput, GigData, GigPersonData, MeetingData, MeetingParticipantData, PersonData, RevertedRecord, TaskData } from "../core/models";
+import type { ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, RevertedRecord, TaskData } from "../core/models";
 import {
   SqliteDocumentReadRepository,
   SqliteDocumentWriteRepository,
@@ -23,25 +23,25 @@ interface RepositoryConfig<T extends DataRecord> { entity: string; table: string
 
 const baseColumns = { revision: "revision", isDeleted: "is_deleted", createdAt: "created_at", updatedAt: "updated_at" } as const;
 const gigColumns: ColumnMap<GigData> = { id:"id",company:"company",title:"title",externalJobId:"external_job_id",stage:"stage",outcome:"outcome",statusSummary:"status_summary",lastActivity:"last_activity",nextActionDescription:"next_action_description",nextActionDue:"next_action_due",fitRating:"fit_rating",fitSummary:"fit_summary",payCurrency:"pay_currency",payMinimum:"pay_minimum",payMaximum:"pay_maximum",payPeriod:"pay_period",payNotes:"pay_notes",sourceUrl:"source_url",location:"location",workArrangement:"work_arrangement",postedDate:"posted_date",businessUnitTeam:"business_unit_team",recruiterSource:"recruiter_source",bonus:"bonus",equity:"equity",otherCompensation:"other_compensation",tagsJson:"tags_json",hasJobDescription:"has_job_description",hasInterviewPrep:"has_interview_prep" };
-const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",lastContacted:"last_contacted",lastContactMethod:"last_contact_method",lastContactSummary:"last_contact_summary",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
+const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",nextAction:"next_action",nextActionDue:"next_action_due",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
 const gigPersonColumns:ColumnMap<GigPersonData>={id:"id",gigId:"gig_id",personId:"person_id",relationship:"relationship",notes:"notes"};
 const taskColumns: ColumnMap<TaskData> = { id:"id",title:"title",type:"type",status:"status",priority:"priority",dueDate:"due_date",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",relatedEntityLabel:"related_entity_label",notes:"notes",completedAt:"completed_at" };
-const meetingColumns: ColumnMap<MeetingData> = { id:"id",title:"title",startsAt:"starts_at",endsAt:"ends_at",timezone:"timezone",location:"location",description:"description",status:"status",gigId:"gig_id",externalCalendarId:"external_calendar_id",externalEventId:"external_event_id" };
-const meetingParticipantColumns: ColumnMap<MeetingParticipantData> = { id:"id",meetingId:"meeting_id",personId:"person_id" };
+const interactionColumns: ColumnMap<InteractionData> = { id:"id",subject:"subject",kind:"kind",channel:"channel",direction:"direction",status:"status",startsAt:"starts_at",endsAt:"ends_at",timezone:"timezone",location:"location",summary:"summary",notes:"notes",gigId:"gig_id",supersedesInteractionId:"supersedes_interaction_id",originChangeId:"origin_change_id",structuredDataJson:"structured_data_json" };
+const interactionParticipantColumns: ColumnMap<InteractionParticipantData> = { id:"id",interactionId:"interaction_id",personId:"person_id" };
 
 const configs = {
   gigs: { entity:"gig", table:"gigs", historyTable:"gig_history", columns: gigColumns,booleans:["hasJobDescription","hasInterviewPrep"] } satisfies RepositoryConfig<GigData>,
   people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns} satisfies RepositoryConfig<PersonData>,
   gigPeople:{entity:"gig-person",table:"gig_people",historyTable:"gig_people_history",columns:gigPersonColumns} satisfies RepositoryConfig<GigPersonData>,
   tasks: { entity:"task", table:"tasks", historyTable:"task_history", columns: taskColumns } satisfies RepositoryConfig<TaskData>,
-  meetings: { entity:"meeting", table:"meetings", historyTable:"meeting_history", columns: meetingColumns } satisfies RepositoryConfig<MeetingData>,
-  meetingParticipants: { entity:"meeting-participant", table:"meeting_participants", historyTable:"meeting_participant_history", columns: meetingParticipantColumns } satisfies RepositoryConfig<MeetingParticipantData>,
+  interactions: { entity:"interaction", table:"interactions", historyTable:"interaction_history", columns: interactionColumns } satisfies RepositoryConfig<InteractionData>,
+  interactionParticipants: { entity:"interaction-participant", table:"interaction_participants", historyTable:"interaction_participant_history", columns: interactionParticipantColumns } satisfies RepositoryConfig<InteractionParticipantData>,
 };
 
 const quote = (identifier: string) => `"${identifier}"`;
 const placeholders = (count: number) => Array.from({ length: count }, () => "?").join(", ");
 const now = (context: ChangeContext) => context.occurredAt ?? new Date().toISOString();
-const id = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
+const id = (prefix:string)=>`${prefix}_${crypto.randomUUID()}`;
 const toBinding = (value: Scalar): SQLQueryBindings => typeof value === "boolean" ? Number(value) : value;
 
 function fromRow<T extends DataRecord>(row: Record<string, unknown>, config: RepositoryConfig<T>): EntityRecord<T> {
@@ -188,13 +188,13 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly gigs: MutationRepository<GigData>; readonly people:MutationRepository<PersonData>;readonly gigPeople:MutationRepository<GigPersonData>; readonly tasks: MutationRepository<TaskData>; readonly meetings: MutationRepository<MeetingData>; readonly meetingParticipants: MutationRepository<MeetingParticipantData>; readonly documents: SqliteDocumentWriteRepository;
+  readonly gigs: MutationRepository<GigData>; readonly people:MutationRepository<PersonData>;readonly gigPeople:MutationRepository<GigPersonData>; readonly tasks: MutationRepository<TaskData>; readonly interactions: MutationRepository<InteractionData>; readonly interactionParticipants: MutationRepository<InteractionParticipantData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
     this.gigs = new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.gigPeople=new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
     this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.meetings = new MutationRepository(database, configs.meetings, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.meetingParticipants = new MutationRepository(database, configs.meetingParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.interactions = new MutationRepository(database, configs.interactions, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.interactionParticipants = new MutationRepository(database, configs.interactionParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
     this.documents = new SqliteDocumentWriteRepository(
       database,
       context,
@@ -204,21 +204,10 @@ export class ChangeTransaction {
   recordCreationFingerprint(entityType:string,entityId:string,payloadHash:string):void{
     this.database.query("INSERT INTO creation_idempotency (change_id, entity_type, entity_id, payload_hash) VALUES (?, ?, ?, ?)").run(this.changeId,entityType,entityId,payloadHash);
   }
-  recordEvent(input: BusinessEventInput): string {
-    const eventId = input.id ?? id("evt");
-    this.database.query("INSERT INTO business_events (id, change_id, type, entity_type, entity_id, occurred_at, summary, data_json, supersedes_event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(eventId, this.changeId, input.type, input.entityType, input.entityId, input.occurredAt, input.summary, JSON.stringify(input.data ?? {}), input.supersedesEventId ?? null);
-    for (const source of input.sources ?? []) this.recordSource(eventId, source);
-    return eventId;
-  }
-  recordSource(eventId: string, source: EventSourceInput): string {
-    const sourceId = source.id ?? id("src");
-    this.database.query("INSERT INTO event_sources (id, event_id, source_system, external_id, source_timestamp, source_uri, imported_at, content_hash, excerpt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(sourceId, eventId, source.sourceSystem, source.externalId ?? null, source.sourceTimestamp ?? null, source.sourceUri ?? null, source.importedAt, source.contentHash ?? null, source.excerpt ?? null);
-    return sourceId;
-  }
 }
 
 export class DataStore {
-  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly meetings: ReadRepository<MeetingData>; readonly meetingParticipants: ReadRepository<MeetingParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
+  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly interactions: ReadRepository<InteractionData>; readonly interactionParticipants: ReadRepository<InteractionParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
   constructor(
     private readonly database: Database,
     private readonly profileDocuments?: ProfileDocumentMaterializer,
@@ -226,7 +215,7 @@ export class DataStore {
       error: unknown,
       document: ManagedDocumentRecord,
     ) => void = () => undefined,
-  ) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.meetings = new ReadRepository(database, configs.meetings); this.meetingParticipants = new ReadRepository(database, configs.meetingParticipants); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
+  ) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.interactions = new ReadRepository(database, configs.interactions); this.interactionParticipants = new ReadRepository(database, configs.interactionParticipants); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
   synchronizeProfileDocuments(): void {
     if (!this.profileDocuments) return;
     for (const document of this.documents.list("profile", candidateProfileId)) {
@@ -281,9 +270,15 @@ export class DataStore {
       people: this.historyRecords(targetChangeId, configs.people),
       gigPeople: this.historyRecords(targetChangeId, configs.gigPeople),
       tasks: this.historyRecords(targetChangeId, configs.tasks),
-      meetings: this.historyRecords(targetChangeId, configs.meetings),
-      meetingParticipants: this.historyRecords(targetChangeId, configs.meetingParticipants),
+      interactions: this.historyRecords(targetChangeId, configs.interactions),
+      interactionParticipants: this.historyRecords(targetChangeId, configs.interactionParticipants),
     };
+    for(const snapshot of snapshots.interactions){
+      if(snapshot.operation!=="create")continue;
+      const dependent=this.interactions.list().find(item=>item.supersedesInteractionId===snapshot.record.id);
+      if(dependent)throw new MutationError("not_revertible",`Cannot revert interaction ${snapshot.record.id} because active Interaction ${dependent.id} supersedes it.`);
+    }
+    for(const snapshot of snapshots.interactions){const target=snapshot.record.supersedesInteractionId;if(target&&!this.interactions.get(target))throw new MutationError("not_revertible",`Cannot revert interaction ${snapshot.record.id} because superseded Interaction ${target} is not active.`)}
     if (Object.values(snapshots).every(records => records.length === 0)) {
       throw new MutationError(
         "not_revertible",
@@ -298,8 +293,8 @@ export class DataStore {
         ...this.restoreRecords(snapshots.people, this.people, transaction.people, "person"),
         ...this.restoreRecords(snapshots.gigPeople, this.gigPeople, transaction.gigPeople, "gig-person"),
         ...this.restoreRecords(snapshots.tasks, this.tasks, transaction.tasks, "task"),
-        ...this.restoreRecords(snapshots.meetings, this.meetings, transaction.meetings, "meeting"),
-        ...this.restoreRecords(snapshots.meetingParticipants, this.meetingParticipants, transaction.meetingParticipants, "meeting-participant"),
+        ...this.restoreRecords(snapshots.interactionParticipants, this.interactionParticipants, transaction.interactionParticipants, "interaction-participant"),
+        ...this.restoreRecords(snapshots.interactions, this.interactions, transaction.interactions, "interaction"),
       ],
     );
   }

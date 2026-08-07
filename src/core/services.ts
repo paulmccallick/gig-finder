@@ -1,5 +1,5 @@
 import type { AuditPort, Persistence } from "./ports";
-import type { BusinessEventInput, ChangeContext, EntityName, EntityRecord, GigPersonData, MeetingData, MeetingParticipantData, PersonData } from "./models";
+import type { ChangeContext, EntityName, EntityRecord, GigPersonData, PersonData } from "./models";
 import {
   comparePeople,
   personPriorities,
@@ -15,23 +15,11 @@ import {
   type PersonInput,
 } from "./people";
 import {
-  meetingStatuses,
-  meetingInstant,
-  meetingParticipantId,
-  meetingTimezoneSchema,
-  meetingInputSchema,
-  type Meeting,
-  type MeetingRecord,
-  type MeetingStatus,
-  type MeetingInput,
-} from "./meetings";
-import {
   matchesQuery,
   normalizedQuery,
   pacificDate,
   page,
   type GigPersonRelationshipQueryInput,
-  type MeetingQueryInput,
   type Page,
   type PageResult,
   type PeopleQueryInput,
@@ -44,12 +32,11 @@ import { ChangeExecutor, creationPayloadHash, type MutationOptions, type Mutatio
 import { deepPatch } from "./tracker-services";
 import { gigPersonRelationshipEntitySchema, gigPersonRelationshipInputSchema, type GigPersonRelationshipInput } from "./gig-people";
 
-export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string}|{resource:"events";entityType?:string;entityId?:string};
+export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string};
 
 type PersonRelationshipData = Pick<PersonData,
   "relationshipType" | "relationshipStrength" | "introducedBy" | "relationshipNotes"
-  | "priority" | "status" | "lastContacted" | "lastContactMethod" | "lastContactSummary"
-  | "nextAction" | "nextActionDue" | "whyInteresting" | "notesJson" | "tagsJson">;
+  | "priority" | "status" | "nextAction" | "nextActionDue" | "whyInteresting" | "notesJson" | "tagsJson">;
 export type PersonCreateInput = Omit<PersonData, keyof PersonRelationshipData> & Partial<PersonRelationshipData>;
 export interface PersonTouchInput {
   date: string;
@@ -69,7 +56,10 @@ export class PeopleService {
 
   private record(record: EntityRecord<PersonData>): PersonRecord {
     const documents = this.documents.summaries("person", record.id);
-    return personFromData(record, documents);
+    const participantIds=new Set(this.persistence.interactionParticipants.list().filter(item=>item.personId===record.id).map(item=>item.interactionId));
+    const latest=this.persistence.interactions.list().filter(item=>participantIds.has(item.id)&&item.status==="completed").sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id))[0];
+    const interactions=this.persistence.interactions.list().filter(item=>participantIds.has(item.id)).sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id)).map(item=>({id:item.id,subject:item.subject,kind:item.kind as import("./interactions").InteractionKind,channel:item.channel as import("./interactions").InteractionChannel,status:item.status as import("./interactions").InteractionStatus,startsAt:item.startsAt}));
+    return personFromData(record,documents,latest?{date:latest.startsAt.slice(0,10),method:latest.channel,summary:latest.summary??latest.notes??latest.subject}:undefined,interactions);
   }
 
   get(id: string): PersonRecord | null {
@@ -114,7 +104,7 @@ export class PeopleService {
     const person: PersonCreateInput = {
       id,name:parsed.name??"",company:parsed.company??null,title:parsed.title??null,linkedInProfileUrl:parsed.linkedInProfileUrl??null,connectedOn:parsed.connectedOn??null,
       ...(parsed.relationship?.type===undefined?{}:{relationshipType:parsed.relationship.type}),...(parsed.relationship?.strength===undefined?{}:{relationshipStrength:parsed.relationship.strength}),introducedBy:parsed.relationship?.introducedBy??null,relationshipNotes:parsed.relationship?.notes??null,
-      ...(parsed.priority===undefined?{}:{priority:parsed.priority}),...(parsed.status===undefined?{}:{status:parsed.status}),lastContacted:parsed.outreach?.lastContacted??null,lastContactMethod:parsed.outreach?.lastContactMethod??null,lastContactSummary:parsed.outreach?.lastContactSummary??null,nextAction:parsed.outreach?.nextAction??null,nextActionDue:parsed.outreach?.nextActionDue??null,whyInteresting:parsed.whyInteresting??null,notesJson:JSON.stringify(parsed.notes??[]),tagsJson:JSON.stringify(parsed.tags??[]),
+      ...(parsed.priority===undefined?{}:{priority:parsed.priority}),...(parsed.status===undefined?{}:{status:parsed.status}),nextAction:parsed.outreach?.nextAction??null,nextActionDue:parsed.outreach?.nextActionDue??null,whyInteresting:parsed.whyInteresting??null,notesJson:JSON.stringify(parsed.notes??[]),tagsJson:JSON.stringify(parsed.tags??[]),
     };
     const data=withPersonDefaults(person), timestamp=context.occurredAt??new Date().toISOString();
     const candidate=personFromData({...data,revision:1,isDeleted:false,createdAt:timestamp,updatedAt:timestamp},[]);
@@ -152,15 +142,14 @@ export class PeopleService {
     return this.update(context, id, {
       status: input.status,
       outreach: {
-        lastContacted: input.date,
-        lastContactMethod: input.method,
-        lastContactSummary: input.summary,
         nextAction: input.nextAction ?? null,
         nextActionDue: input.due ?? null,
       },
     }, options).record;
   }
 }
+/* Legacy Meeting services were removed by migration 0021. Business Events
+remain preserved legacy storage without public runtime capabilities.
 export class MeetingService {
   constructor(
     private readonly persistence: Persistence,
@@ -342,6 +331,7 @@ type ComposeResult<T> =
   | { status: "ok"; record: T }
   | { status: "consistency_error"; id: string; message: string };
 export class EventService{constructor(private readonly persistence:Persistence){}record(context:ChangeContext,event:BusinessEventInput){return this.persistence.change(context,u=>u.recordEvent(event)).value}}
+*/
 interface GigReadService {
   read(id: string): ReadResult<GigRecord>;
 }
@@ -506,9 +496,6 @@ const personDefaults: PersonRelationshipData = {
   relationshipNotes: null,
   priority: "unranked",
   status: "not_contacted",
-  lastContacted: null,
-  lastContactMethod: null,
-  lastContactSummary: null,
   nextAction: null,
   nextActionDue: null,
   whyInteresting: null,
@@ -524,6 +511,8 @@ const withPersonDefaults = (person: PersonCreateInput): PersonData => ({
 const personFromData = (
   person: EntityRecord<PersonData>,
   documents: PersonRecord["documents"],
+  lastContact?:{date:string;method:string;summary:string},
+  interactions:PersonRecord["interactions"]=[],
 ): PersonRecord => ({
   id: person.id,
   name: person.name,
@@ -541,9 +530,9 @@ const personFromData = (
   priority: person.priority as Person["priority"],
   status: person.status as Person["status"],
   outreach: {
-    lastContacted: person.lastContacted,
-    lastContactMethod: person.lastContactMethod,
-    lastContactSummary: person.lastContactSummary,
+    lastContacted: lastContact?.date??null,
+    lastContactMethod: lastContact?.method??null,
+    lastContactSummary: lastContact?.summary??null,
     nextAction: person.nextAction,
     nextActionDue: person.nextActionDue,
   },
@@ -554,6 +543,7 @@ const personFromData = (
   updatedAt: person.updatedAt.slice(0, 10),
   hasProfile: documents.some(document => document.type === "profile"),
   documents,
+  interactions,
 });
 
 const personToData = (person: Person): PersonData => ({
@@ -569,9 +559,6 @@ const personToData = (person: Person): PersonData => ({
   relationshipNotes: person.relationship.notes,
   priority: person.priority,
   status: person.status,
-  lastContacted: person.outreach.lastContacted,
-  lastContactMethod: person.outreach.lastContactMethod,
-  lastContactSummary: person.outreach.lastContactSummary,
   nextAction: person.outreach.nextAction,
   nextActionDue: person.outreach.nextActionDue,
   whyInteresting: person.whyInteresting,
@@ -620,6 +607,7 @@ const isGigPersonRelationship = (
 ): value is GigPersonRelationshipType =>
   gigPersonRelationships.some(relationship => relationship === value);
 
+/* Legacy validation helpers retained only as migration mapping reference.
 const isMeetingStatus = (value: string): value is MeetingStatus =>
   meetingStatuses.some(status => status === value);
 
@@ -676,6 +664,7 @@ function queryInstant(value: string | undefined, field: string) {
   }
   return instant;
 }
+*/
 
 function relationshipFromData(record: GigPersonData): GigPersonRelationship {
   const relationship = parseRelationship(record);
@@ -705,4 +694,4 @@ const unsupportedRelationship = (record: GigPersonData) => consistencyFailure(
   record.id,
   `Relationship ${record.id} has unsupported relationship ${record.relationship}.`,
 );
-export class HistoryService{constructor(private readonly audit:AuditPort){}change(id:string){return this.audit.query({resource:"change",id})}entity(entity:EntityName,id:string){return this.audit.query({resource:"history",entity,id})}events(entityType?:string,entityId?:string){return this.audit.query({resource:"events",entityType,entityId})}}
+export class HistoryService{constructor(private readonly audit:AuditPort){}change(id:string){return this.audit.query({resource:"change",id})}entity(entity:EntityName,id:string){return this.audit.query({resource:"history",entity,id})}}

@@ -49,8 +49,7 @@ const person: PersonData = {
   title: "Director", linkedInProfileUrl: null, connectedOn: null,
   relationshipType: "colleague",
   relationshipStrength: "warm", introducedBy: null, relationshipNotes: null,
-  priority: "medium", status: "active_relationship", lastContacted: null,
-  lastContactMethod: null, lastContactSummary: null, nextAction: null,
+  priority: "medium", status: "active_relationship", nextAction: null,
   nextActionDue: null, whyInteresting: null, notesJson: "[]", tagsJson: "[]",
 };
 

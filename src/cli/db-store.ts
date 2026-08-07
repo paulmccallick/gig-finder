@@ -1,15 +1,15 @@
-import type { BusinessEventInput,GigPersonData } from "../core/models";
-import type { Meeting } from "../core/meetings";
+import type { GigPersonData } from "../core/models";
 import type {
   CreateManagedDocumentInput,
   UpdateManagedDocumentInput,
 } from "../core/documents";
 import type { GigInput, GigSummary } from "../core/gigs";
-import type { PersonCreateInput, PersonTouchInput } from "../core/services";
 import type { TaskInput,TaskPriority,TaskRecord,TaskStatus,TaskType } from "../core/tasks";
 import type { GigTouchInput,TaskCreateInput } from "../core/tracker-services";
 import type { PersonInput } from "../core/people";
 import type { GigFinderApplication } from "../core/application";
+import type { InteractionInput } from "../core/interactions";
+import type { InteractionQueryInput } from "../core/queries";
 
 export interface CliRuntime{application:GigFinderApplication;actor:string}
 type TrackerPaths=CliRuntime;
@@ -40,18 +40,14 @@ export const completeTask=(paths:TrackerPaths,id:string,date:string,options:Upda
 
 export const getPerson=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.people.get(id));
 export const listPeople=(paths:TrackerPaths)=>withApplication(paths,app=>app.people.list());
-export const createPerson=(paths:TrackerPaths,record:PersonCreateInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.createNew(context(paths,"CLI person create",options.date),record.id,{
-  name:record.name,company:record.company,title:record.title,linkedInProfileUrl:record.linkedInProfileUrl,connectedOn:record.connectedOn,
-  relationship:{type:record.relationshipType??"professional_contact",strength:(record.relationshipStrength as never)??"unknown",introducedBy:record.introducedBy??null,notes:record.relationshipNotes??null},priority:(record.priority as never)??"unranked",status:(record.status as never)??"not_contacted",outreach:{lastContacted:record.lastContacted??null,lastContactMethod:record.lastContactMethod??null,lastContactSummary:record.lastContactSummary??null,nextAction:record.nextAction??null,nextActionDue:record.nextActionDue??null},whyInteresting:record.whyInteresting??null,notes:JSON.parse(record.notesJson??"[]"),tags:JSON.parse(record.tagsJson??"[]"),
-},options).record);
+export const createPerson=(paths:TrackerPaths,id:string,input:PersonInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.createNew(context(paths,"CLI person create",options.date),id,input,options).record);
 export const updatePerson=(paths:TrackerPaths,id:string,patch:PersonInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.update(context(paths,`CLI person update ${id}`,options.date),id,patch,options).record);
-export const touchPerson=(paths:TrackerPaths,id:string,input:PersonTouchInput,options:UpdateOptions={})=>withApplication(paths,app=>app.people.touch(context(paths,`CLI person touch ${id}`,input.date),id,input,options));
 export const createGigPerson=(paths:TrackerPaths,record:GigPersonData,options:UpdateOptions={})=>withApplication(paths,app=>app.gigPeople.createNew(context(paths,"CLI gig-person create"),record.id,{gigId:record.gigId,personId:record.personId,relationship:record.relationship as never,notes:record.notes},options).record);
-export const getMeeting=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.meetings.get(id));
-export const listMeetings=(paths:TrackerPaths)=>withApplication(paths,app=>app.meetings.list());
-export function createMeeting(paths:TrackerPaths,record:Meeting,options:UpdateOptions={}){return options.dryRun?record:withApplication(paths,app=>app.meetings.create(context(paths,"CLI meeting create",record.startsAt.slice(0,10)),record).record)}
-export function createEvent(paths:TrackerPaths,record:BusinessEventInput,options:UpdateOptions={}){if(!options.dryRun)withApplication(paths,app=>app.events.record(context(paths,`CLI event create: ${record.type}`,record.occurredAt),record));return record}
-export const listEvents=(paths:TrackerPaths,entityType?:string,entityId?:string)=>withApplication(paths,app=>app.history.events(entityType,entityId));
+export const getInteraction=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.interactions.get(id));
+export const listInteractions=(paths:TrackerPaths,input:InteractionQueryInput)=>withApplication(paths,app=>app.interactions.query(input));
+export const createInteraction=(paths:TrackerPaths,id:string,input:InteractionInput,options:UpdateOptions={})=>withApplication(paths,app=>app.interactions.create(context(paths,"CLI interaction create",options.date),id,input,options).record);
+export const updateInteraction=(paths:TrackerPaths,id:string,input:InteractionInput,options:UpdateOptions={})=>withApplication(paths,app=>app.interactions.update(context(paths,`CLI interaction update ${id}`,options.date),id,input,options).record);
+export const deleteInteraction=(paths:TrackerPaths,id:string,expectedRevision:number,options:UpdateOptions={})=>withApplication(paths,app=>app.interactions.delete(context(paths,`CLI interaction delete ${id}`,options.date),id,expectedRevision,options).record);
 
 export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
 export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));

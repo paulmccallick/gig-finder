@@ -66,7 +66,7 @@ const entityInstructions = `Entities
 - Person: an individual with identity, relationship, priority, status, outreach, notes, tags, and documents.
 - Gig-Person Relationship: a connection between a Person and a Gig.
 - Task: a gig-finder action related to a Gig, Person, or the search.
-- Meeting: a scheduled or completed interaction with one or more People that may relate to a Gig.
+- Interaction: a message, call, meeting, interview, conversation, or other contact with one or more People that may relate to a Gig.
 - Document: versioned content linked to Gigs, People, or the candidate Profile.`;
 
 const escapedJson = (value: unknown) => JSON.stringify(value)

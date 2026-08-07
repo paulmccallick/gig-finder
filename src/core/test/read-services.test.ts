@@ -14,8 +14,8 @@ import type {
   EntityRecord,
   GigData,
   GigPersonData,
-  MeetingData,
-  MeetingParticipantData,
+  InteractionData,
+  InteractionParticipantData,
   PersonData,
   TaskData,
 } from "../models";
@@ -82,9 +82,6 @@ const personData = (identity: Pick<PersonData, "id" | "name" | "company" | "titl
   relationshipNotes: null,
   priority: "unranked",
   status: "not_contacted",
-  lastContacted: null,
-  lastContactMethod: null,
-  lastContactSummary: null,
   nextAction: null,
   nextActionDue: null,
   whyInteresting: null,
@@ -98,8 +95,8 @@ function application() {
   const people = new Repo<PersonData>();
   const gigPeople = new Repo<GigPersonData>();
   const tasks = new Repo<TaskData>();
-  const meetings = new Repo<MeetingData>();
-  const meetingParticipants = new Repo<MeetingParticipantData>();
+  const interactions = new Repo<InteractionData>();
+  const interactionParticipants = new Repo<InteractionParticipantData>();
   const documents = new EmptyDocuments();
   const settings = { get: () => null, set: () => undefined };
   let readChanges = 0;
@@ -108,8 +105,8 @@ function application() {
     people,
     gigPeople,
     tasks,
-    meetings,
-    meetingParticipants,
+    interactions,
+    interactionParticipants,
     documents,
     settings,
     hasChange: () => false,
@@ -123,11 +120,10 @@ function application() {
           people,
           gigPeople,
           tasks,
-          meetings,
-          meetingParticipants,
+          interactions,
+          interactionParticipants,
           documents,
           recordCreationFingerprint:()=>undefined,
-          recordEvent: event => event.id ?? event.type,
         } as UnitOfWork),
       };
     },
@@ -135,7 +131,7 @@ function application() {
   };
   return {
     app: new GigFinderApplication(persistence, audit, artifacts),
-    repos: { gigs, people, gigPeople, tasks, meetings, meetingParticipants },
+    repos: { gigs, people, gigPeople, tasks, interactions, interactionParticipants },
     changes: () => readChanges,
   };
 }
@@ -172,22 +168,27 @@ const gig = (id: string, company: string, stage: GigData["stage"] = "applied"): 
   hasInterviewPrep: false,
 });
 
-const meeting = (
+const interaction = (
   id: string,
   startsAt: string,
-  overrides: Partial<MeetingData> = {},
-): MeetingData => ({
+  overrides: Partial<InteractionData> = {},
+): InteractionData => ({
   id,
-  title: "Interview",
+  subject: "Interview",
+  kind: "interview",
+  channel: "video",
+  direction: "mutual",
   startsAt,
   endsAt: startsAt,
   timezone: "America/Los_Angeles",
   location: "Video",
-  description: "Platform conversation",
+  summary: "Platform conversation",
+  notes: null,
   status: "confirmed",
   gigId: null,
-  externalCalendarId: null,
-  externalEventId: null,
+  supersedesInteractionId: null,
+  originChangeId: null,
+  structuredDataJson: "{}",
   ...overrides,
 });
 
@@ -300,25 +301,26 @@ describe("caller-neutral read services", () => {
     });
   });
 
-  test("meetings compose every participant and support multi-value filters", () => {
+  test("Interactions compose every participant and support all filters", () => {
     const { app, repos, changes } = application();
     repos.gigs.create(gig("gig-1", "Alpha"));
     repos.gigs.create(gig("gig-2", "Beta"));
     repos.people.create(personData({ id: "person-1", name: "Alex", company: "Alpha", title: "VP", linkedInProfileUrl: null, connectedOn: null }));
     repos.people.create(personData({ id: "person-2", name: "Blair", company: "Beta", title: "Recruiter", linkedInProfileUrl: null, connectedOn: null }));
-    repos.meetings.create(meeting("meeting-old", "2026-07-10T10:00:00-07:00", { gigId: "gig-1" }));
-    repos.meetings.create(meeting("meeting-new", "2026-07-20T10:00:00-07:00", { title: "Coffee", status: "completed", gigId: "gig-2", description: "Leadership discussion" }));
-    repos.meetingParticipants.create({ id: "meeting-old::person-1", meetingId: "meeting-old", personId: "person-1" });
-    repos.meetingParticipants.create({ id: "meeting-new::person-1", meetingId: "meeting-new", personId: "person-1" });
-    repos.meetingParticipants.create({ id: "meeting-new::person-2", meetingId: "meeting-new", personId: "person-2" });
+    repos.interactions.create(interaction("interaction-old", "2026-07-10T10:00:00-07:00", { gigId: "gig-1",kind:"message",channel:"email",direction:"outbound" }));
+    repos.interactions.create(interaction("interaction-new", "2026-07-20T10:00:00-07:00", { subject: "Coffee", status: "completed", gigId: "gig-2", summary: "Leadership discussion" }));
+    repos.interactionParticipants.create({ id: "old-person-1", interactionId: "interaction-old", personId: "person-1" });
+    repos.interactionParticipants.create({ id: "new-person-1", interactionId: "interaction-new", personId: "person-1" });
+    repos.interactionParticipants.create({ id: "new-person-2", interactionId: "interaction-new", personId: "person-2" });
     const before = changes();
 
-    const all = app.meetings.query({});
-    expect(all).toMatchObject({ status: "ok", items: [{ id: "meeting-new" }, { id: "meeting-old" }] });
-    const filtered = app.meetings.query({
+    const all = app.interactions.query({});
+    expect(all).toMatchObject({ status: "ok", items: [{ id: "interaction-new" }, { id: "interaction-old" }] });
+    const filtered = app.interactions.query({
       personIds: ["person-2", "person-missing"],
       gigIds: ["gig-1", "gig-2"],
       statuses: ["completed"],
+      kinds:["interview"],channels:["video"],directions:["mutual"],
       startsFrom: "2026-07-20T10:00:00-07:00",
       startsThrough: "2026-07-20T10:00:00-07:00",
       query: "leadership",
@@ -327,50 +329,50 @@ describe("caller-neutral read services", () => {
     });
     expect(filtered).toMatchObject({
       status: "ok",
-      items: [{ id: "meeting-new", gigId: "gig-2", personIds: ["person-1", "person-2"] }],
+      items: [{ id: "interaction-new", gigId: "gig-2", personIds: ["person-1", "person-2"] }],
       page: { returned: 1, total: 1, hasMore: false },
     });
-    const read = app.meetings.read("meeting-new");
+    const read = app.interactions.read("interaction-new");
     expect(read.status).toBe("ok");
-    if (read.status !== "ok" || filtered.status !== "ok") throw new Error("Expected meeting reads to succeed");
+    if (read.status !== "ok" || filtered.status !== "ok") throw new Error("Expected Interaction reads to succeed");
     expect(filtered.items[0]).toEqual(read.record);
-    expect(app.meetings.read("missing")).toEqual({ status: "not_found", id: "missing" });
+    expect(app.interactions.read("missing")).toEqual({ status: "not_found", id: "missing" });
     expect(changes()).toBe(before);
   });
 
-  test("meeting date filters and ordering compare absolute instants", () => {
+  test("Interaction date filters and ordering compare absolute instants", () => {
     const { app, repos } = application();
     repos.people.create(personData({ id: "person-1", name: "Alex", company: null, title: null, linkedInProfileUrl: null, connectedOn: null }));
-    repos.meetings.create(meeting("chronologically-newer", "2026-07-20T10:00:00-07:00"));
-    repos.meetings.create(meeting("lexically-newer", "2026-07-20T18:00:00+02:00"));
-    repos.meetingParticipants.create({ id: "participant-1", meetingId: "chronologically-newer", personId: "person-1" });
-    repos.meetingParticipants.create({ id: "participant-2", meetingId: "lexically-newer", personId: "person-1" });
+    repos.interactions.create(interaction("chronologically-newer", "2026-07-20T10:00:00-07:00"));
+    repos.interactions.create(interaction("lexically-newer", "2026-07-20T18:00:00+02:00"));
+    repos.interactionParticipants.create({ id: "participant-1", interactionId: "chronologically-newer", personId: "person-1" });
+    repos.interactionParticipants.create({ id: "participant-2", interactionId: "lexically-newer", personId: "person-1" });
 
-    expect(app.meetings.query({})).toMatchObject({
+    expect(app.interactions.query({})).toMatchObject({
       status: "ok",
       items: [{ id: "chronologically-newer" }, { id: "lexically-newer" }],
     });
-    expect(app.meetings.query({
+    expect(app.interactions.query({
       startsFrom: "2026-07-20T16:30:00Z",
       startsThrough: "2026-07-20T17:00:00Z",
     })).toMatchObject({ status: "ok", items: [{ id: "chronologically-newer" }] });
-    expect(() => app.meetings.query({ startsFrom: "not-a-date" }))
-      .toThrow("startsFrom must be a valid ISO 8601 timestamp");
+    expect(() => app.interactions.query({ startsFrom: "not-a-date" }))
+      .toThrow("Interaction startsFrom must be a valid ISO 8601 timestamp");
   });
 
-  test("meeting reads expose stored consistency failures", () => {
+  test("Interaction reads expose stored consistency failures", () => {
     const { app, repos } = application();
-    repos.meetings.create(meeting("no-participants", "2026-07-20T10:00:00-07:00"));
-    expect(app.meetings.read("no-participants")).toMatchObject({
+    repos.interactions.create(interaction("no-participants", "2026-07-20T10:00:00-07:00"));
+    expect(app.interactions.read("no-participants")).toMatchObject({
       status: "consistency_error",
-      message: expect.stringContaining("no participants"),
+      message: expect.stringContaining("expected array to have >=1 items"),
     });
 
-    repos.meetings.create(meeting("bad-status", "2026-07-21T10:00:00-07:00", { status: "tentative" }));
-    repos.meetingParticipants.create({ id: "bad-status::missing", meetingId: "bad-status", personId: "missing" });
-    expect(app.meetings.read("bad-status")).toMatchObject({
+    repos.interactions.create(interaction("bad-status", "2026-07-21T10:00:00-07:00", { status: "tentative" }));
+    repos.interactionParticipants.create({ id: "bad-status::missing", interactionId: "bad-status", personId: "missing" });
+    expect(app.interactions.read("bad-status")).toMatchObject({
       status: "consistency_error",
-      message: expect.stringContaining("unsupported status"),
+      message: expect.stringContaining("Invalid option"),
     });
   });
 });

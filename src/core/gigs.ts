@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isCalendarDate } from "./queries";
 import type { DocumentSummary } from "./documents";
+import type { InteractionReference } from "./interactions";
 
 export const pipelineStages = [
   "identified",
@@ -92,6 +93,7 @@ export interface GigSummary {
 
 export interface GigRecord extends Gig {
   documents: DocumentSummary[];
+  interactions?: InteractionReference[];
 }
 
 const gigDateSchema=z.string().regex(/^\d{4}-\d{2}-\d{2}$/,"Must use YYYY-MM-DD.").refine(isCalendarDate,"Must be a valid calendar date.");

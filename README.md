@@ -35,7 +35,7 @@ bun run test:e2e
 
 ## Production
 
-Merges to `main` publish immutable images. Follow the
+Merges to `main` publish Docker images. Follow the
 [deployment runbook](docs/architecture/deployment-runbook.md) to bootstrap,
 deploy, verify, inspect, or recover the local production instance.
 

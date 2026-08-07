@@ -6,7 +6,7 @@ import type {
   ChangeContext,
   GigRecord,
   ManagedDocumentRecord,
-  MeetingRecord,
+  InteractionRecord,
   TaskRecord,
 } from "../../core";
 import { StagedDocumentService } from "../../core";
@@ -75,7 +75,7 @@ function readerWithGigs(items: GigRecord[]): GigFinderReadCapabilities {
         nextOffset: null,
       },
     }), read: id => ({ status: "not_found" as const, id }) },
-    meetings: {
+    interactions: {
       query: input => ({ status: "ok" as const, items: [], page: { offset: input.offset ?? 0, limit: input.limit ?? 20, returned: 0, total: 0, hasMore: false, nextOffset: null } }),
       read: id => ({ status: "not_found" as const, id }),
     },
@@ -126,9 +126,10 @@ function documentMutations(
       createNew: () => { throw new Error("not executed"); },
       update: () => { throw new Error("not executed"); },
     },
-    meetings: {
+    interactions: {
       create: () => { throw new Error("not executed"); },
       update: () => { throw new Error("not executed"); },
+      delete: () => { throw new Error("not executed"); },
     },
     changes: { revert: () => { throw new Error("not executed"); } },
     documents: {
@@ -199,7 +200,7 @@ describe("GigFinderAgent instructions", () => {
       "Gig-Person Relationship: a connection between a Person and a Gig",
     );
     expect(writableInstructions).toContain(
-      "Meeting: a scheduled or completed interaction with one or more People",
+      "Interaction: a message, call, meeting, interview, conversation, or other contact with one or more People",
     );
     expect(writableInstructions).toContain(
       "Use the tools to find relevant information for the user request and update information when appropriate or told to do so.",
@@ -408,7 +409,7 @@ describe("agent streaming", () => {
     expect(completion?.data.latencyMs).toBeNumber();
   });
 
-  test("executes a meeting read tool and streams the model's final answer", async () => {
+  test("executes an interaction read tool and streams the model's final answer", async () => {
     const model = new MockLanguageModelV4({
       doStream: [
         {
@@ -418,10 +419,13 @@ describe("agent streaming", () => {
               {
                 type: "tool-call",
                 toolCallId: "tool-call-1",
-                toolName: "list_meetings",
+                toolName: "list_interactions",
                 input: JSON.stringify({
                   personIds: ["person-1"],
                   gigIds: null,
+                  kinds: null,
+                  channels: null,
+                  directions: null,
                   statuses: null,
                   startsFrom: null,
                   startsThrough: null,
@@ -455,19 +459,24 @@ describe("agent streaming", () => {
         },
       ],
     });
-    const meeting: MeetingRecord = {
-      id: "meeting-1",
-      title: "Recruiter screen",
+    const meeting: InteractionRecord = {
+      id: "interaction-1",
+      subject: "Recruiter screen",
+      kind: "meeting",
+      channel: "video",
+      direction: "mutual",
       startsAt: "2026-07-23T10:00:00-07:00",
       endsAt: "2026-07-23T10:30:00-07:00",
       timezone: "America/Los_Angeles",
       location: "Video",
-      description: null,
+      summary: null,
+      notes: null,
       status: "completed",
       gigId: "gig-1",
       personIds: ["person-1"],
-      externalCalendarId: null,
-      externalEventId: null,
+      supersedesInteractionId: null,
+      originChangeId: null,
+      structuredData: {},
       revision: 1,
       isDeleted: false,
       createdAt: "2026-07-22T12:00:00.000Z",
@@ -475,7 +484,7 @@ describe("agent streaming", () => {
     };
     const reader = {
       ...readerWithGigs([]),
-      meetings: { query: () => ({
+      interactions: { query: () => ({
         status: "ok" as const,
         items: [meeting],
         page: { offset: 0, limit: 20, returned: 1, total: 1, hasMore: false, nextOffset: null },
@@ -498,7 +507,7 @@ describe("agent streaming", () => {
       "You met with the recruiter.",
     );
     expect(model.doStreamCalls).toHaveLength(2);
-    expect(model.doStreamCalls[0]?.tools?.map(({ name }) => name)).toContain("list_meetings");
+    expect(model.doStreamCalls[0]?.tools?.map(({ name }) => name)).toContain("list_interactions");
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("Recruiter screen");
   });
 
@@ -512,9 +521,12 @@ describe("agent streaming", () => {
               {
                 type: "tool-call",
                 toolCallId: "create-meeting",
-                toolName: "create_meeting",
+                toolName: "create_interaction",
                 input: JSON.stringify({
-                  title: "Coffee with Jordan",
+                  subject: "Coffee with Jordan",
+                  kind: "meeting",
+                  channel: "in_person",
+                  direction: "mutual",
                   startsAt: "2026-07-31T08:00:00-07:00",
                   endsAt: "2026-07-31T09:00:00-07:00",
                   timezone: "America/Los_Angeles",
@@ -522,7 +534,9 @@ describe("agent streaming", () => {
                   personIds: ["person-jordan"],
                   gigId: null,
                   location: "Seattle",
-                  description: "Discussed leadership roles",
+                  summary: "Discussed leadership roles",
+                  notes: null,
+                  supersedesInteractionId: null,
                 }),
               },
               {
@@ -550,12 +564,29 @@ describe("agent streaming", () => {
         },
       ],
     });
-    let received: { context: ChangeContext; meeting: MeetingRecord } | undefined;
+    let received: { context: ChangeContext; meeting: InteractionRecord } | undefined;
     const mutations = documentMutations(() => { throw new Error("not executed"); });
-    mutations.meetings = {
-      create: (context, meeting) => {
-        const record: MeetingRecord = {
+    mutations.interactions = {
+      create: (context, id, meeting) => {
+        const record: InteractionRecord = {
+          id,
           ...meeting,
+          subject: meeting.subject!,
+          kind: meeting.kind!,
+          channel: meeting.channel!,
+          direction: meeting.direction!,
+          status: meeting.status!,
+          startsAt: meeting.startsAt!,
+          endsAt: meeting.endsAt ?? null,
+          timezone: meeting.timezone ?? null,
+          location: meeting.location ?? null,
+          summary: meeting.summary ?? null,
+          notes: meeting.notes ?? null,
+          personIds: meeting.personIds!,
+          gigId: meeting.gigId ?? null,
+          supersedesInteractionId: meeting.supersedesInteractionId ?? null,
+          originChangeId: meeting.originChangeId ?? null,
+          structuredData: meeting.structuredData ?? {},
           revision: 1,
           isDeleted: false,
           createdAt: "2026-07-31T16:00:00.000Z",
@@ -565,6 +596,7 @@ describe("agent streaming", () => {
         return { changeId: context.changeId ?? null, record };
       },
       update: () => { throw new Error("not executed"); },
+      delete: () => { throw new Error("not executed"); },
     };
     const tools = createGigFinderTools(
       readerWithGigs([]),

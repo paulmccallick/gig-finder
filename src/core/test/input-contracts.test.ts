@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { gigInputSchema } from "../gigs";
-import { meetingInputSchema } from "../meetings";
+import { interactionInputSchema } from "../interactions";
 import { personInputSchema } from "../people";
 import { taskInputSchema } from "../tasks";
 
@@ -59,8 +59,8 @@ describe("domain input contracts", () => {
     }
   });
 
-  test("accepts partial meeting updates and nullable clears", () => {
-    expect(meetingInputSchema.parse({
+  test("accepts partial Interaction updates and nullable clears", () => {
+    expect(interactionInputSchema.parse({
       status: "completed",
       personIds: ["person-1", "person-2"],
       gigId: null,
@@ -73,7 +73,7 @@ describe("domain input contracts", () => {
     });
   });
 
-  test("rejects immutable and malformed meeting updates", () => {
+  test("rejects immutable and malformed Interaction updates", () => {
     for (const patch of [
       {},
       { id: "other" },
@@ -84,7 +84,7 @@ describe("domain input contracts", () => {
       { timezone: "Mars/Olympus" },
       { personIds: [] },
     ]) {
-      expect(meetingInputSchema.safeParse(patch).success).toBe(false);
+      expect(interactionInputSchema.safeParse(patch).success).toBe(false);
     }
   });
 

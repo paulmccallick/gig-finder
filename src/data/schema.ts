@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 const recordMetadata = {
   revision: integer("revision").notNull().default(1),
@@ -107,7 +107,7 @@ const gigFields = {
 export const gigs = sqliteTable("gigs", { ...gigFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("gigs_stage_idx").on(table.stage), index("gigs_due_idx").on(table.nextActionDue), index("gigs_deleted_idx").on(table.isDeleted), check("gigs_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
 export const gigHistory = sqliteTable("gig_history", { ...historyMetadata, ...gigFields, ...recordMetadata }, (table) => [index("gig_history_entity_idx").on(table.id, table.revision), index("gig_history_change_idx").on(table.changeId), check("gig_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("gig_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
 
-const personFields={id:text("id").notNull(),name:text("name").notNull(),company:text("company"),title:text("title"),linkedInProfileUrl:text("linkedin_profile_url"),connectedOn:text("connected_on"),relationshipType:text("relationship_type").notNull().default("professional_contact"),relationshipStrength:text("relationship_strength").notNull().default("unknown"),introducedBy:text("introduced_by"),relationshipNotes:text("relationship_notes"),priority:text("priority").notNull().default("unranked"),status:text("status").notNull().default("not_contacted"),lastContacted:text("last_contacted"),lastContactMethod:text("last_contact_method"),lastContactSummary:text("last_contact_summary"),nextAction:text("next_action"),nextActionDue:text("next_action_due"),whyInteresting:text("why_interesting"),notesJson:text("notes_json").notNull().default("[]"),tagsJson:text("tags_json").notNull().default("[]")};
+const personFields={id:text("id").notNull(),name:text("name").notNull(),company:text("company"),title:text("title"),linkedInProfileUrl:text("linkedin_profile_url"),connectedOn:text("connected_on"),relationshipType:text("relationship_type").notNull().default("professional_contact"),relationshipStrength:text("relationship_strength").notNull().default("unknown"),introducedBy:text("introduced_by"),relationshipNotes:text("relationship_notes"),priority:text("priority").notNull().default("unranked"),status:text("status").notNull().default("not_contacted"),nextAction:text("next_action"),nextActionDue:text("next_action_due"),whyInteresting:text("why_interesting"),notesJson:text("notes_json").notNull().default("[]"),tagsJson:text("tags_json").notNull().default("[]")};
 export const people=sqliteTable("people",{...personFields,id:text("id").primaryKey(),...recordMetadata},table=>[index("people_name_idx").on(table.name),index("people_priority_idx").on(table.priority),index("people_due_idx").on(table.nextActionDue),check("people_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
 export const personHistory=sqliteTable("person_history",{...historyMetadata,...personFields,...recordMetadata},table=>[index("person_history_entity_idx").on(table.id,table.revision),check("person_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("person_history_operation_check",sql`${table.operation} in ('update','delete')`)]);
 
@@ -121,33 +121,47 @@ const taskFields = {
 export const tasks = sqliteTable("tasks", { ...taskFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("tasks_status_idx").on(table.status), index("tasks_due_idx").on(table.dueDate), index("tasks_deleted_idx").on(table.isDeleted), check("tasks_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
 export const taskHistory = sqliteTable("task_history", { ...historyMetadata, ...taskFields, ...recordMetadata }, (table) => [index("task_history_entity_idx").on(table.id, table.revision), index("task_history_change_idx").on(table.changeId), check("task_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("task_history_operation_check", sql`${table.operation} in ('create', 'update', 'delete')`)]);
 
-const meetingFields = {
-  id: text("id").notNull(), title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at").notNull(), timezone: text("timezone").notNull(), location: text("location"), description: text("description"), status: text("status").notNull(), gigId: text("gig_id").references(() => gigs.id), externalCalendarId: text("external_calendar_id"), externalEventId: text("external_event_id"),
-};
-export const meetings = sqliteTable("meetings", { ...meetingFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("meetings_start_idx").on(table.startsAt), index("meetings_deleted_idx").on(table.isDeleted), uniqueIndex("meetings_external_event_idx").on(table.externalCalendarId, table.externalEventId), check("meetings_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
-export const meetingHistory = sqliteTable("meeting_history", {
-  ...historyMetadata,
-  ...meetingFields,
-  legacyRelatedEntityType: text("legacy_related_entity_type"),
-  legacyRelatedEntityId: text("legacy_related_entity_id"),
-  ...recordMetadata,
-}, (table) => [index("meeting_history_entity_idx").on(table.id, table.revision), index("meeting_history_change_idx").on(table.changeId), check("meeting_history_is_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_history_operation_check", sql`${table.operation} in ('update', 'delete')`)]);
-
-const meetingParticipantFields = {
-  id: text("id").notNull(),
-  meetingId: text("meeting_id").notNull().references(() => meetings.id),
-  personId: text("person_id").notNull().references(() => people.id),
-};
-export const meetingParticipants = sqliteTable("meeting_participants", { ...meetingParticipantFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [uniqueIndex("meeting_participants_relation_idx").on(table.meetingId, table.personId), index("meeting_participants_meeting_idx").on(table.meetingId), index("meeting_participants_person_idx").on(table.personId), check("meeting_participants_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);
-export const meetingParticipantHistory = sqliteTable("meeting_participant_history", { ...historyMetadata, ...meetingParticipantFields, ...recordMetadata }, (table) => [index("meeting_participant_history_entity_idx").on(table.id, table.revision), index("meeting_participant_history_change_idx").on(table.changeId), check("meeting_participant_history_deleted_check", sql`${table.isDeleted} in (0, 1)`), check("meeting_participant_history_operation_check", sql`${table.operation} in ('create', 'update', 'delete')`)]);
+const interactionFields={id:text("id").notNull(),subject:text("subject").notNull(),kind:text("kind").notNull(),channel:text("channel").notNull(),direction:text("direction").notNull(),status:text("status").notNull(),startsAt:text("starts_at").notNull(),endsAt:text("ends_at"),timezone:text("timezone"),location:text("location"),summary:text("summary"),notes:text("notes"),gigId:text("gig_id").references(()=>gigs.id),supersedesInteractionId:text("supersedes_interaction_id").references(():AnySQLiteColumn=>interactions.id),originChangeId:text("origin_change_id").references(()=>changes.id),structuredDataJson:text("structured_data_json").notNull().default("{}")};
+// Drizzle callback tables do not expose a reusable public inferred type.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const interactionChecks=(table:any)=>[check("interactions_time_check",sql`${table.endsAt} is null or (julianday(${table.endsAt}) is not null and julianday(${table.startsAt}) is not null and julianday(${table.endsAt}) >= julianday(${table.startsAt}))`),check("interactions_kind_check",sql`${table.kind} in ('message','call','meeting','interview','conversation','other')`),check("interactions_channel_check",sql`${table.channel} in ('email','linkedin','sms','chat','phone','video','in_person','other')`),check("interactions_direction_check",sql`${table.direction} in ('inbound','outbound','mutual','unknown')`),check("interactions_status_check",sql`${table.status} in ('planned','confirmed','completed','canceled','no_show')`),check("interactions_structured_data_check",sql`json_valid(${table.structuredDataJson}) and json_type(${table.structuredDataJson}) = 'object'`),check("interactions_supersedes_check",sql`${table.supersedesInteractionId} is null or ${table.supersedesInteractionId} <> ${table.id}`)];
+export const interactions=sqliteTable("interactions",{...interactionFields,id:text("id").primaryKey(),...recordMetadata},table=>[index("interactions_start_idx").on(table.startsAt),index("interactions_gig_idx").on(table.gigId),index("interactions_deleted_idx").on(table.isDeleted),check("interactions_deleted_check",sql`${table.isDeleted} in (0,1)`),...interactionChecks(table)]);
+export const interactionHistory=sqliteTable("interaction_history",{...historyMetadata,...interactionFields,...recordMetadata},table=>[index("interaction_history_entity_idx").on(table.id,table.revision),index("interaction_history_change_idx").on(table.changeId),check("interaction_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("interaction_history_operation_check",sql`${table.operation} in ('create','update','delete')`)]);
+const interactionParticipantFields={id:text("id").notNull(),interactionId:text("interaction_id").notNull().references(()=>interactions.id),personId:text("person_id").notNull().references(()=>people.id)};
+export const interactionParticipants=sqliteTable("interaction_participants",{...interactionParticipantFields,id:text("id").primaryKey(),...recordMetadata},table=>[uniqueIndex("interaction_participants_relation_idx").on(table.interactionId,table.personId),index("interaction_participants_interaction_idx").on(table.interactionId),index("interaction_participants_person_idx").on(table.personId),check("interaction_participants_deleted_check",sql`${table.isDeleted} in (0,1)`)]);
+export const interactionParticipantHistory=sqliteTable("interaction_participant_history",{...historyMetadata,...interactionParticipantFields,...recordMetadata},table=>[index("interaction_participant_history_entity_idx").on(table.id,table.revision),index("interaction_participant_history_change_idx").on(table.changeId),check("interaction_participant_history_deleted_check",sql`${table.isDeleted} in (0,1)`),check("interaction_participant_history_operation_check",sql`${table.operation} in ('create','update','delete')`)]);
+export const interactionSources=sqliteTable("interaction_sources",{id:text("id").primaryKey(),interactionId:text("interaction_id").notNull().references(()=>interactions.id),sourceSystem:text("source_system").notNull(),externalId:text("external_id"),sourceTimestamp:text("source_timestamp"),sourceUri:text("source_uri"),importedAt:text("imported_at").notNull(),contentHash:text("content_hash"),excerpt:text("excerpt"),originChangeId:text("origin_change_id").references(()=>changes.id)},table=>[index("interaction_sources_interaction_idx").on(table.interactionId),uniqueIndex("interaction_sources_identity_idx").on(table.sourceSystem,table.externalId)]);
+export const interactionLegacyRefs=sqliteTable("interaction_legacy_refs",{id:text("id").primaryKey(),interactionId:text("interaction_id").notNull().references(()=>interactions.id),legacyType:text("legacy_type").notNull(),legacyId:text("legacy_id").notNull(),legacyRevision:integer("legacy_revision"),originChangeId:text("origin_change_id").references(()=>changes.id)},table=>[uniqueIndex("interaction_legacy_refs_identity_idx").on(table.legacyType,table.legacyId,table.legacyRevision)]);
 
 export const businessEvents = sqliteTable("business_events", {
-  id: text("id").primaryKey(), changeId: text("change_id").references(() => changes.id), type: text("type").notNull(), entityType: text("entity_type").notNull(), entityId: text("entity_id").notNull(), occurredAt: text("occurred_at").notNull(), summary: text("summary").notNull(), dataJson: text("data_json").notNull().default("{}"), supersedesEventId: text("supersedes_event_id"),
-}, (table) => [index("business_events_entity_idx").on(table.entityType, table.entityId, table.occurredAt), index("business_events_change_idx").on(table.changeId)]);
+  id: text("id").primaryKey(),
+  changeId: text("change_id").references(() => changes.id),
+  type: text("type").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+  summary: text("summary").notNull(),
+  dataJson: text("data_json").notNull().default("{}"),
+  supersedesEventId: text("supersedes_event_id"),
+}, table => [
+  index("business_events_entity_idx").on(table.entityType, table.entityId, table.occurredAt),
+  index("business_events_change_idx").on(table.changeId),
+]);
 
 export const eventSources = sqliteTable("event_sources", {
-  id: text("id").primaryKey(), eventId: text("event_id").notNull().references(() => businessEvents.id), sourceSystem: text("source_system").notNull(), externalId: text("external_id"), sourceTimestamp: text("source_timestamp"), sourceUri: text("source_uri"), importedAt: text("imported_at").notNull(), contentHash: text("content_hash"), excerpt: text("excerpt"),
-}, (table) => [index("event_sources_event_idx").on(table.eventId), uniqueIndex("event_sources_external_idx").on(table.sourceSystem, table.externalId)]);
+  id: text("id").primaryKey(),
+  eventId: text("event_id").notNull().references(() => businessEvents.id),
+  sourceSystem: text("source_system").notNull(),
+  externalId: text("external_id"),
+  sourceTimestamp: text("source_timestamp"),
+  sourceUri: text("source_uri"),
+  importedAt: text("imported_at").notNull(),
+  contentHash: text("content_hash"),
+  excerpt: text("excerpt"),
+}, table => [
+  index("event_sources_event_idx").on(table.eventId),
+  uniqueIndex("event_sources_external_idx").on(table.sourceSystem, table.externalId),
+]);
 
 export const managedDocuments = sqliteTable("managed_documents", {
   id: text("id").primaryKey(),

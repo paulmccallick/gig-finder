@@ -164,7 +164,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
       people: gigFinder.people,
       gigPeople: gigFinder.gigPeople,
       tasks: gigFinder.tasks,
-      meetings: gigFinder.meetings,
+      interactions: gigFinder.interactions,
       documents: gigFinder.documentReader,
     },
     mutations: gigFinder,

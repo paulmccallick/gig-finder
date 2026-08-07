@@ -1,4 +1,4 @@
-export type EntityName = "gig" | "person" | "gig-person" | "task" | "meeting" | "meeting-participant";
+export type EntityName = "gig" | "person" | "gig-person" | "task" | "interaction" | "interaction-participant";
 export type ChangeSource = "user_request" | "agent" | "automation" | "import" | "recovery" | "test";
 
 export interface ChangeContext {
@@ -25,7 +25,7 @@ export interface GigData {
 export interface PersonData {
   id:string; name:string; company:string|null; title:string|null; linkedInProfileUrl:string|null; connectedOn:string|null;
   relationshipType:string; relationshipStrength:string; introducedBy:string|null; relationshipNotes:string|null;
-  priority:string; status:string; lastContacted:string|null; lastContactMethod:string|null; lastContactSummary:string|null;
+  priority:string; status:string;
   nextAction:string|null; nextActionDue:string|null; whyInteresting:string|null; notesJson:string; tagsJson:string;
 }
 export interface GigPersonData {
@@ -34,35 +34,9 @@ export interface GigPersonData {
 export interface TaskData {
   id: string; title: string; type: string; status: string; priority: string; dueDate: string | null; relatedEntityType: string; relatedEntityId: string | null; relatedEntityLabel: string; notes: string | null; completedAt: string | null;
 }
-export interface MeetingData {
-  id: string; title: string; startsAt: string; endsAt: string; timezone: string; location: string | null; description: string | null; status: string; gigId: string | null; externalCalendarId: string | null; externalEventId: string | null;
-}
-export interface MeetingParticipantData {
-  id: string; meetingId: string; personId: string;
-}
+export interface InteractionData { id:string; subject:string; kind:string; channel:string; direction:string; status:string; startsAt:string; endsAt:string|null; timezone:string|null; location:string|null; summary:string|null; notes:string|null; gigId:string|null; supersedesInteractionId:string|null; originChangeId:string|null; structuredDataJson:string }
+export interface InteractionParticipantData { id:string; interactionId:string; personId:string }
 
-export interface BusinessEventInput {
-  id?: string;
-  type: string;
-  entityType: string;
-  entityId: string;
-  occurredAt: string;
-  summary: string;
-  data?: Record<string, unknown>;
-  supersedesEventId?: string | null;
-  sources?: EventSourceInput[];
-}
-
-export interface EventSourceInput {
-  id?: string;
-  sourceSystem: string;
-  externalId?: string | null;
-  sourceTimestamp?: string | null;
-  sourceUri?: string | null;
-  importedAt: string;
-  contentHash?: string | null;
-  excerpt?: string | null;
-}
 
 export interface ChangeResult<T> { changeId: string; value: T }
 

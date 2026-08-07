@@ -9,6 +9,31 @@ import {
 } from "./system-prompt";
 import type { GigFinderAgentOptions } from "./types";
 
+type StepStartLogEvent = {
+  callId: string; stepNumber: number; provider: string; modelId: string;
+  tools: Record<string, unknown> | undefined; steps: readonly unknown[];
+};
+type LoggedToolCall = { toolCallId: string; toolName: string; input?: unknown };
+type StepEndLogEvent = {
+  callId: string; stepNumber: number; model: { provider: string; modelId: string };
+  usage: {
+    inputTokens: number | undefined; outputTokens: number | undefined; totalTokens: number | undefined;
+    inputTokenDetails: { cacheReadTokens: number | undefined };
+    outputTokenDetails: { reasoningTokens: number | undefined };
+  };
+  finishReason: unknown; toolCalls: readonly (LoggedToolCall | undefined)[];
+  toolResults: readonly ({ toolCallId: string; toolName: string } | undefined)[];
+  performance: {
+    stepTimeMs: number; responseTimeMs: number;
+    timeToFirstOutputMs: number | undefined;
+    toolExecutionMs: Readonly<Record<string, number>>;
+  };
+  text: string; reasoningText?: string;
+};
+type EndLogEvent = Pick<StepEndLogEvent, "usage" | "finishReason"> & {
+  steps: readonly { text: string; toolCalls: readonly unknown[] }[];
+};
+
 function textCharacters(messages: ModelMessage[]) {
   return messages.reduce((total, message) => {
     if (typeof message.content === "string") return total + message.content.length;
@@ -63,7 +88,7 @@ export class GigFinderAgent {
           reasoningSummary: "auto",
         },
       },
-      onStepStart: ({ callId, stepNumber, provider, modelId, tools, steps }) => {
+      onStepStart: ({ callId, stepNumber, provider, modelId, tools, steps }: StepStartLogEvent) => {
         activeStep = { callId, stepNumber, startedAt: performance.now() };
         log.debug({
           ...interaction,
@@ -87,7 +112,7 @@ export class GigFinderAgent {
         performance,
         text,
         reasoningText,
-      }) => {
+      }: StepEndLogEvent) => {
         log.debug({
           ...interaction,
           event: "agent.step.completed",
@@ -129,7 +154,7 @@ export class GigFinderAgent {
         }, "Completed agent step");
         activeStep = null;
       },
-      onEnd: ({ usage, finishReason, steps }) => {
+      onEnd: ({ usage, finishReason, steps }: EndLogEvent) => {
         const outcome = wasAborted ? "aborted" : "completed";
         log.info({
           ...interaction,
@@ -155,7 +180,7 @@ export class GigFinderAgent {
           },
         }, `${outcome === "aborted" ? "Aborted" : "Completed"} model interaction`);
       },
-      onAbort: ({ steps }) => {
+      onAbort: ({ steps }: { steps: readonly unknown[] }) => {
         wasAborted = true;
         log.warn({
           ...interaction,
@@ -172,7 +197,7 @@ export class GigFinderAgent {
           err: signal?.reason,
         }, "Model interaction aborted");
       },
-      onError: ({ error }) => {
+      onError: ({ error }: { error: unknown }) => {
         log.error({
           ...interaction,
           event: "model.interaction.failed",

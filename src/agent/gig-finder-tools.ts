@@ -12,8 +12,8 @@ import type {
   GigQueryInput,
   ManagedDocumentMutationResult,
   ManagedDocumentService,
-  MeetingQueryInput,
-  MeetingService,
+  InteractionQueryInput,
+  InteractionService,
   PeopleQueryInput,
   PeopleService,
   SearchContextService,
@@ -44,11 +44,11 @@ import {
 } from "../core/documents";
 import { stagedDocumentReferencePattern } from "../core/staged-documents";
 import { gigPersonRelationships } from "../core/people";
-import { meetingInputSchema, meetingStatuses, meetingTimezoneSchema, type MeetingInput } from "../core/meetings";
+import { interactionChannels, interactionDirections, interactionInputSchema, interactionKinds, interactionStatuses, interactionTimezoneSchema, type InteractionInput } from "../core/interactions";
 import {
   personChangesSchema,
   gigChangesSchema,
-  meetingChangesSchema,
+  interactionChangesSchema,
   taskChangesSchema,
 } from "./update-tool-schemas";
 
@@ -131,19 +131,21 @@ const listGigPersonRelationshipsInputSchema = z.object({
   ...pageSchema,
 }).strict();
 
-const listMeetingsInputSchema = z.object({
+const listInteractionsInputSchema = z.object({
   personIds: nonEmptyIdArray.nullable()
-    .describe("Include meetings attended by any of these exact durable person IDs."),
+    .describe("Include interactions involving any of these exact durable person IDs."),
   gigIds: nonEmptyIdArray.nullable()
-    .describe("Include meetings associated with any of these exact durable gig IDs."),
-  statuses: nonEmptyArray(meetingStatuses).nullable()
-    .describe("Include meetings with any of these statuses."),
+    .describe("Include interactions associated with any of these exact durable gig IDs."),
+  kinds: nonEmptyArray(interactionKinds).nullable().describe("Include interactions with any of these semantic kinds."),
+  channels: nonEmptyArray(interactionChannels).nullable().describe("Include interactions using any of these channels."),
+  directions: nonEmptyArray(interactionDirections).nullable().describe("Include interactions with any of these directions."),
+  statuses: nonEmptyArray(interactionStatuses).nullable().describe("Include interactions with any of these statuses."),
   startsFrom: z.string().datetime({ offset: true }).nullable()
-    .describe("Include meetings starting at or after this ISO 8601 timestamp."),
+    .describe("Include interactions starting at or after this ISO 8601 timestamp."),
   startsThrough: z.string().datetime({ offset: true }).nullable()
-    .describe("Include meetings starting at or before this ISO 8601 timestamp."),
+    .describe("Include interactions starting at or before this ISO 8601 timestamp."),
   query: z.string().trim().nullable()
-    .describe("Case-insensitive text to search across meeting title, location, and description."),
+    .describe("Case-insensitive text to search across interaction subject, summary, notes, and location."),
   ...pageSchema,
 }).strict();
 
@@ -208,31 +210,36 @@ const updatePersonInputSchema = z.object({
     .describe("One or more explicit changes to mutable person fields."),
 }).strict();
 
-const createMeetingInputSchema = z.object({
-  title: z.string().trim().min(1)
-    .describe("Meeting title."),
+const createInteractionInputSchema = z.object({
+  subject: z.string().trim().min(1).describe("Interaction subject."),
+  kind: z.enum(interactionKinds).describe("Semantic interaction kind."),
+  channel: z.enum(interactionChannels).describe("Interaction delivery channel."),
+  direction: z.enum(interactionDirections).describe("Direction relative to the candidate."),
   startsAt: z.string().datetime({ offset: true })
-    .describe("Meeting start as an ISO 8601 timestamp with an offset."),
-  endsAt: z.string().datetime({ offset: true })
-    .describe("Meeting end as an ISO 8601 timestamp with an offset."),
-  timezone: meetingTimezoneSchema
-    .describe("IANA timezone used to present the meeting time."),
-  status: z.enum(meetingStatuses)
-    .describe("Meeting status: confirmed or completed."),
+    .describe("Interaction start as an ISO 8601 timestamp with an offset."),
+  endsAt: z.string().datetime({ offset: true }).nullable().describe("End timestamp, or null for a point-in-time interaction."),
+  timezone: interactionTimezoneSchema.nullable().describe("IANA timezone, or null."),
+  status: z.enum(interactionStatuses).describe("Interaction lifecycle status."),
   personIds: uniquePersonIds
     .describe("One or more unique, exact durable Person IDs returned by a person or contact tool."),
   gigId: z.string().trim().min(1).nullable()
-    .describe("Exact durable Gig ID returned by a gig tool, or null when the meeting is not gig-specific."),
+    .describe("Exact durable Gig ID returned by a gig tool, or null when the interaction is not gig-specific."),
   location: z.string().trim().nullable()
-    .describe("Meeting location, or null when it is unknown or not applicable."),
-  description: z.string().trim().nullable()
-    .describe("Meeting description or notes, or null when none were supplied."),
+    .describe("Interaction location, or null when unknown."),
+  summary: z.string().trim().nullable().describe("Concise interaction summary, or null."),
+  notes: z.string().trim().nullable().describe("Longer notes, or null."),
+  supersedesInteractionId: z.string().trim().min(1).nullable().describe("Prior corrected interaction ID, or null."),
 }).strict();
 
-const updateMeetingInputSchema = z.object({
+const updateInteractionInputSchema = z.object({
   id: getInputSchema.shape.id,
-  changes: meetingChangesSchema
-    .describe("One or more explicit changes to mutable meeting fields."),
+  changes: interactionChangesSchema
+    .describe("One or more explicit changes to mutable interaction fields."),
+}).strict();
+
+const deleteInteractionInputSchema = z.object({
+  id: getInputSchema.shape.id,
+  expectedRevision: z.number().int().positive().describe("Current revision required for optimistic deletion."),
 }).strict();
 
 const createTaskInputSchema = z.object({
@@ -372,7 +379,7 @@ export interface GigFinderReadCapabilities {
   people: Pick<PeopleService, "query" | "read">;
   gigPeople: Pick<GigPeopleService, "query" | "read">;
   tasks: Pick<TaskDomainService, "query" | "read">;
-  meetings: Pick<MeetingService, "query" | "read">;
+  interactions: Pick<InteractionService, "query" | "read">;
   documents: Pick<DocumentReader, "get" | "list"> & Partial<Pick<DocumentReader, "query" | "versionQuery">>;
 }
 
@@ -387,7 +394,7 @@ export interface GigFinderMutationCapabilities {
   };
   gigPeople?: Pick<GigPeopleService, "createNew">;
   tasks: Pick<TaskDomainService, "createNew" | "update">;
-  meetings: Pick<MeetingService, "create" | "update">;
+  interactions: Pick<InteractionService, "create" | "update" | "delete">;
   changes: Pick<ChangeService, "revert">;
   documents: Pick<ManagedDocumentService, "create" | "update">;
 }
@@ -407,7 +414,10 @@ function gigReferencesForPerson(
   while (true) {
     const result = gigPeople.query({ personIds: [personId], offset, limit: 50 });
     if (result.status !== "ok") return result;
-    gigs.push(...result.items.map(({ gigId, relationship }) => ({ gigId, relationship })));
+    gigs.push(...result.items.map((item) => ({
+      gigId: item.gigId,
+      relationship: item.relationship,
+    })));
     if (result.page.nextOffset === null) return { status: "ok" as const, gigs };
     offset = result.page.nextOffset;
   }
@@ -417,10 +427,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 function toolInvocationDetails(input: ToolInput, toolName: string) {
-  const meetingCreationFields = toolName === "create_meeting"
+  const interactionCreationFields = toolName === "create_interaction"
     ? [
-        "title", "startsAt", "endsAt", "timezone", "status", "personIds",
-        "gigId", "location", "description",
+        "subject", "kind", "channel", "direction", "startsAt", "endsAt",
+        "timezone", "status", "personIds", "gigId", "location", "summary",
+        "notes", "supersedesInteractionId",
       ]
     : [];
   const taskCreationFields = toolName === "create_task"
@@ -434,7 +445,7 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
           "changes", "changeId", "links", "documentType", "documentId",
           "expectedVersion", "title", "mediaType", "sourceDescription", "content",
           "description", "changeSummary", "sourceKind",
-          ...meetingCreationFields,
+          ...interactionCreationFields,
           ...taskCreationFields,
         ].includes(key)
       )
@@ -484,7 +495,7 @@ function toolInvocationDetails(input: ToolInput, toolName: string) {
     ...(input.changes === undefined
       ? {}
       : { updateFields: input.changes.map(change => change.field) }),
-    ...(toolName !== "create_meeting"
+    ...(toolName !== "create_interaction"
       ? {}
       : {
           participantIds: Array.isArray(input.personIds) ? input.personIds : [],
@@ -543,10 +554,10 @@ function personPatchFromOperations(
   return personInputSchema.parse(changesToPatch(changes));
 }
 
-function meetingPatchFromOperations(
-  changes: z.infer<typeof meetingChangesSchema>,
-): MeetingInput {
-  return meetingInputSchema.parse(changesToPatch(changes));
+function interactionPatchFromOperations(
+  changes: z.infer<typeof interactionChangesSchema>,
+): InteractionInput {
+  return interactionInputSchema.parse(changesToPatch(changes));
 }
 
 function taskPatchFromOperations(
@@ -615,12 +626,15 @@ function normalizeGigPersonRelationshipsInput(
   };
 }
 
-function normalizeMeetingsInput(
-  input: z.infer<typeof listMeetingsInputSchema>,
-): MeetingQueryInput {
+function normalizeInteractionsInput(
+  input: z.infer<typeof listInteractionsInputSchema>,
+): InteractionQueryInput {
   return {
     ...(input.personIds === null ? {} : { personIds: input.personIds }),
     ...(input.gigIds === null ? {} : { gigIds: input.gigIds }),
+    ...(input.kinds === null ? {} : { kinds: input.kinds }),
+    ...(input.channels === null ? {} : { channels: input.channels }),
+    ...(input.directions === null ? {} : { directions: input.directions }),
     ...(input.statuses === null ? {} : { statuses: input.statuses }),
     ...(input.startsFrom === null ? {} : { startsFrom: input.startsFrom }),
     ...(input.startsThrough === null ? {} : { startsThrough: input.startsThrough }),
@@ -772,7 +786,7 @@ function loggedExecution<TInput extends ToolInput, TResult>(
         };
       }
       const message = error instanceof Error ? error.message : "";
-      if (/^(Gig|Meeting|Person|Task) not found:/.test(message)) {
+      if (/^(Gig|Interaction|Person|Task) not found:/.test(message)) {
         return { status: "error", error: "not_found", message };
       }
       return {
@@ -897,18 +911,18 @@ export function createGigFinderTools(
       inputSchema: getInputSchema,
       execute: loggedExecution(logger, "get_task", ({ id }) => reads.tasks.read(id)),
     }),
-    list_meetings: tool({
+    list_interactions: tool({
       strict: true,
-      description: "List complete current Meeting records. A Meeting is a scheduled or completed interaction with one or more People and may be associated with a Gig. Filter by multiple person IDs, gig IDs, statuses, inclusive start timestamps, or text. Results are ordered newest first and may be paginated.",
-      inputSchema: listMeetingsInputSchema,
-      execute: loggedExecution(logger, "list_meetings", input =>
-        reads.meetings.query(normalizeMeetingsInput(input))),
+      description: "List complete current Interaction records. Filter by participants, gigs, kinds, channels, directions, statuses, inclusive start timestamps, or text. Results are ordered newest first and may be paginated.",
+      inputSchema: listInteractionsInputSchema,
+      execute: loggedExecution(logger, "list_interactions", input =>
+        reads.interactions.query(normalizeInteractionsInput(input))),
     }),
-    get_meeting: tool({
+    get_interaction: tool({
       strict: true,
-      description: "Get one complete current Meeting using its durable ID. The result includes every participant personId and the associated gigId when present; use the corresponding record tools for further detail.",
+      description: "Get one complete current Interaction using its durable ID, including participant personIds and an associated gigId when present.",
       inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_meeting", ({ id }) => reads.meetings.read(id)),
+      execute: loggedExecution(logger, "get_interaction", ({ id }) => reads.interactions.read(id)),
     }),
     list_documents: tool({
       strict: true,
@@ -1058,46 +1072,55 @@ export function createGigFinderTools(
         }),
       ),
     }),
-    create_meeting: tool({
+    create_interaction: tool({
       strict: true,
-      description: "Create one meeting linked to one or more existing people and optionally one existing gig. Supply exact durable IDs and confirm the meeting using friendly participant and opportunity details.",
-      inputSchema: createMeetingInputSchema,
+      description: "Create one interaction linked to one or more existing people and optionally one existing gig. Supply exact durable IDs.",
+      inputSchema: createInteractionInputSchema,
       execute: loggedExecution(
         logger,
-        "create_meeting",
+        "create_interaction",
         (input, { toolCallId }) => ({
           status: "ok" as const,
-          ...mutations.meetings.create({
+          ...mutations.interactions.create({
             actor: requestContext.actor,
             source: "agent",
-            summary: `Agent created meeting (request ${requestContext.requestId}, tool ${toolCallId})`,
+            summary: `Agent created interaction (request ${requestContext.requestId}, tool ${toolCallId})`,
             changeId: `agent-tool:${toolCallId}`,
-          }, {
-            id: `meeting_${crypto.randomUUID()}`,
-            ...input,
-            externalCalendarId: null,
-            externalEventId: null,
-          }),
+          }, entityIdForToolCall("interaction", toolCallId), { ...input, structuredData: {} }),
         }),
       ),
     }),
-    update_meeting: tool({
+    update_interaction: tool({
       strict: true,
-      description: "Update one existing meeting using explicit set or clear operations. Supply only desired changes and confirm the friendly action summary.",
-      inputSchema: updateMeetingInputSchema,
+      description: "Update one existing interaction using explicit set or clear operations.",
+      inputSchema: updateInteractionInputSchema,
       execute: loggedExecution(
         logger,
-        "update_meeting",
+        "update_interaction",
         ({ id, changes }, { toolCallId }) => ({
           status: "ok" as const,
-          ...mutations.meetings.update({
+          ...mutations.interactions.update({
             actor: requestContext.actor,
             source: "agent",
-            summary: `Agent updated meeting ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+            summary: `Agent updated interaction ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
             changeId: `agent-tool:${toolCallId}`,
-          }, id, meetingPatchFromOperations(changes)),
+          }, id, interactionPatchFromOperations(changes)),
         }),
       ),
+    }),
+    delete_interaction: tool({
+      strict: true,
+      description: "Delete one interaction at its expected current revision after explicit user confirmation.",
+      inputSchema: deleteInteractionInputSchema,
+      execute: loggedExecution(logger, "delete_interaction", ({ id, expectedRevision }, { toolCallId }) => ({
+        status: "ok" as const,
+        ...mutations.interactions.delete({
+          actor: requestContext.actor,
+          source: "agent",
+          summary: `Agent deleted interaction ${id} (request ${requestContext.requestId}, tool ${toolCallId})`,
+          changeId: `agent-tool:${toolCallId}`,
+        }, id, expectedRevision),
+      })),
     }),
     create_document: tool({
       strict: true,
@@ -1220,8 +1243,8 @@ export const gigFinderToolSchemas = {
   get_gig_person_relationship: getInputSchema,
   list_tasks: listTasksInputSchema,
   get_task: getInputSchema,
-  list_meetings: listMeetingsInputSchema,
-  get_meeting: getInputSchema,
+  list_interactions: listInteractionsInputSchema,
+  get_interaction: getInputSchema,
   list_documents: listDocumentsInputSchema,
   list_document_versions: listDocumentVersionsInputSchema,
   get_document: getDocumentInputSchema,
@@ -1232,8 +1255,9 @@ export const gigFinderToolSchemas = {
   create_gig_person_relationship: createGigPersonRelationshipInputSchema,
   create_task: createTaskInputSchema,
   update_task: updateTaskInputSchema,
-  create_meeting: createMeetingInputSchema,
-  update_meeting: updateMeetingInputSchema,
+  create_interaction: createInteractionInputSchema,
+  update_interaction: updateInteractionInputSchema,
+  delete_interaction: deleteInteractionInputSchema,
   create_document: createDocumentInputSchema,
   update_document: updateDocumentInputSchema,
   revert_change: revertChangeInputSchema,

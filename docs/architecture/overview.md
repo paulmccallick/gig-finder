@@ -26,7 +26,10 @@ flowchart LR
   while web presentation omits system-added capabilities. Core has no dependency
   on client or persistence packages.
 - `src/data/` implements core persistence ports, SQLite transactions, auditing,
-  private context resolution, and managed filesystem projections.
+  private context resolution, managed filesystem projections, and guarded
+  legacy migrations. Interaction rollout migrates Meetings and historical
+  Person contact state while leaving legacy Business Events and Event Sources
+  intact for separately approved follow-up work.
 - `src/agent/` adapts core capabilities to model-facing tools and AI SDK Core.
   Agent policy is separate from the configured candidate profile.
 - `src/web/` owns HTTP, AI SDK UI adaptation, uploads and conversion, static
@@ -50,7 +53,7 @@ flowchart LR
 - [ADR 0004: Share one domain input contract across create and update](decisions/0004-share-domain-input-contracts.md) makes entity-owned input schemas the source for all client adapters.
 - [ADR 0005: Store mutations as revisioned, audited transactions](decisions/0005-revisioned-audited-change-transactions.md) defines atomic revision history, audit envelopes, and safe reversion.
 - [ADR 0006: Make database document state authoritative](decisions/0006-authoritative-document-state.md) treats filesystem content as imports or repairable projections.
-- [ADR 0007: Deploy immutable images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
+- [ADR 0007: Deploy Docker images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
 - [ADR 0008: Adapt domain capabilities to strict agent tools](decisions/0008-agent-tool-contracts.md) defines tool patches, schema strictness, and generated contract documentation.
 
 Runtime settings are documented in [Configuration](configuration.md). Production
