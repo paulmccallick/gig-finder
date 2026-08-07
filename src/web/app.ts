@@ -114,7 +114,7 @@ export function loadWebConfiguration(
       mode: smokeMode ?? null,
       providerBaseURL: providerBaseURL ?? null,
       maxSteps: smokeMode ? 2 : undefined,
-      maxOutputTokens: smokeMode === "live" ? 256 : smokeMode === "deterministic" ? 128 : undefined,
+      maxOutputTokens: smokeMode === "deterministic" ? 128 : undefined,
     },
     uploads: {
       maxBytes: positiveInteger(

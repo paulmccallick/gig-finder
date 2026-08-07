@@ -40,8 +40,10 @@ default `~/.codex`). It refuses a dirty worktree, runs `bun run build`, starts
 the built production composition root locally with new synthetic state, and
 submits the complete tool registry to the real subscription provider. The
 request allows only a normal short response or harmless read-only tool call,
-uses at most two model steps and 256 output tokens per step, and has a default
-90-second timeout. It never runs in GitHub Actions. The expected provider use
+uses at most two model steps and has a default 90-second timeout. It never runs
+in GitHub Actions. The subscription endpoint does not accept a client-supplied
+output-token limit, so the synthetic prompt requires a brief response and the
+hard timeout remains the outer bound. The expected provider use
 is one bounded agent request plus the small title request for a new
 conversation; normal subscription access rather than API-key billing is used.
 
