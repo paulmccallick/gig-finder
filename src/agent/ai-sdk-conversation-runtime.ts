@@ -47,6 +47,7 @@ export function safeAgentError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (/codex authentication/i.test(message)) return message;
   if (/unsupported codex model/i.test(message)) return message;
+  if (/codex provider rejected live smoke request/i.test(message)) return message;
   return "The GigFinderAgent could not complete that response. Please try again.";
 }
 

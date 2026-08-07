@@ -50,7 +50,7 @@ async function loadCodexCredential() {
 
 export async function createCodexLanguageModel(
   modelId: AgentModelId = defaultAgentModelId,
-  options: { smokeBaseURL?: string } = {},
+  options: { smokeBaseURL?: string; surfaceLiveSmokeErrors?: boolean } = {},
 ) {
   const selectedModel = parseAgentModelId(modelId);
   if (options.smokeBaseURL) {
@@ -70,7 +70,14 @@ export async function createCodexLanguageModel(
     headers.set("originator", "gig-finder-agent");
     headers.set("accept", "text/event-stream");
     headers.set("content-type", "application/json");
-    return fetch(input, { ...init, headers });
+    const response = await fetch(input, { ...init, headers });
+    if (!response.ok && options.surfaceLiveSmokeErrors) {
+      const payload = (await response.clone().text()).replace(/\s+/g, " ").slice(0, 300);
+      throw new Error(
+        `Codex provider rejected live smoke request (${response.status}): ${payload || response.statusText}`,
+      );
+    }
+    return response;
   }) as typeof fetch;
   const provider = createOpenAI({
     name: "codex-subscription",

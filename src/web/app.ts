@@ -202,9 +202,12 @@ export async function createWebApplication(configuration: WebConfiguration) {
     actor: configuration.context.actor,
     toolExtensions: { contextSearch: gigFinder.contextSearch, stagedDocuments },
     selectModel: () => gigFinder.settings.get().agentModel,
-    ...(configuration.smoke.providerBaseURL
+    ...(configuration.smoke.mode
       ? { modelFactory: modelId => createCodexLanguageModel(modelId, {
-          smokeBaseURL: configuration.smoke.providerBaseURL!,
+          ...(configuration.smoke.providerBaseURL
+            ? { smokeBaseURL: configuration.smoke.providerBaseURL }
+            : {}),
+          surfaceLiveSmokeErrors: configuration.smoke.mode === "live",
         }) }
       : {}),
     maxSteps: configuration.smoke.maxSteps,
