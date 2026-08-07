@@ -45,7 +45,11 @@ flowchart LR
 - Person create and update clients share the Person-owned input contract.
   Top-level latest-contact fields are composed deterministically from the most
   recent completed Interaction for reads and are excluded from Person input and
-  persistence. Person-related follow-up work is represented by Tasks.
+  persistence. Its contact date uses the Interaction's declared timezone; when
+  none is declared, it preserves the calendar date encoded by `startsAt`.
+  Person-related follow-up work is represented by Tasks. Migration archives
+  legacy current and historical Person follow-up snapshots before removing the
+  old columns, while only active People receive live follow-up Tasks.
 - Private context and credentials never belong in source control or build
   artifacts.
 

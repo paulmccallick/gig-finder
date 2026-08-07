@@ -49,7 +49,7 @@ export class PeopleService {
     const participantIds=new Set(this.persistence.interactionParticipants.list().filter(item=>item.personId===record.id).map(item=>item.interactionId));
     const latest=this.persistence.interactions.list().filter(item=>participantIds.has(item.id)&&item.status==="completed").sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id))[0];
     const interactions=this.persistence.interactions.list().filter(item=>participantIds.has(item.id)).sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id)).map(item=>({id:item.id,subject:item.subject,kind:item.kind as import("./interactions").InteractionKind,channel:item.channel as import("./interactions").InteractionChannel,status:item.status as import("./interactions").InteractionStatus,startsAt:item.startsAt}));
-    return personFromData(record,documents,latest?{date:latest.startsAt.slice(0,10),method:latest.channel,summary:latest.summary??latest.notes??latest.subject}:undefined,interactions);
+    return personFromData(record,documents,latest?{date:interactionCalendarDate(latest.startsAt,latest.timezone),method:latest.channel,summary:latest.summary??latest.notes??latest.subject}:undefined,interactions);
   }
 
   get(id: string): PersonRecord | null {
@@ -538,6 +538,12 @@ const personToData = (person: Person): PersonData => ({
 });
 
 const personDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+function interactionCalendarDate(startsAt:string,timezone:string|null):string {
+  if(timezone===null)return startsAt.slice(0,10);
+  const parts=new Intl.DateTimeFormat("en-CA",{timeZone:timezone,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(startsAt));
+  const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
 function validatePerson(person: Person) {
   if (!person.id.trim() || !person.name.trim()) throw new DomainValidationError("Person id and name are required.");
   if (!personPriorities.includes(person.priority)
