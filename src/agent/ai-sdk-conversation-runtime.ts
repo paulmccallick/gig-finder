@@ -39,6 +39,8 @@ export interface GigFinderConversationRuntimeOptions {
   mutations?: GigFinderMutationCapabilities;
   actor?: string;
   toolExtensions?: GigFinderToolExtensions;
+  maxSteps?: number;
+  maxOutputTokens?: number;
 }
 
 export function safeAgentError(error: unknown) {
@@ -270,6 +272,8 @@ export class GigFinderConversationRuntime implements ConversationAgentRuntime {
       tools,
       canUpdateRecords: this.options.mutations !== undefined,
       profileDocuments: this.options.profileDocuments?.() ?? [],
+      maxSteps: this.options.maxSteps,
+      maxOutputTokens: this.options.maxOutputTokens,
     });
     const result = agent.respond(toModelMessages(input.messages), input.signal);
     return conversationStream(result.fullStream, input.onEnd);

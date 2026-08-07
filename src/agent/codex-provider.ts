@@ -50,8 +50,17 @@ async function loadCodexCredential() {
 
 export async function createCodexLanguageModel(
   modelId: AgentModelId = defaultAgentModelId,
+  options: { smokeBaseURL?: string } = {},
 ) {
   const selectedModel = parseAgentModelId(modelId);
+  if (options.smokeBaseURL) {
+    const provider = createOpenAI({
+      name: "codex-smoke",
+      baseURL: options.smokeBaseURL,
+      apiKey: "smoke-provider-does-not-use-authentication",
+    });
+    return provider.responses(selectedModel);
+  }
   const credential = await loadCodexCredential();
   const codexFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);

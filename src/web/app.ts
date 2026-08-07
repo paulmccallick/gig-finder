@@ -17,6 +17,7 @@ import { createApplicationLogger } from "../observability/logger";
 import { createAgentApi } from "./agent-handler";
 import { ConversationService } from "../core/conversation-service";
 import { GigFinderConversationRuntime } from "../agent/ai-sdk-conversation-runtime";
+import { createCodexLanguageModel } from "../agent/codex-provider";
 import { LocalDocumentConverter } from "./document-conversion";
 import { createDocumentUploadHandler } from "./document-upload-handler";
 import { createWebHandler } from "./request-handler";
@@ -35,6 +36,12 @@ export interface WebConfiguration {
   defaultAgentModel: AgentModelId;
   logLevel: string;
   aiSdkDevTools: boolean;
+  smoke: {
+    mode: "deterministic" | "live" | null;
+    providerBaseURL: string | null;
+    maxSteps: number | undefined;
+    maxOutputTokens: number | undefined;
+  };
   uploads: {
     maxBytes: number;
     maxCharacters: number;
@@ -72,6 +79,24 @@ export function loadWebConfiguration(
   environment: ProcessEnvironment = process.env,
 ): WebConfiguration {
   const staticRoot = environment.STATIC_ROOT?.trim();
+  const smokeModeValue = environment.GIG_FINDER_SMOKE_MODE?.trim();
+  if (smokeModeValue && smokeModeValue !== "deterministic" && smokeModeValue !== "live") {
+    throw new Error("GIG_FINDER_SMOKE_MODE must be deterministic or live.");
+  }
+  const smokeMode = smokeModeValue as "deterministic" | "live" | undefined;
+  const providerBaseURL = environment.GIG_FINDER_SMOKE_PROVIDER_URL?.trim();
+  if (providerBaseURL && smokeMode !== "deterministic") {
+    throw new Error("The smoke provider endpoint is allowed only in deterministic smoke mode.");
+  }
+  if (smokeMode === "deterministic" && !providerBaseURL) {
+    throw new Error("Deterministic smoke mode requires GIG_FINDER_SMOKE_PROVIDER_URL.");
+  }
+  if (providerBaseURL) {
+    const endpoint = new URL(providerBaseURL);
+    if (endpoint.protocol !== "http:") {
+      throw new Error("The deterministic smoke provider endpoint must use HTTP.");
+    }
+  }
   return {
     server: {
       hostname: environment.HOST?.trim() || "127.0.0.1",
@@ -85,6 +110,12 @@ export function loadWebConfiguration(
     ),
     logLevel: environment.LOG_LEVEL?.trim() || "debug",
     aiSdkDevTools: environment.AI_SDK_DEVTOOLS === "true",
+    smoke: {
+      mode: smokeMode ?? null,
+      providerBaseURL: providerBaseURL ?? null,
+      maxSteps: smokeMode ? 2 : undefined,
+      maxOutputTokens: smokeMode === "live" ? 256 : smokeMode === "deterministic" ? 128 : undefined,
+    },
     uploads: {
       maxBytes: positiveInteger(
         environment.DOCUMENT_UPLOAD_MAX_BYTES,
@@ -171,6 +202,13 @@ export async function createWebApplication(configuration: WebConfiguration) {
     actor: configuration.context.actor,
     toolExtensions: { contextSearch: gigFinder.contextSearch, stagedDocuments },
     selectModel: () => gigFinder.settings.get().agentModel,
+    ...(configuration.smoke.providerBaseURL
+      ? { modelFactory: modelId => createCodexLanguageModel(modelId, {
+          smokeBaseURL: configuration.smoke.providerBaseURL!,
+        }) }
+      : {}),
+    maxSteps: configuration.smoke.maxSteps,
+    maxOutputTokens: configuration.smoke.maxOutputTokens,
   });
   const conversations = new ConversationService(
     local.conversations,

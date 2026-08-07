@@ -17,7 +17,7 @@ import {
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
 } from "../gig-finder-tools";
-import { validateStrictToolJsonSchema } from "./strict-tool-schema";
+import { validateStrictToolJsonSchema } from "../../../scripts/smoke-support/tool-schema-validation";
 import { testCandidateProfile } from "./fixtures";
 import {
   buildCurrentTurnContext,

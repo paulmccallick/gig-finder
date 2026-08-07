@@ -17,6 +17,12 @@ describe("web process configuration", () => {
       revision: "unversioned",
     });
     expect(configuration.aiSdkDevTools).toBe(false);
+    expect(configuration.smoke).toEqual({
+      mode: null,
+      providerBaseURL: null,
+      maxSteps: undefined,
+      maxOutputTokens: undefined,
+    });
   });
 
   test("accepts explicit host configuration without an environment mode", () => {
@@ -35,6 +41,27 @@ describe("web process configuration", () => {
       revision: "a".repeat(40),
     });
     expect(configuration.aiSdkDevTools).toBe(true);
+  });
+
+  test("keeps the scripted provider behind explicit deterministic smoke mode", () => {
+    expect(() => loadWebConfiguration(applicationRoot, {
+      GIG_FINDER_CONTEXT_ROOT: contextRoot,
+      GIG_FINDER_SMOKE_PROVIDER_URL: "http://provider:4010",
+    })).toThrow("allowed only in deterministic smoke mode");
+    expect(() => loadWebConfiguration(applicationRoot, {
+      GIG_FINDER_CONTEXT_ROOT: contextRoot,
+      GIG_FINDER_SMOKE_MODE: "deterministic",
+    })).toThrow("requires GIG_FINDER_SMOKE_PROVIDER_URL");
+    expect(loadWebConfiguration(applicationRoot, {
+      GIG_FINDER_CONTEXT_ROOT: contextRoot,
+      GIG_FINDER_SMOKE_MODE: "deterministic",
+      GIG_FINDER_SMOKE_PROVIDER_URL: "http://provider:4010",
+    }).smoke).toEqual({
+      mode: "deterministic",
+      providerBaseURL: "http://provider:4010",
+      maxSteps: 2,
+      maxOutputTokens: 128,
+    });
   });
 
   test("rejects invalid ports", () => {

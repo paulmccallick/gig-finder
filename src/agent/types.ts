@@ -35,4 +35,6 @@ export interface GigFinderAgentOptions {
   canUpdateRecords?: boolean;
   profileDocuments?: ProfileDocumentContext[];
   now?: () => Date;
+  maxSteps?: number;
+  maxOutputTokens?: number;
 }

@@ -15,6 +15,12 @@ You are the project's implementation specialist.
 - Use relevant available code-quality and framework skills when they apply.
 - Run the code-reviewer agent on the completed diff when available and address
   actionable findings within scope.
-- Commit the coherent, verified implementation before finishing. If blocked,
-  report the blocker rather than committing incomplete work.
+- Commit the coherent implementation, then run `bun run smoke:deterministic`
+  and `bun run smoke:live` against that clean exact HEAD after the normal
+  checks. Record the 40-character SHA and bounded result from each command in
+  the pull request smoke-evidence block. A later commit makes both results
+  stale and requires both commands to run again.
+- Do not complete, push final evidence, or hand off review while either smoke
+  result is missing, stale, or failing. If blocked, report the blocker rather
+  than committing incomplete work.
 """

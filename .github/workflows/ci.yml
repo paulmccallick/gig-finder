@@ -39,6 +39,17 @@ jobs:
         run: bun run test:e2e
       - name: Build production artifacts
         run: bun run build
+      - name: Build exact-revision production image
+        run: >-
+          docker build
+          --build-arg GIT_REVISION=${{ github.sha }}
+          --tag gig-finder-smoke:${{ github.sha }}
+          .
+      - name: Run deterministic production smoke test
+        env:
+          SMOKE_IMAGE: gig-finder-smoke:${{ github.sha }}
+          SMOKE_REVISION: ${{ github.sha }}
+        run: bun run smoke:deterministic
 
   publish:
     name: publish-container
@@ -59,53 +70,6 @@ jobs:
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
-      - name: Build smoke-test image
-        run: >-
-          docker build
-          --build-arg GIT_REVISION=${{ github.sha }}
-          --tag gig-finder-smoke:${{ github.sha }}
-          .
-      - name: Smoke-test production image
-        env:
-          REVISION: ${{ github.sha }}
-        run: |
-          set -eu
-          context_root="${RUNNER_TEMP}/gig-finder-smoke"
-          mkdir -p "${context_root}/profile" "${context_root}/codex"
-          cp src/web/test/fixtures/candidate-profile.json "${context_root}/profile/candidate-profile.json"
-          bun src/web/test/pdf-fixture.ts "${context_root}/upload.pdf"
-          chmod -R a+rwX "${context_root}"
-          docker run --rm \
-            -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
-            -v "${context_root}:/var/lib/gig-finder" \
-            gig-finder-smoke:${REVISION} \
-            bun dist/server/maintenance.js initialize
-          container_id="$(docker run --detach --rm \
-            -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
-            -e CODEX_HOME=/run/codex \
-            -v "${context_root}:/var/lib/gig-finder" \
-            -v "${context_root}/codex:/run/codex:ro" \
-            -p 127.0.0.1:3001:3001 \
-            gig-finder-smoke:${REVISION})"
-          trap 'docker stop "${container_id}" >/dev/null 2>&1 || true' EXIT
-          healthy=false
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:3001/healthz | grep -q "${REVISION}" \
-              && curl --fail --silent http://127.0.0.1:3001/ | grep -q "GigFinder"; then
-              healthy=true
-              break
-            fi
-            sleep 1
-          done
-          if [ "${healthy}" != true ]; then
-            docker logs "${container_id}"
-            exit 1
-          fi
-          upload_response="$(curl --fail --silent \
-            -F "file=@${context_root}/upload.pdf;type=application/pdf" \
-            http://127.0.0.1:3001/api/agent/documents)"
-          printf '%s\n' "${upload_response}" | grep -q '"reference"'
-          printf '%s\n' "${upload_response}" | grep -q '"detectedMediaType":"application/pdf"'
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:

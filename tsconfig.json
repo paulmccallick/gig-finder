@@ -18,5 +18,5 @@
     "types": ["bun", "vite/client"],
     "useDefineForClassFields": true
   },
-  "include": ["drizzle.config.ts", "src/**/*.ts", "src/**/*.tsx"]
+  "include": ["drizzle.config.ts", "scripts/**/*.ts", "src/**/*.ts", "src/**/*.tsx"]
 }

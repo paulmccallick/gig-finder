@@ -79,7 +79,8 @@ export class GigFinderAgent {
       instructions,
       messages,
       tools: this.options.tools,
-      stopWhen: isStepCount(5),
+      stopWhen: isStepCount(this.options.maxSteps ?? 5),
+      maxOutputTokens: this.options.maxOutputTokens,
       abortSignal: signal,
       maxRetries: 1,
       providerOptions: {
