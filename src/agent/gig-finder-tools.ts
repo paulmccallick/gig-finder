@@ -23,7 +23,7 @@ import type {
 } from "../core";
 import { fitRatings, gigFitSchema, gigInputSchema, gigNextActionSchema, gigPayRangeSchema, outcomes, pipelineStages, type GigInput } from "../core/gigs";
 import { gigPersonRelationshipInputSchema } from "../core/gig-people";
-import { personInputSchema, personOutreachSchema, personRelationshipSchema, type PersonInput } from "../core/people";
+import { personInputSchema, personRelationshipSchema, type PersonInput } from "../core/people";
 import {
   DomainValidationError,
   MutationError,
@@ -96,8 +96,6 @@ const listPeopleInputSchema = z.object({
     .describe("Include people with any of these relationship priorities."),
   relationshipStrengths: nonEmptyArray(relationshipStrengths).nullable()
     .describe("Include people with any of these relationship strengths."),
-  overdueOnly: z.boolean().nullable()
-    .describe("When true, include only people whose next outreach is overdue."),
   query: z.string().trim().nullable()
     .describe("Case-insensitive text to search across person name, company, title, and why-interesting text."),
   ...pageSchema,
@@ -185,7 +183,6 @@ const createGigInputSchema = gigInputSchema.required().safeExtend({
 });
 const createPersonInputSchema = personInputSchema.required().safeExtend({
   relationship: personRelationshipSchema,
-  outreach: personOutreachSchema,
   linkedInProfileUrl: z.string().trim().min(1).nullable()
     .describe("LinkedIn profile URL, or null when it is not known."),
 });
@@ -589,7 +586,6 @@ function normalizePeopleInput(
     ...(input.relationshipStrengths === null
       ? {}
       : { relationshipStrengths: input.relationshipStrengths }),
-    ...(input.overdueOnly === null ? {} : { overdueOnly: input.overdueOnly }),
     ...(input.query === null ? {} : { query: input.query }),
     ...(input.offset === null ? {} : { offset: input.offset }),
     ...(input.limit === null ? {} : { limit: input.limit }),
@@ -866,14 +862,14 @@ export function createGigFinderTools(
     }),
     list_people: tool({
       strict: true,
-      description: "List complete current Person records with identity, relationship, outreach, and document summaries. Use optional filters if desired. Results may be paginated.",
+      description: "List complete current Person records with identity, relationship, derived latest-contact fields, and document summaries. Use optional filters if desired. Results may be paginated.",
       inputSchema: listPeopleInputSchema,
       execute: loggedExecution(logger, "list_people", input =>
         reads.people.query(normalizePeopleInput(input))),
     }),
     get_person: tool({
       strict: true,
-      description: "Get one complete Person using its durable ID, including identity, relationship, outreach, documents, and related gig IDs with relationship types.",
+      description: "Get one complete Person using its durable ID, including identity, relationship, derived latest-contact fields, documents, and related gig IDs with relationship types.",
       inputSchema: getInputSchema,
       execute: loggedExecution(logger, "get_person", async ({ id }) => {
         const person = reads.people.read(id);
@@ -1004,7 +1000,7 @@ export function createGigFinderTools(
     }),
     update_person: tool({
       strict: true,
-      description: "Update one existing person using explicit set or clear operations. Supply only desired identity, relationship, or outreach changes; use dot paths for nested fields and confirm the friendly action summary.",
+      description: "Update one existing person using explicit set or clear operations. Supply only desired identity or relationship changes; use dot paths for nested fields and confirm the friendly action summary.",
       inputSchema: updatePersonInputSchema,
       execute: loggedExecution(
         logger,

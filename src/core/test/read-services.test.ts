@@ -82,8 +82,6 @@ const personData = (identity: Pick<PersonData, "id" | "name" | "company" | "titl
   relationshipNotes: null,
   priority: "unranked",
   status: "not_contacted",
-  nextAction: null,
-  nextActionDue: null,
   whyInteresting: null,
   notesJson: "[]",
   tagsJson: "[]",

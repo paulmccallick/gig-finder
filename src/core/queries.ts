@@ -45,7 +45,6 @@ export interface PeopleQueryInput extends PageInput {
   statuses?: PersonStatus[];
   priorities?: PersonPriority[];
   relationshipStrengths?: RelationshipStrength[];
-  overdueOnly?: boolean;
   query?: string;
 }
 

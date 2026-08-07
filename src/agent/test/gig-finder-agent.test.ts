@@ -194,7 +194,7 @@ describe("GigFinderAgent instructions", () => {
       canUpdateRecords: true,
     });
     expect(writableInstructions).toContain(
-      "Person: an individual with identity, relationship, priority, status, outreach, notes, tags, and documents",
+      "Person: an individual with identity, relationship, priority, status, notes, tags, documents, and latest-contact details derived from Interactions",
     );
     expect(writableInstructions).toContain(
       "Gig-Person Relationship: a connection between a Person and a Gig",

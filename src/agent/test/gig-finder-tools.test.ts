@@ -6,6 +6,7 @@ import {
   fitRatings,
   gigInputSchema,
   gigPersonRelationships,
+  personInputSchema,
   interactionStatuses,
   pipelineStages,
   taskPriorities,
@@ -82,13 +83,9 @@ const personRecord: PersonRecord = {
   relationship: { type: "former_peer", strength: "strong", introducedBy: null, notes: null },
   priority: "high",
   status: "active_relationship",
-  outreach: {
-    lastContacted: null,
-    lastContactMethod: null,
-    lastContactSummary: null,
-    nextAction: null,
-    nextActionDue: null,
-  },
+  lastContacted: null,
+  lastContactMethod: null,
+  lastContactSummary: null,
   whyInteresting: null,
   notes: [],
   tags: [],
@@ -163,7 +160,6 @@ const nullPeopleInput = {
   statuses: null,
   priorities: null,
   relationshipStrengths: null,
-  overdueOnly: null,
   query: null,
   offset: null,
   limit: null,
@@ -1761,6 +1757,18 @@ describe("GigFinderAgent tools", () => {
     };
     expect(gigFinderToolSchemas.create_gig.safeParse(completeGig).success).toBe(true);
     expect(gigInputSchema.safeParse(completeGig).success).toBe(false);
+  });
+
+  test("keeps complete agent Person payloads compatible with the core contract", () => {
+    const input = {
+      name: "Synthetic Person", company: "Example", title: "Recruiter",
+      linkedInProfileUrl: null, connectedOn: null,
+      relationship: { type: "professional_contact", strength: "warm" as const, introducedBy: null, notes: null },
+      priority: "high" as const, status: "active_relationship" as const,
+      whyInteresting: null, notes: [], tags: [],
+    };
+    const agentPayload = gigFinderToolSchemas.create_person.parse(input);
+    expect(personInputSchema.parse(agentPayload)).toEqual(input);
   });
 
   test("generates a Codex-compatible flat document source schema", () => {
