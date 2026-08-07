@@ -96,7 +96,12 @@ test("0023 requires a pre-0022 backup after the original 324300f migration lost 
  expect(database.query("SELECT title,due_date FROM tasks WHERE id='migration:0022:person-follow-up:original-0022-person'").get()).toEqual({title:"Recoverable current action",due_date:"2026-08-09"});
  expect((database.query("PRAGMA table_info(person_history)").all() as Array<{name:string}>).map(row=>row.name)).not.toContain("next_action");
  expect(database.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_person_follow_up_archive'").get()).toBeNull();
- const migration0023=await Bun.file(path.join(root,"src/data/migrations/0023_lumpy_frank_castle.sql")).text();
- expect(()=>{for(const statement of migration0023.split("--> statement-breakpoint").map(value=>value.trim()).filter(Boolean))database.exec(statement)}).toThrow("restore_pre_0022_backup_original_0022_lost_historical_person_follow_up");
- expect(database.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_person_follow_up_archive'").get()).toBeNull();
+ const originalJournalHash="c8a655e4100ddecab51f603a869934b993fa601fe225a5c3c7a2370cbfad8ce1";database.query("INSERT INTO __drizzle_migrations(hash,created_at) VALUES(?,?)").run(originalJournalHash,1786120931179);
+ const schemaBefore=database.query("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").all();
+ const taskStateBefore=database.query("SELECT * FROM tasks ORDER BY id").all(),historyStateBefore=database.query("SELECT * FROM task_history ORDER BY history_id").all(),journalBefore=database.query("SELECT * FROM __drizzle_migrations ORDER BY created_at").all();
+ let migrationFailure:unknown;try{migrateDatabase(database)}catch(error){migrationFailure=error}expect(migrationFailure).toBeInstanceOf(Error);expect((migrationFailure as Error&{cause?:Error}).cause?.message).toContain("restore_pre_0022_backup_original_0022_lost_historical_person_follow_up");
+ expect(database.query("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").all()).toEqual(schemaBefore);
+ expect(database.query("SELECT * FROM tasks ORDER BY id").all()).toEqual(taskStateBefore);expect(database.query("SELECT * FROM task_history ORDER BY history_id").all()).toEqual(historyStateBefore);
+ expect(database.query("SELECT * FROM __drizzle_migrations ORDER BY created_at").all()).toEqual(journalBefore);
+ expect(database.query("SELECT 1 FROM sqlite_master WHERE name IN ('legacy_person_follow_up_archive','__legacy_person_follow_up_archive_upgrade_guard')").get()).toBeNull();
 });
