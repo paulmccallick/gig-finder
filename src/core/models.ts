@@ -26,7 +26,7 @@ export interface PersonData {
   id:string; name:string; company:string|null; title:string|null; linkedInProfileUrl:string|null; connectedOn:string|null;
   relationshipType:string; relationshipStrength:string; introducedBy:string|null; relationshipNotes:string|null;
   priority:string; status:string;
-  nextAction:string|null; nextActionDue:string|null; whyInteresting:string|null; notesJson:string; tagsJson:string;
+  whyInteresting:string|null; notesJson:string; tagsJson:string;
 }
 export interface GigPersonData {
   id:string; gigId:string; personId:string; relationship:string; notes:string|null;

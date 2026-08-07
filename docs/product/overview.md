@@ -45,7 +45,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   linked to people, tasks, registered artifacts, and versioned managed
   documents.
 - **Person:** An individual whose identity, relationship, priority, status,
-  outreach, notes, tags, documents, gigs, and interactions share one record.
+  notes, tags, documents, and gig relationships share one record. Person reads
+  include latest-contact details derived from Interactions; contact history and
+  follow-up work are not writable Person state.
 - **Gig-person relationship:** A typed connection between one gig and one person.
 - **Task:** A job-search action related to a gig, person, or the
   search generally.
@@ -54,6 +56,12 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
   optional gig association, source provenance, and supersession. Legacy
   Business Events remain intact and are not migrated or reconciled by the
   Interaction schema migration.
+
+The existing Person status vocabulary still contains relationship workflow
+labels that mention outreach. Those labels remain Person-owned grouping state
+for compatibility; they do not record Interaction facts. Redesigning that
+vocabulary is separate from the Person/Interaction contract separation.
+
 - **Managed document:** Versioned Markdown or text linked to gigs, people, or
   the Candidate Profile. Person profiles link to exactly one person; Profile
   context documents link only to the Candidate Profile.

@@ -49,8 +49,8 @@ const person: PersonData = {
   title: "Director", linkedInProfileUrl: null, connectedOn: null,
   relationshipType: "colleague",
   relationshipStrength: "warm", introducedBy: null, relationshipNotes: null,
-  priority: "medium", status: "active_relationship", nextAction: null,
-  nextActionDue: null, whyInteresting: null, notesJson: "[]", tagsJson: "[]",
+  priority: "medium", status: "active_relationship",
+  whyInteresting: null, notesJson: "[]", tagsJson: "[]",
 };
 
 afterEach(async () => {

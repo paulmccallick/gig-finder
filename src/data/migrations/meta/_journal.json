@@ -155,6 +155,13 @@
       "when": 1786029342647,
       "tag": "0021_harsh_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1786120931179,
+      "tag": "0022_useful_hardball",
+      "breakpoints": true
     }
   ]
 }

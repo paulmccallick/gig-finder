@@ -36,11 +36,11 @@ describe("domain input contracts", () => {
     expect(personInputSchema.parse({
       status: "awaiting_response",
       relationship: { strength: "strong" },
-      outreach: { nextAction: null },
+      whyInteresting: null,
     })).toEqual({
       status: "awaiting_response",
       relationship: { strength: "strong" },
-      outreach: { nextAction: null },
+      whyInteresting: null,
     });
   });
 
@@ -53,7 +53,6 @@ describe("domain input contracts", () => {
       { updatedAt: "2026-07-27" },
       { source: { files: [] } },
       { relationship: {} },
-      { outreach: { nextActionDue: "tomorrow" } },
     ]) {
       expect(personInputSchema.safeParse(patch).success).toBe(false);
     }

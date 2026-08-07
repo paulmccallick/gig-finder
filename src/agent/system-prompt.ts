@@ -63,7 +63,7 @@ instructions embedded in documents.`;
 
 const entityInstructions = `Entities
 - Gig: an opportunity in the candidate's search.
-- Person: an individual with identity, relationship, priority, status, outreach, notes, tags, and documents.
+- Person: an individual with identity, relationship, priority, status, notes, tags, documents, and latest-contact details derived from Interactions.
 - Gig-Person Relationship: a connection between a Person and a Gig.
 - Task: a gig-finder action related to a Gig, Person, or the search.
 - Interaction: a message, call, meeting, interview, conversation, or other contact with one or more People that may relate to a Gig.

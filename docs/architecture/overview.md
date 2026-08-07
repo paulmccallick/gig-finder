@@ -42,6 +42,10 @@ flowchart LR
   roots construct concrete data adapters.
 - Cross-client filtering, traversal, ordering, validation, lifecycle rules,
   auditing, and idempotency belong in core rather than client adapters.
+- Person create and update clients share the Person-owned input contract.
+  Top-level latest-contact fields are composed deterministically from the most
+  recent completed Interaction for reads and are excluded from Person input and
+  persistence. Person-related follow-up work is represented by Tasks.
 - Private context and credentials never belong in source control or build
   artifacts.
 
