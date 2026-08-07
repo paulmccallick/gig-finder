@@ -355,7 +355,7 @@ function startBuiltServer(
       ...extraEnv,
     },
     stdout: "ignore",
-    stderr: "ignore",
+    stderr: "inherit",
   });
 }
 
