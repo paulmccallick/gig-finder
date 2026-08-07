@@ -1,3 +1,7 @@
+CREATE TABLE IF NOT EXISTS `__legacy_person_follow_up_archive_upgrade_guard` (`ok` integer, CONSTRAINT `restore_pre_0022_backup_original_0022_lost_historical_person_follow_up` CHECK (`ok` = 1));--> statement-breakpoint
+INSERT INTO `__legacy_person_follow_up_archive_upgrade_guard` (`ok`)
+SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM `sqlite_master` WHERE `type` = 'table' AND `name` = 'legacy_person_follow_up_archive');--> statement-breakpoint
+DROP TABLE `__legacy_person_follow_up_archive_upgrade_guard`;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `legacy_person_follow_up_archive` (
 	`archive_id` text PRIMARY KEY NOT NULL,
 	`source_kind` text NOT NULL,
