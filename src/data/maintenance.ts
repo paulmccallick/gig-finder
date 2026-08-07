@@ -79,10 +79,8 @@ export async function createVerifiedBackup(databasePath:string,outputPath:string
     const contents=source.serialize();
     await mkdir(path.dirname(outputPath),{recursive:true});
     await writeFile(temporary,contents,{flag:"wx"});
-    const validation=validateDatabaseFile(temporary);
-    if(!validation.ok)throw new Error(`Backup validation failed: ${validation.issues.map((issue)=>issue.message).join("; ")}`);
     await rename(temporary,outputPath);
-    return {path:outputPath,bytes:contents.byteLength,sha256:createHash("sha256").update(contents).digest("hex"),validation};
+    return verifyBackup(outputPath);
   }finally{
     source.close();
     await unlink(temporary).catch(()=>undefined);
