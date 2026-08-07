@@ -306,9 +306,19 @@ async function deterministicScenarios(baseURL: string, revision: string) {
   await invokeTool(baseURL, revision, conversation, "list_documents", { owner: { entityType: "gig", entityId: gigId }, ...page });
   await invokeTool(baseURL, revision, conversation, "list_document_versions", { documentId, ...page });
   await invokeTool(baseURL, revision, conversation, "get_document", { reference: documentId, version: null });
+  const editableDocument = await invokeTool(baseURL, revision, conversation, "create_document", {
+    links: [{ entityType: "gig", entityId: gigId }], documentType: "notes",
+    title: "Synthetic editable notes", description: null, sourceKind: "inline_content",
+    content: "# Synthetic notes\n\nInitial.", reference: null, mediaType: "text/markdown",
+    sourceDescription: "Synthetic smoke fixture",
+  });
+  if (!record(editableDocument.document)) {
+    throw new SmokeFailure("tool-operation", revision, "document-output", "Editable document creation output was incomplete.", "create_document");
+  }
   await invokeTool(baseURL, revision, conversation, "update_document", {
-    documentId, expectedVersion: createdDocument.document.currentVersion,
-    content: "# Synthetic role\n\nSMOKE_DOCUMENT_CONTENT_67\n\nUpdated.", changeSummary: "Synthetic smoke update",
+    documentId: editableDocument.document.id,
+    expectedVersion: editableDocument.document.currentVersion,
+    content: "# Synthetic notes\n\nUpdated.", changeSummary: "Synthetic smoke update",
   });
   return { conversation, gigId, personId, documentId };
 }
