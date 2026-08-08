@@ -4,6 +4,8 @@ import { parseAgentModelId } from "../core/application-settings";
 import { toWebError } from "./error-response";
 import { WebRequestError, type AgentApi } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";
+import { documentIdFromIdentifier } from "../core/documents";
+import type { ReadableDocument } from "../core/document-reader";
 
 const agentIdleTimeoutSeconds = 120;
 const documentUploadTimeoutSeconds = 60;
@@ -30,6 +32,71 @@ interface RequestTimeoutController {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+interface ManagedDocumentRoute {
+  reference: string;
+  version: number;
+  download: boolean;
+}
+
+export function parseManagedDocumentRoute(pathname: string): ManagedDocumentRoute | null {
+  const match = pathname.match(
+    /^\/api\/documents\/([^/]+)\/versions\/([^/]+)(\/download)?$/,
+  );
+  if (!match) return null;
+  let reference: string;
+  try {
+    reference = decodeURIComponent(match[1] ?? "");
+  } catch {
+    return null;
+  }
+  const versionText = match[2] ?? "";
+  if (!/^[1-9]\d*$/.test(versionText)) return null;
+  const version = Number(versionText);
+  if (!Number.isSafeInteger(version) || !documentIdFromIdentifier(reference)) {
+    return null;
+  }
+  return { reference, version, download: match[3] === "/download" };
+}
+
+export function documentDownloadFilename(
+  displayName: string,
+  mediaType: ReadableDocument["mediaType"],
+) {
+  const stem = displayName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.(?:md|txt)$/i, "")
+    .replace(/[^A-Za-z0-9 ._()-]+/g, "-")
+    .replace(/^[ ._-]+/g, "")
+    .replace(/[. ]+$/g, "")
+    .trim()
+    .slice(0, 120) || "Document";
+  return `${stem}.${mediaType === "text/markdown" ? "md" : "txt"}`;
+}
+
+function managedDocumentResponse(document: ReadableDocument, download: boolean) {
+  if (download) {
+    const filename = documentDownloadFilename(document.displayName, document.mediaType);
+    return new Response(document.content, {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": `${document.mediaType}; charset=utf-8`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  }
+  return json({
+    reference: document.reference,
+    storage: document.storage,
+    displayName: document.displayName,
+    documentType: document.documentType,
+    mediaType: document.mediaType,
+    version: document.version,
+    currentVersion: document.currentVersion,
+    content: document.content,
+  });
+}
 
 async function updateAgentModel(
   request: Request,
@@ -118,6 +185,23 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
             ? new Response(null, { status: 204 })
             : json({ error: "Staged document not found" }, 404)
           : json({ error: "Method not allowed" }, 405);
+      } else if (url.pathname.startsWith("/api/documents/")) {
+        const documentRoute = parseManagedDocumentRoute(url.pathname);
+        if (!documentRoute) {
+          response = json({ error: "Invalid document reference or version" }, 400);
+        } else if (request.method !== "GET") {
+          response = json({ error: "Method not allowed" }, 405);
+        } else {
+          const result = await gigFinder.documentReader.get(
+            documentRoute.reference,
+            documentRoute.version,
+          );
+          response = result.status === "ok"
+              && result.record.storage === "managed"
+              && result.record.version === documentRoute.version
+            ? managedDocumentResponse(result.record, documentRoute.download)
+            : json({ error: "Document version not found" }, 404);
+        }
       } else if (url.pathname === "/api/settings/agent-model") {
         response = request.method === "GET"
           ? json(gigFinder.settings.get())

@@ -23,11 +23,12 @@ const requestServer = { timeout: () => undefined };
 
 let database: Database;
 let fetchRequest: ReturnType<typeof createWebHandler>;
+let application: GigFinderApplication;
 
 beforeEach(() => {
   database = openDatabase(":memory:");
   migrateDatabase(database);
-  const application = new GigFinderApplication(
+  application = new GigFinderApplication(
     new DataStore(database),
     new AuditReader(database),
     artifacts,
@@ -46,6 +47,37 @@ beforeEach(() => {
 });
 
 afterEach(() => database.close());
+
+function createVersionedDocument() {
+  application.gigs.create({ actor: "test", source: "test", summary: "Create synthetic gig" }, {
+    id: "gig-document", company: "Example Company", title: "Director",
+    externalJobId: null, artifactDirectory: null, stage: "identified",
+    outcome: "pending", statusSummary: "Identified", lastActivity: "2026-08-08",
+    nextAction: null, fit: { rating: "good", summary: null }, payRange: null,
+    sourceUrl: null, tags: [], hasJobDescription: false, hasInterviewPrep: false,
+  });
+  const created = application.documents.create({
+    actor: "test", source: "test", summary: "Create synthetic document",
+    changeId: "document-create",
+  }, {
+    links: [{ entityType: "gig", entityId: "gig-document" }],
+    documentType: "job_description",
+    title: "../../Role Brief",
+    mediaType: "text/markdown",
+    sourceDescription: "Synthetic fixture",
+    content: "# Original\n\nFirst version.",
+  });
+  application.documents.update({
+    actor: "test", source: "test", summary: "Update synthetic document",
+    changeId: "document-update",
+  }, {
+    documentId: created.document.id,
+    expectedVersion: 1,
+    content: "# Current\n\nSecond version.",
+    changeSummary: "Update fixture",
+  });
+  return created.document.id;
+}
 
 describe("agent model settings API", () => {
   test("returns the default and persists a supported selection", async () => {
@@ -132,5 +164,60 @@ describe("application health", () => {
       revision: "a".repeat(40),
       database: { integrity: "ok", foreignKeyViolations: 0 },
     });
+  });
+});
+
+describe("managed document version API", () => {
+  test("reads and downloads the exact authoritative version", async () => {
+    const documentId = createVersionedDocument();
+    const encoded = encodeURIComponent(documentId);
+    const read = await fetchRequest(
+      new Request(`http://localhost/api/documents/${encoded}/versions/1`),
+      requestServer,
+    );
+    expect(read.status).toBe(200);
+    expect(read.headers.get("cache-control")).toBe("no-store");
+    expect(await read.json()).toEqual({
+      reference: documentId,
+      storage: "managed",
+      displayName: "../../Role Brief",
+      documentType: "job_description",
+      mediaType: "text/markdown",
+      version: 1,
+      currentVersion: 2,
+      content: "# Original\n\nFirst version.",
+    });
+
+    const download = await fetchRequest(
+      new Request(`http://localhost/api/documents/${encoded}/versions/1/download`),
+      requestServer,
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(download.headers.get("cache-control")).toBe("no-store");
+    expect(download.headers.get("content-disposition"))
+      .toBe('attachment; filename="Role Brief.md"');
+    expect(await download.text()).toBe("# Original\n\nFirst version.");
+    expect(download.headers.get("content-disposition")).not.toContain(documentId);
+  });
+
+  test("rejects malformed, non-managed, missing, and path-like references", async () => {
+    const documentId = createVersionedDocument();
+    const malformedPaths = [
+      "/api/documents/not-a-document/versions/1",
+      `/api/documents/${encodeURIComponent(documentId)}/versions/0`,
+      "/api/documents/gig%3Agig-document%3Ajob_description/versions/1",
+      "/api/documents/..%2Fsecrets/versions/1",
+      `/api/documents/${encodeURIComponent(documentId)}/versions/1/extra`,
+    ];
+    for (const path of malformedPaths) {
+      const response = await fetchRequest(new Request(`http://localhost${path}`), requestServer);
+      expect(response.status).toBe(400);
+    }
+    const missing = await fetchRequest(new Request(
+      `http://localhost/api/documents/${encodeURIComponent(documentId)}/versions/99`,
+    ), requestServer);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "Document version not found" });
   });
 });

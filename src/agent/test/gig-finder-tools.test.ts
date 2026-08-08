@@ -581,6 +581,55 @@ describe("GigFinderAgent tools", () => {
     expect(retried).toEqual(result);
   });
 
+  test("returns caller-neutral managed document presentation metadata and exact version", async () => {
+    const tools = createGigFinderTools({
+      ...reader,
+      documents: {
+        ...reader.documents,
+        get: async (reference, version) => ({
+          status: "ok" as const,
+          record: {
+            reference,
+            entityType: "gig" as const,
+            entityId: "gig-1",
+            documentType: "job_description" as const,
+            title: "Role brief",
+            displayName: "Role brief",
+            storage: "managed" as const,
+            mediaType: "text/markdown" as const,
+            version: version ?? 2,
+            currentVersion: 2,
+            content: "# Exact historical brief",
+            truncated: false,
+            totalCharacters: 24,
+          },
+        }),
+      },
+    }, logger, mutations, { actor: "Candidate", requestId: "request-document" });
+
+    expect(await tools.get_document.execute?.(
+      { reference: managedDocument.id, version: 1 },
+      { toolCallId: "read-document", messages: [], abortSignal: undefined, context: {} },
+    )).toEqual({
+      status: "ok",
+      record: {
+        reference: managedDocument.id,
+        entityType: "gig",
+        entityId: "gig-1",
+        documentType: "job_description",
+        title: "Role brief",
+        displayName: "Role brief",
+        storage: "managed",
+        mediaType: "text/markdown",
+        version: 1,
+        currentVersion: 2,
+        content: "# Exact historical brief",
+        truncated: false,
+        totalCharacters: 24,
+      },
+    });
+  });
+
   test("accepts explicit mutation operations and rejects invalid fields", () => {
     expect(gigFinderToolSchemas.update_gig.safeParse({
       id: "gig-1",

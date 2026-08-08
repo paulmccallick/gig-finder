@@ -12,12 +12,14 @@ still needs prior document context and may need an exact historical version.
 
 ## Decision
 
-Persist a successful `get_document` result in conversation history as only its
-document ID and resolved version. When building model context, core finds the
-latest reference to each document within the selected history and reads that
-exact version from the document service. Earlier references to the same document
-remain compact, so the model receives one content-bearing representation per
-document.
+Persist a successful managed `get_document` result in conversation history as
+compact presentation metadata: its document reference, resolved version,
+current version, display name, document type, and media type. Document content
+is not persisted. When building model context, core finds the latest reference
+to each document within the selected history and reads that exact version from
+the document service. Earlier references to the same document remain compact,
+so the model receives one content-bearing representation per document while
+clients can restore friendly document actions.
 
 The hydrated result identifies both the selected version and current version.
 If they differ, the agent chooses whether the request requires historical
@@ -31,6 +33,7 @@ This policy is implemented by the conversation service in
 ## Consequences
 
 - Conversation storage does not duplicate managed document contents.
+- Restored clients can present document actions from durable friendly metadata.
 - Replaying a conversation resolves document content from its authoritative
   versioned source.
 - Context size includes at most one hydrated result per referenced document.

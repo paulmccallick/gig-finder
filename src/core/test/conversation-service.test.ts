@@ -270,7 +270,18 @@ describe("conversation service", () => {
         toolCallId: `call-${version}`,
         state: "output-available",
         input: { reference: id },
-        output: { documentId: id, version },
+        output: {
+          status: "ok",
+          record: {
+            reference: id,
+            storage: "managed",
+            displayName: "Role brief",
+            documentType: "job_description",
+            mediaType: "text/markdown",
+            version,
+            currentVersion: 2,
+          },
+        },
       }],
     });
     repository.stored.set("conversation-1", [
@@ -292,6 +303,16 @@ describe("conversation service", () => {
         return { content: `version ${version}` };
       },
     }, runtime);
+    expect(service.load("conversation-1")?.messages[1]?.parts[0]).toMatchObject({
+      output: {
+        status: "ok",
+        record: {
+          displayName: "Role brief",
+          mediaType: "text/markdown",
+          version: 1,
+        },
+      },
+    });
     await service.respond({
       conversationId: "conversation-1",
       message: user("user-3", "Summarize it"),
@@ -346,7 +367,7 @@ test("conversation list and load sanitize legacy titles and prose", () => {
   expect(JSON.stringify(service.load("legacy"))).not.toMatch(/doc_|agent-tool:/);
 });
 
-test("document tool output persists only its ID and version", () => {
+test("document tool output persists durable presentation metadata without content", () => {
   const message: ConversationMessage = {
     id: "assistant-1",
     role: "assistant",
@@ -358,12 +379,58 @@ test("document tool output persists only its ID and version", () => {
       input: { reference: "doc-1" },
       output: {
         status: "ok",
-        record: { reference: "doc-1", currentVersion: 3, content: "private content" },
+        record: {
+          reference: "doc_11111111-1111-4111-8111-111111111111",
+          storage: "managed",
+          displayName: "Role brief",
+          documentType: "job_description",
+          mediaType: "text/markdown",
+          version: 2,
+          currentVersion: 3,
+          content: "private content",
+        },
       },
     }],
   };
   expect(compactMessageForPersistence(message).parts[0]).toMatchObject({
-    output: { documentId: "doc-1", version: 3 },
+    output: {
+      status: "ok",
+      record: {
+        reference: "doc_11111111-1111-4111-8111-111111111111",
+        storage: "managed",
+        displayName: "Role brief",
+        documentType: "job_description",
+        mediaType: "text/markdown",
+        version: 2,
+        currentVersion: 3,
+      },
+    },
   });
   expect(JSON.stringify(compactMessageForPersistence(message))).not.toContain("private content");
+  const staged = compactMessageForPersistence({
+    ...message,
+    parts: [{
+      type: "tool",
+      toolName: "get_document",
+      toolCallId: "read-staged",
+      state: "output-available",
+      input: { reference: "staged-document:11111111-1111-4111-8111-111111111111" },
+      output: {
+        status: "ok",
+        record: {
+          reference: "staged-document:11111111-1111-4111-8111-111111111111",
+          storage: "staged",
+          mediaType: "text/markdown",
+          content: "temporary private content",
+        },
+      },
+    }],
+  });
+  expect(staged.parts[0]).toMatchObject({
+    output: {
+      documentId: "staged-document:11111111-1111-4111-8111-111111111111",
+      version: null,
+    },
+  });
+  expect(JSON.stringify(staged)).not.toContain("temporary private content");
 });

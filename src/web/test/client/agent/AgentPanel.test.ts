@@ -3,10 +3,18 @@ import type { UIMessage } from "ai";
 import {
   hasSavedUpload,
   hasSuccessfulMutation,
+  documentActions,
+  lastCompletedDocumentReadIndex,
   parseStagedUpload,
   savedUploadReferences,
   userMessageText,
 } from "../../../client/agent/AgentPanel";
+import {
+  DocumentActions,
+  documentActionUrls,
+} from "../../../client/agent/DocumentActions";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
 import {
   agentToolLabels,
   currentAgentActivity,
@@ -160,6 +168,80 @@ describe("agent dashboard refresh signal", () => {
       },
     ];
     expect(hasSuccessfulMutation(parts)).toBe(false);
+  });
+});
+
+describe("managed document actions", () => {
+  const managedOutput = {
+    status: "ok",
+    record: {
+      reference: "doc_11111111-1111-4111-8111-111111111111",
+      storage: "managed",
+      displayName: "Role brief",
+      documentType: "job_description",
+      mediaType: "text/markdown",
+      version: 2,
+      currentVersion: 3,
+    },
+  };
+
+  test("validates, groups, and deduplicates completed managed reads", () => {
+    const completed = (toolCallId: string, output: unknown): UIMessage["parts"][number] => ({
+      type: "dynamic-tool",
+      toolName: "get_document",
+      toolCallId,
+      state: "output-available",
+      input: { reference: "opaque" },
+      output,
+    });
+    const parts: UIMessage["parts"] = [
+      completed("read-1", managedOutput),
+      { type: "text", text: "Interim text" },
+      completed("read-duplicate", managedOutput),
+      completed("read-staged", { status: "ok", record: { ...managedOutput.record, storage: "staged" } }),
+      completed("read-artifact", { status: "ok", record: { ...managedOutput.record, storage: "artifact" } }),
+      completed("read-malformed", { status: "ok", record: { ...managedOutput.record, version: 0 } }),
+      {
+        type: "dynamic-tool", toolName: "get_document", toolCallId: "read-failed",
+        state: "output-error", input: {}, errorText: "Not found",
+      },
+      {
+        type: "dynamic-tool", toolName: "get_document", toolCallId: "read-running",
+        state: "input-available", input: {},
+      },
+      { type: "text", text: "Answer" },
+    ];
+    expect(documentActions(parts)).toEqual([{
+      reference: managedOutput.record.reference,
+      version: 2,
+      displayName: "Role brief",
+      documentType: "job_description",
+      mediaType: "text/markdown",
+    }]);
+    expect(lastCompletedDocumentReadIndex(parts)).toBe(6);
+  });
+
+  test("renders only friendly labels and application-owned links", () => {
+    const action = documentActions([{
+      type: "tool-get_document",
+      toolCallId: "read-1",
+      state: "output-available",
+      input: {},
+      output: managedOutput,
+    }])[0]!;
+    const markup = renderToStaticMarkup(createElement(DocumentActions, { actions: [action] }));
+    expect(markup).toContain("Role brief");
+    expect(markup).toContain("View");
+    expect(markup).toContain("Download");
+    expect(markup).toContain('target="_blank"');
+    expect(markup).toContain('rel="noopener noreferrer"');
+    expect(markup).not.toContain(`>${action.reference}<`);
+    expect(markup).not.toContain("Version 2");
+    expect(documentActionUrls({ ...action, reference: "doc_reference:segment" }))
+      .toEqual({
+        view: "/documents/doc_reference%3Asegment/versions/2",
+        download: "/api/documents/doc_reference%3Asegment/versions/2/download",
+      });
   });
 });
 

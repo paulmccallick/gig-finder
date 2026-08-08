@@ -1,12 +1,14 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import {
   constrainAgentPanelWidth,
@@ -30,6 +32,10 @@ import {
 } from "../data/conversations";
 import type { Conversation } from "../../../core/conversation-service";
 import { currentAgentActivity, toolActivity } from "./agent-activity";
+import {
+  DocumentActions,
+  type DocumentActionDescriptor,
+} from "./DocumentActions";
 
 const starterPrompts = [
   "What kinds of roles should I prioritize?",
@@ -47,26 +53,108 @@ export function userMessageText(parts: UIMessage["parts"]) {
   return messageText(parts).replace(stagedAttachmentDisplayPattern, "\n\nAttached document").trim();
 }
 
+const managedDocumentReferencePattern = /^doc_[0-9a-f]+(?:-[0-9a-f]+)*$/i;
+const documentTypes = new Set([
+  "job_description",
+  "notes",
+  "interview_prep",
+  "profile",
+]);
+const mediaTypes = new Set(["text/markdown", "text/plain"]);
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function toolName(part: UIMessage["parts"][number]) {
+  if (!isToolUIPart(part)) return null;
+  return part.type === "dynamic-tool"
+    ? part.toolName
+    : part.type.slice("tool-".length);
+}
+
+function documentActionDescriptor(output: unknown): DocumentActionDescriptor | null {
+  if (!isRecord(output) || output.status !== "ok" || !isRecord(output.record)) {
+    return null;
+  }
+  const record = output.record;
+  if (
+    record.storage !== "managed"
+    || typeof record.reference !== "string"
+    || !managedDocumentReferencePattern.test(record.reference)
+    || typeof record.version !== "number"
+    || !Number.isSafeInteger(record.version)
+    || record.version <= 0
+    || typeof record.currentVersion !== "number"
+    || !Number.isSafeInteger(record.currentVersion)
+    || record.currentVersion <= 0
+    || record.version > record.currentVersion
+    || typeof record.displayName !== "string"
+    || record.displayName.trim().length === 0
+    || typeof record.documentType !== "string"
+    || !documentTypes.has(record.documentType)
+    || typeof record.mediaType !== "string"
+    || !mediaTypes.has(record.mediaType)
+  ) return null;
+  return {
+    reference: record.reference,
+    version: record.version,
+    displayName: record.displayName.trim(),
+    documentType: record.documentType,
+    mediaType: record.mediaType as DocumentActionDescriptor["mediaType"],
+  };
+}
+
+export function documentActions(parts: UIMessage["parts"]): DocumentActionDescriptor[] {
+  const actions = new Map<string, DocumentActionDescriptor>();
+  for (const part of parts) {
+    if (
+      !isToolUIPart(part)
+      || toolName(part) !== "get_document"
+      || part.state !== "output-available"
+    ) continue;
+    const action = documentActionDescriptor(part.output);
+    if (action) actions.set(`${action.reference}:${action.version}`, action);
+  }
+  return [...actions.values()];
+}
+
+export function lastCompletedDocumentReadIndex(parts: UIMessage["parts"]) {
+  let result = -1;
+  parts.forEach((part, index) => {
+    if (
+      isToolUIPart(part)
+      && toolName(part) === "get_document"
+      && ["output-available", "output-error", "output-denied"].includes(part.state)
+    ) result = index;
+  });
+  return result;
+}
+
 function MessageParts({ message }: { message: UIMessage }) {
   if (message.role === "user") return <p>{userMessageText(message.parts)}</p>;
+  const actions = documentActions(message.parts);
+  const actionsAfter = lastCompletedDocumentReadIndex(message.parts);
   return <div className="agent-message-parts">
     {message.parts.map((part, index) => {
-      if (part.type === "text" && part.text) {
-        return <p className="agent-answer" key={`text-${index}`}>{part.text}</p>;
-      }
-      if (part.type === "reasoning" && part.text) {
-        return <section className="agent-reasoning" aria-label="Agent reasoning" key={`reasoning-${index}`}>
-          <strong>Reasoning</strong>
-          <p>{part.text}</p>
-        </section>;
-      }
-      const activity = toolActivity(part);
-      return activity
-        ? <div className={`agent-tool-activity is-${activity.tone}`} key={`tool-${index}`}>
-            <i aria-hidden="true" />
-            <span>{activity.label}</span>
-          </div>
-        : null;
+      const content: ReactNode = part.type === "text" && part.text
+        ? <p className="agent-answer">{part.text}</p>
+        : part.type === "reasoning" && part.text
+          ? <section className="agent-reasoning" aria-label="Agent reasoning">
+              <strong>Reasoning</strong>
+              <p>{part.text}</p>
+            </section>
+          : (() => {
+            const activity = toolActivity(part);
+            return activity
+          ? <div className={`agent-tool-activity is-${activity.tone}`}>
+              <i aria-hidden="true" />
+              <span>{activity.label}</span>
+            </div>
+          : null;
+          })();
+      return <Fragment key={`part-${index}`}>
+        {content}
+        {index === actionsAfter && <DocumentActions actions={actions} />}
+      </Fragment>;
     })}
   </div>;
 }
@@ -117,8 +205,6 @@ interface StagedUpload {
 }
 
 const stagedReferencePattern = /^staged-document:[0-9a-f-]+$/i;
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 export function parseStagedUpload(value: unknown): StagedUpload {
   if (!isRecord(value)) {
