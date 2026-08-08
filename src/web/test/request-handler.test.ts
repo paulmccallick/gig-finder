@@ -205,6 +205,9 @@ describe("managed document version API", () => {
     const documentId = createVersionedDocument();
     const malformedPaths = [
       "/api/documents/not-a-document/versions/1",
+      "/api/documents/doc_----/versions/1",
+      "/api/documents/doc_a-/versions/1",
+      "/api/documents/doc_a--b/versions/1",
       `/api/documents/${encodeURIComponent(documentId)}/versions/0`,
       "/api/documents/gig%3Agig-document%3Ajob_description/versions/1",
       "/api/documents/..%2Fsecrets/versions/1",

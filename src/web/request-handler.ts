@@ -4,7 +4,6 @@ import { parseAgentModelId } from "../core/application-settings";
 import { toWebError } from "./error-response";
 import { WebRequestError, type AgentApi } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";
-import { documentIdFromIdentifier } from "../core/documents";
 import type { ReadableDocument } from "../core/document-reader";
 
 const agentIdleTimeoutSeconds = 120;
@@ -39,6 +38,8 @@ interface ManagedDocumentRoute {
   download: boolean;
 }
 
+const managedDocumentReferencePattern = /^doc_[0-9a-f]+(?:-[0-9a-f]+)*$/i;
+
 export function parseManagedDocumentRoute(pathname: string): ManagedDocumentRoute | null {
   const match = pathname.match(
     /^\/api\/documents\/([^/]+)\/versions\/([^/]+)(\/download)?$/,
@@ -53,7 +54,7 @@ export function parseManagedDocumentRoute(pathname: string): ManagedDocumentRout
   const versionText = match[2] ?? "";
   if (!/^[1-9]\d*$/.test(versionText)) return null;
   const version = Number(versionText);
-  if (!Number.isSafeInteger(version) || !documentIdFromIdentifier(reference)) {
+  if (!Number.isSafeInteger(version) || !managedDocumentReferencePattern.test(reference)) {
     return null;
   }
   return { reference, version, download: match[3] === "/download" };
