@@ -42,7 +42,7 @@ export type GigFinderConversationRuntimeOptions = GigFinderConversationRuntimeBa
       reads: GigFinderReadCapabilities;
       mutations: GigFinderMutationCapabilities;
       actor?: string;
-      toolExtensions?: GigFinderToolExtensions;
+      toolExtensions: GigFinderToolExtensions;
     }
   | {
       reads?: undefined;
@@ -265,10 +265,15 @@ export class GigFinderConversationRuntime implements ConversationAgentRuntime {
     const selectedModel = this.options.selectModel?.() ?? defaultAgentModelId;
     const logger = this.options.logger.child({ requestId: input.requestId });
     logger.debug({ event: "agent.model.selected", modelId: selectedModel }, "Selected agent model");
-    if ((this.options.reads === undefined) !== (this.options.mutations === undefined)) {
-      throw new Error("Agent read and mutation capabilities must be configured together.");
+    const configuredCapabilities = [
+      this.options.reads,
+      this.options.mutations,
+      this.options.toolExtensions,
+    ].filter(capability => capability !== undefined).length;
+    if (configuredCapabilities !== 0 && configuredCapabilities !== 3) {
+      throw new Error("Agent read, mutation, and tool-extension capabilities must be configured together.");
     }
-    const tools = this.options.reads && this.options.mutations
+    const tools = this.options.reads && this.options.mutations && this.options.toolExtensions
       ? createGigFinderTools(
           this.options.reads,
           logger,

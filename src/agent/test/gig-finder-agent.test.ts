@@ -12,10 +12,11 @@ import type {
 import { StagedDocumentService } from "../../core";
 import { GigFinderAgent } from "../gig-finder-agent";
 import {
-  createGigFinderTools,
+  createGigFinderTools as createCompleteGigFinderTools,
   gigFinderToolSchemas,
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
+  type GigFinderToolExtensions,
 } from "../gig-finder-tools";
 import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 import { testCandidateProfile } from "./fixtures";
@@ -120,8 +121,15 @@ function documentMutations(
   create: GigFinderMutationCapabilities["documents"]["create"],
 ): GigFinderMutationCapabilities {
   return {
-    gigs: { update: () => { throw new Error("not executed"); } },
-    people: { update: () => { throw new Error("not executed"); } },
+    gigs: {
+      createNew: () => { throw new Error("not executed"); },
+      update: () => { throw new Error("not executed"); },
+    },
+    people: {
+      createNew: () => { throw new Error("not executed"); },
+      update: () => { throw new Error("not executed"); },
+    },
+    gigPeople: { createNew: () => { throw new Error("not executed"); } },
     tasks: {
       createNew: () => { throw new Error("not executed"); },
       update: () => { throw new Error("not executed"); },
@@ -137,6 +145,20 @@ function documentMutations(
       update: () => { throw new Error("not executed"); },
     },
   };
+}
+
+const toolExtensions: GigFinderToolExtensions = {
+  contextSearch: { search: () => ({ gigs: [], people: [], truncated: false }) },
+};
+
+function createGigFinderTools(
+  reads: GigFinderReadCapabilities,
+  testLogger: Logger,
+  mutations: GigFinderMutationCapabilities,
+  requestContext: { actor: string; requestId: string },
+  extensions: GigFinderToolExtensions = toolExtensions,
+) {
+  return createCompleteGigFinderTools(reads, testLogger, mutations, requestContext, extensions);
 }
 
 function mockModel(answer = "Prioritize roles with matching leadership scope.") {

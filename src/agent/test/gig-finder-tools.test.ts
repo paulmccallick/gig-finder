@@ -25,10 +25,11 @@ import {
   PersistenceConsistencyError,
 } from "../../core/errors";
 import {
-  createGigFinderTools,
+  createGigFinderTools as createCompleteGigFinderTools,
   gigFinderToolSchemas,
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
+  type GigFinderToolExtensions,
 } from "../gig-finder-tools";
 import { validateStrictToolJsonSchema } from "./strict-tool-schema";
 
@@ -145,6 +146,42 @@ const mutations: GigFinderMutationCapabilities = {
   changes: { revert: () => { throw new Error("not executed"); } },
   documents: documentMutations,
 };
+
+type TestGigFinderMutationCapabilities = Omit<
+  GigFinderMutationCapabilities,
+  "gigs" | "people" | "gigPeople"
+> & {
+  gigs: Pick<GigFinderMutationCapabilities["gigs"], "update">
+    & Partial<Pick<GigFinderMutationCapabilities["gigs"], "createNew">>;
+  people: Pick<GigFinderMutationCapabilities["people"], "update">
+    & Partial<Pick<GigFinderMutationCapabilities["people"], "createNew">>;
+  gigPeople?: GigFinderMutationCapabilities["gigPeople"];
+};
+
+const toolExtensions: GigFinderToolExtensions = {
+  contextSearch: { search: () => ({ gigs: [], people: [], truncated: false }) },
+};
+
+function createGigFinderTools(
+  reads: GigFinderReadCapabilities,
+  testLogger: Logger,
+  mutationCapabilities: TestGigFinderMutationCapabilities,
+  requestContext: { actor: string; requestId: string },
+  extensions: GigFinderToolExtensions = toolExtensions,
+) {
+  return createCompleteGigFinderTools(
+    reads,
+    testLogger,
+    {
+      ...mutationCapabilities,
+      gigs: { ...mutations.gigs, ...mutationCapabilities.gigs },
+      people: { ...mutations.people, ...mutationCapabilities.people },
+      gigPeople: mutationCapabilities.gigPeople ?? mutations.gigPeople,
+    },
+    requestContext,
+    extensions,
+  );
+}
 
 const nullGigsInput = {
   stages: null,
@@ -1031,7 +1068,7 @@ describe("GigFinderAgent tools", () => {
       equity: null,
       otherCompensation: null,
     };
-    const capturingMutations: GigFinderMutationCapabilities = {
+    const capturingMutations: TestGigFinderMutationCapabilities = {
       gigs: { update: (context, id, patch) => {
         received = { context, id, patch };
         return {
@@ -1097,12 +1134,36 @@ describe("GigFinderAgent tools", () => {
       query:async input=>({status:"ok",items:[],page:{offset:input.offset??0,limit:input.limit??20,returned:0,total:0,hasMore:false,nextOffset:null}}),
       versionQuery:input=>({status:"unsupported",id:input.documentId,message:"Only managed documents have version history."}),
     }};
-    const tools=createGigFinderTools(discoveryReader,logger,capabilities,{actor:"Candidate",requestId:"request-creation"});
+    const tools=createGigFinderTools(
+      discoveryReader,
+      logger,
+      capabilities,
+      {actor:"Candidate",requestId:"request-creation"},
+      {contextSearch:{search:input=>({gigs:input.companyNames.map((company,index)=>({
+        id:`gig-${index}`,company,title:"Director",stage:"identified",outcome:"pending",matchedCompanyNames:[company],
+      })),people:[],truncated:false})}},
+    );
     if(!("create_gig" in tools)||!tools.create_gig)throw new Error("Create gig tool was not registered.");const createGig=tools.create_gig;
     const gigInput={company:"Example",title:"Director",externalJobId:null,stage:"identified" as const,outcome:"pending" as const,statusSummary:"Identified",lastActivity:"2026-08-05",nextAction:null,fit:{rating:"good" as const,summary:null},payRange:null,sourceUrl:null,tags:[],location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null};
     const output=await createGig.execute?.(gigInput,{toolCallId:"create-1",messages:[],abortSignal:undefined,context:{}});
     expect(output).toMatchObject({status:"ok",changeId:"agent-tool:create-1",record:{company:"Example"}});
     expect(created[0]).toMatchObject({kind:"gig",id:expect.stringMatching(/^gig_/),changeId:"agent-tool:create-1"});
+    const personOutput=await tools.create_person.execute?.({
+      name:"Morgan Example",company:"Example",title:"VP Engineering",linkedInProfileUrl:null,connectedOn:null,
+      relationship:{type:"professional_contact",strength:"warm",introducedBy:null,notes:null},priority:"medium",
+      status:"active_relationship",whyInteresting:null,notes:[],tags:[],
+    },{toolCallId:"create-person-1",messages:[],abortSignal:undefined,context:{}});
+    expect(personOutput).toMatchObject({status:"ok",changeId:"agent-tool:create-person-1",record:{name:"Morgan Example"}});
+    const createdPersonId=(personOutput as {record:{id:string}}).record.id;
+    expect(await tools.create_gig_person_relationship.execute?.({
+      gigId:(output as {record:{id:string}}).record.id,personId:createdPersonId,relationship:"hiring_manager",notes:null,
+    },{toolCallId:"create-relationship-1",messages:[],abortSignal:undefined,context:{}})).toMatchObject({
+      status:"ok",changeId:"agent-tool:create-relationship-1",record:{personId:createdPersonId,relationship:"hiring_manager"},
+    });
+    expect(await tools.search_gigs_and_people.execute?.({companyNames:["Example"],personNames:[]},{toolCallId:"search-1",messages:[],abortSignal:undefined,context:{}})).toMatchObject({
+      gigs:[{id:"gig-0",company:"Example"}],people:[],truncated:false,
+    });
+    expect(created.map(entry=>entry.kind)).toEqual(["gig","person","relationship"]);
     expect(await tools.list_documents.execute?.({owner:{entityType:"profile",entityId:"candidate"},offset:null,limit:null},{toolCallId:"read-1",messages:[],abortSignal:undefined,context:{}})).toMatchObject({status:"ok",page:{limit:20}});
     expect(await tools.list_document_versions.execute?.({documentId:"gig:gig:job_description",offset:null,limit:null},{toolCallId:"read-2",messages:[],abortSignal:undefined,context:{}})).toMatchObject({status:"unsupported"});
   });
@@ -1357,7 +1418,7 @@ describe("GigFinderAgent tools", () => {
   });
 
   test("returns a structured duplicate result", async () => {
-    const duplicateMutations: GigFinderMutationCapabilities = {
+    const duplicateMutations: TestGigFinderMutationCapabilities = {
       gigs: { update: () => {
         throw new MutationError("duplicate_change", "Already applied");
       } },
@@ -1410,7 +1471,7 @@ describe("GigFinderAgent tools", () => {
   });
 
   test("returns a structured revision-conflict result", async () => {
-    const conflictingMutations: GigFinderMutationCapabilities = {
+    const conflictingMutations: TestGigFinderMutationCapabilities = {
       gigs: { update: () => {
         throw new MutationError(
           "revision_conflict",
@@ -1446,7 +1507,7 @@ describe("GigFinderAgent tools", () => {
 
   test("passes any exact change ID through the generic revert tool", async () => {
     let received: { context: ChangeContext; targetChangeId: string } | undefined;
-    const capturingMutations: GigFinderMutationCapabilities = {
+    const capturingMutations: TestGigFinderMutationCapabilities = {
       gigs: { update: () => { throw new Error("not executed"); } },
       people: { update: () => { throw new Error("not executed"); } },
       tasks: taskMutations,
@@ -1523,7 +1584,7 @@ describe("GigFinderAgent tools", () => {
       hasJobDescription: false,
       hasInterviewPrep: false,
     } satisfies Gig;
-    const loggingMutations: GigFinderMutationCapabilities = {
+    const loggingMutations: TestGigFinderMutationCapabilities = {
       gigs: { update: context => ({
         changeId: context.changeId ?? null,
         record,

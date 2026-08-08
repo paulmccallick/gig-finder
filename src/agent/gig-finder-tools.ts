@@ -382,14 +382,14 @@ export interface GigFinderReadCapabilities {
 
 export interface GigFinderMutationCapabilities {
   gigs: {
-    createNew?: GigDomainService["createNew"];
+    createNew: GigDomainService["createNew"];
     update(context: ChangeContext, id: string, patch: GigInput, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
   people: {
-    createNew?: PeopleService["createNew"];
+    createNew: PeopleService["createNew"];
     update(context: ChangeContext, id: string, patch: PersonInput, options?: { dryRun?: boolean }): { changeId: string | null; record: unknown };
   };
-  gigPeople?: Pick<GigPeopleService, "createNew">;
+  gigPeople: Pick<GigPeopleService, "createNew">;
   tasks: Pick<TaskDomainService, "createNew" | "update">;
   interactions: Pick<InteractionService, "create" | "update" | "delete">;
   changes: Pick<ChangeService, "revert">;
@@ -397,7 +397,7 @@ export interface GigFinderMutationCapabilities {
 }
 
 export interface GigFinderToolExtensions {
-  contextSearch?: Pick<SearchContextService, "search">;
+  contextSearch: Pick<SearchContextService, "search">;
   stagedDocuments?: StagedDocumentAccess;
 }
 
@@ -809,23 +809,19 @@ export function createGigFinderTools(
   logger: Logger,
   mutations: GigFinderMutationCapabilities,
   requestContext: { actor: string; requestId: string },
-  extensions?: GigFinderToolExtensions,
+  extensions: GigFinderToolExtensions,
 ) {
   const readTools = {
-    ...(extensions?.contextSearch
-      ? {
-          search_gigs_and_people: tool({
-            strict: true,
-            description: "Find existing gigs and people in one call using company and person names. Use this whenever a request needs to resolve names to durable records; it is not limited to document workflows.",
-            inputSchema: searchGigsAndPeopleInputSchema,
-            execute: loggedExecution(
-              logger,
-              "search_gigs_and_people",
-              input => extensions.contextSearch!.search(input),
-            ),
-          }),
-        }
-      : {}),
+    search_gigs_and_people: tool({
+      strict: true,
+      description: "Find existing gigs and people in one call using company and person names. Use this whenever a request needs to resolve names to durable records; it is not limited to document workflows.",
+      inputSchema: searchGigsAndPeopleInputSchema,
+      execute: loggedExecution(
+        logger,
+        "search_gigs_and_people",
+        input => extensions.contextSearch.search(input),
+      ),
+    }),
     list_gigs: tool({
       strict: true,
       description: "List complete current gig records in the candidate's pipeline. Use optional filters if desired. Results may be paginated; each gig ID can be used with relationship and document tools.",
@@ -965,20 +961,20 @@ export function createGigFinderTools(
   };
   return {
     ...readTools,
-    ...(mutations.gigs.createNew ? { create_gig: tool({
+    create_gig: tool({
       strict: true,
       description: "Create one new pipeline Gig after explicit user confirmation. Resolve duplicates first and confirm the created gig by its friendly details.",
       inputSchema: createGigInputSchema,
       execute: loggedExecution(logger, "create_gig", (input, { toolCallId }) => ({
         status: "ok" as const,
-        ...mutations.gigs.createNew!({
+        ...mutations.gigs.createNew({
           actor: requestContext.actor,
           source: "agent",
           summary: `Agent created gig (request ${requestContext.requestId}, tool ${toolCallId})`,
           changeId: `agent-tool:${toolCallId}`,
         }, entityIdForToolCall("gig", toolCallId), input),
       })),
-    }) } : {}),
+    }),
     update_gig: tool({
       strict: true,
       description: "Update one existing gig using explicit set or clear operations. Supply only desired changes, use dot paths for nested fields, and confirm the friendly action summary.",
@@ -1015,16 +1011,16 @@ export function createGigFinderTools(
         }),
       ),
     }),
-    ...(mutations.people.createNew?{create_person: tool({
+    create_person: tool({
       strict:true, description:"Create one canonical Person after explicit user confirmation. Resolve duplicates first and confirm the created person by name.",
       inputSchema:createPersonInputSchema,
-      execute:loggedExecution(logger,"create_person",(input,{toolCallId})=>({status:"ok" as const,...mutations.people.createNew!({actor:requestContext.actor,source:"agent",summary:`Agent created person (request ${requestContext.requestId}, tool ${toolCallId})`,changeId:`agent-tool:${toolCallId}`},entityIdForToolCall("person",toolCallId),input)})),
-    })}:{}),
-    ...(mutations.gigPeople?{create_gig_person_relationship: tool({
+      execute:loggedExecution(logger,"create_person",(input,{toolCallId})=>({status:"ok" as const,...mutations.people.createNew({actor:requestContext.actor,source:"agent",summary:`Agent created person (request ${requestContext.requestId}, tool ${toolCallId})`,changeId:`agent-tool:${toolCallId}`},entityIdForToolCall("person",toolCallId),input)})),
+    }),
+    create_gig_person_relationship: tool({
       strict:true, description:"Create one typed relationship between exact existing Gig and Person IDs after explicit user confirmation.",
       inputSchema:createGigPersonRelationshipInputSchema,
-      execute:loggedExecution(logger,"create_gig_person_relationship",(input,{toolCallId})=>({status:"ok" as const,...mutations.gigPeople!.createNew({actor:requestContext.actor,source:"agent",summary:`Agent created gig-person relationship (request ${requestContext.requestId}, tool ${toolCallId})`,changeId:`agent-tool:${toolCallId}`},entityIdForToolCall("gig_person",toolCallId),input)})),
-    })}:{}),
+      execute:loggedExecution(logger,"create_gig_person_relationship",(input,{toolCallId})=>({status:"ok" as const,...mutations.gigPeople.createNew({actor:requestContext.actor,source:"agent",summary:`Agent created gig-person relationship (request ${requestContext.requestId}, tool ${toolCallId})`,changeId:`agent-tool:${toolCallId}`},entityIdForToolCall("gig_person",toolCallId),input)})),
+    }),
     create_task: tool({
       strict: true,
       description: "Create one task related to an existing Gig, an existing Person, or the general job search. Supply exact durable IDs where required and confirm the created task by title.",
