@@ -18,6 +18,10 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - The agent panel accepts DOCX, Markdown, and PDF source uploads, converts them
   locally to Markdown, and attaches a staged reference to the user's next
   message so the agent can determine what to do without altering the source.
+- Successful managed-document reads appear inline in the conversation with
+  friendly View and Download actions. View opens the selected authoritative
+  version in a dedicated Markdown or plain-text window, and either location can
+  download that exact version without exposing internal IDs.
 - The light dashboard uses compact navigation and summaries; its agent workspace
   opens as a resizable side panel and can expand to fill the application without
   resetting the active session. Full-screen mode uses a narrow left rail for

@@ -50,13 +50,14 @@ describe("application services",()=>{
   const gigDetail=app.gigs.read("gig");
   expect(gigDetail.status).toBe("ok");
   expect(gigDetail.status==="ok" ? gigDetail.record.documents : []).toContainEqual(expect.objectContaining({id:created.document.id,type:"job_description"}));
-  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Original description"}});
+  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Original description",mediaType:"text/plain",version:1,currentVersion:1}});
   const unchanged=app.documents.update({...context,changeId:"document-noop"},{documentId:created.document.id,expectedVersion:1,content:"Original description",changeSummary:"No content change"});
   expect(unchanged).toMatchObject({changed:false,changeId:null,document:{currentVersion:1}});
   const updated=app.documents.update({...context,changeId:"document-update"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Correct source text"});
   expect(updated).toMatchObject({changed:true,changeId:"document-update",document:{currentVersion:2,content:"Corrected description"}});
   expect(app.documents.versions(created.document.id).map(version=>version.content)).toEqual(["Corrected description","Original description"]);
- expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description"}});
+ expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description",mediaType:"text/plain",version:2,currentVersion:2}});
+ expect(await app.documentReader.get(created.document.id,1)).toMatchObject({status:"ok",record:{content:"Original description",mediaType:"text/plain",version:1,currentVersion:2}});
   const discovery=await app.documentReader.query({owner:{entityType:"gig",entityId:"gig"},offset:0,limit:50});
   expect(discovery).toMatchObject({status:"ok",page:{limit:50,total:3}});
   expect(discovery.status==="ok"?discovery.items:[]).toContainEqual(expect.objectContaining({reference:created.document.id,storage:"managed"}));

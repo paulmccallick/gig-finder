@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 test("active board, filters, gig drawer, and archive are functional", async ({ page }) => {
   const pageErrors: string[] = [];
@@ -276,6 +277,104 @@ test("GigFinderAgent preserves delayed reasoning and tool activity through the f
   expect(transcript.indexOf("Searching gigs complete")).toBeLessThan(transcript.indexOf("closer look"));
   expect(transcript.indexOf("closer look")).toBeLessThan(transcript.indexOf("Prioritize the Example Company"));
   expect(transcript).not.toMatch(/raw-(?:call|record|result)-secret/);
+});
+
+test("managed document reads produce view and download actions", async ({ page }) => {
+  const documentId = "doc_11111111-1111-4111-8111-111111111111";
+  const content = [
+    "Prepare for the interview.",
+    "",
+    "```mermaid",
+    "flowchart LR",
+    "  Prepare --> Interview",
+    "```",
+    "",
+    "```mermaid",
+    "this is not valid mermaid",
+    "```",
+    "",
+    "<script>window.compromised = true</script>",
+  ].join("\n");
+  const stream = [
+    { type: "start", messageId: "assistant-document" },
+    { type: "start-step" },
+    { type: "tool-input-start", toolCallId: "read-document", toolName: "get_document", dynamic: true },
+    { type: "tool-input-available", toolCallId: "read-document", toolName: "get_document", input: { reference: documentId, version: 1 }, dynamic: true },
+    {
+      type: "tool-output-available",
+      toolCallId: "read-document",
+      dynamic: true,
+      output: {
+        status: "ok",
+        record: {
+          reference: documentId,
+          entityType: "gig",
+          entityId: "gig-active",
+          documentType: "interview_prep",
+          title: "Interview Brief",
+          displayName: "Interview Brief",
+          storage: "managed",
+          mediaType: "text/markdown",
+          version: 1,
+          currentVersion: 1,
+          content,
+          truncated: false,
+          totalCharacters: content.length,
+        },
+      },
+    },
+    { type: "text-start", id: "document-answer" },
+    { type: "text-delta", id: "document-answer", delta: "I found the interview brief." },
+    { type: "text-end", id: "document-answer" },
+    { type: "finish-step" },
+    { type: "finish" },
+  ];
+  await page.route("**/api/agent/messages", async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "x-vercel-ai-ui-message-stream": "v1",
+        "cache-control": "no-store",
+      },
+      body: `${stream.map(event => `data: ${JSON.stringify(event)}`).join("\n\n")}\n\ndata: [DONE]\n\n`,
+    });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "GigFinder" });
+  await panel.getByRole("button", { name: "Expand agent to full screen" }).click();
+  await panel.getByLabel("Message GigFinderAgent").fill("Show me the interview brief");
+  await panel.getByRole("button", { name: /Send/ }).click();
+  const actions = panel.getByRole("region", { name: "Documents" });
+  await expect(actions).toContainText("Interview Brief");
+  await expect(actions).not.toContainText(documentId);
+
+  const chatDownloadPromise = page.waitForEvent("download");
+  await actions.getByRole("link", { name: "Download" }).click();
+  const chatDownload = await chatDownloadPromise;
+  expect(chatDownload.suggestedFilename()).toBe("Interview Brief.md");
+  expect(await readFile(await chatDownload.path(), "utf8")).toBe(content);
+
+  const popupPromise = page.waitForEvent("popup");
+  await actions.getByRole("link", { name: "View" }).click();
+  const viewer = await popupPromise;
+  await expect(viewer.getByRole("heading", { name: "Interview Brief", level: 1 }).first()).toBeVisible();
+  await expect(viewer.getByText("Prepare for the interview.")).toBeVisible();
+  await expect(viewer.getByLabel("Mermaid diagram").locator("svg")).toBeVisible();
+  await expect(viewer.getByLabel("Mermaid diagram unavailable")).toBeVisible();
+  await expect(viewer.getByText("window.compromised", { exact: false })).toHaveCount(0);
+  expect(await viewer.evaluate(() => "compromised" in window)).toBe(false);
+  await viewer.reload();
+  await expect(viewer.getByText("Prepare for the interview.")).toBeVisible();
+  await expect(viewer.getByLabel("Mermaid diagram").locator("svg")).toBeVisible();
+
+  const viewerDownloadPromise = viewer.waitForEvent("download");
+  await viewer.getByRole("link", { name: "Download" }).click();
+  const viewerDownload = await viewerDownloadPromise;
+  expect(viewerDownload.suggestedFilename()).toBe("Interview Brief.md");
+  expect(await readFile(await viewerDownload.path(), "utf8")).toBe(content);
 });
 
 test("GigFinderAgent surfaces and retries an interrupted empty response", async ({ page }) => {

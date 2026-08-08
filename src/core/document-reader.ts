@@ -21,6 +21,7 @@ export type DocumentReference = DocumentReferenceBase & (
 );
 
 export type ReadableDocument = DocumentReference & {
+  mediaType: DocumentMediaType;
   version: number | null;
   content: string;
   truncated: boolean;
@@ -187,7 +188,7 @@ export class ApplicationDocumentReader implements DocumentReader {
               displayName: managed.displayName,
               storage: "managed",
               currentVersion: managed.currentVersion,
-            }, selected.content, version ?? managed.currentVersion),
+            }, selected.content, managed.mediaType, version ?? managed.currentVersion),
           }
         : { status: "not_found", id: reference };
     }
@@ -206,14 +207,14 @@ export class ApplicationDocumentReader implements DocumentReader {
       const content = await this.services.gigs.description(entityId);
       return content === null
         ? { status: "not_found", id: reference }
-        : { status: "ok", record: documentRecord(match, content) };
+        : { status: "ok", record: documentRecord(match, content, "text/markdown") };
     }
     const title = parts[3] ? decoded(parts[3]) : null;
     const document = title
       ? (await this.services.gigs.prep(entityId)).find(item => item.name === title)
       : null;
     return document
-      ? { status: "ok", record: documentRecord(match, document.content) }
+      ? { status: "ok", record: documentRecord(match, document.content, "text/markdown") }
       : { status: "not_found", id: reference };
   }
 }
@@ -221,10 +222,12 @@ export class ApplicationDocumentReader implements DocumentReader {
 function documentRecord(
   reference: DocumentReference,
   content: string,
+  mediaType: DocumentMediaType,
   version = reference.currentVersion,
 ): ReadableDocument {
   return {
     ...reference,
+    mediaType,
     version,
     content: content.slice(0, readableDocumentContentLimit),
     truncated: content.length > readableDocumentContentLimit,

@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   ChangeContext,
@@ -6,6 +7,7 @@ import type {
   PersonData,
   TaskData,
 } from "../../core/models";
+import type { ManagedDocumentData } from "../../core/documents";
 import { DataStore, migrateDatabase, openDatabase } from "../../data";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
@@ -93,6 +95,31 @@ const task: TaskData = {
   relatedEntityId: "gig-active", relatedEntityLabel: "Example Labs Director of Product",
   notes: "Review the role scope.", completedAt: null,
 };
+const document: ManagedDocumentData = {
+  id: "doc_11111111-1111-4111-8111-111111111111",
+  links: [{ entityType: "gig", entityId: "gig-active" }],
+  documentType: "interview_prep",
+  title: "Interview Brief",
+  description: null,
+  mediaType: "text/markdown",
+  sourceDescription: "Synthetic browser fixture",
+  filePath: null,
+  uploadProvenance: null,
+};
+const documentContent = [
+  "Prepare for the interview.",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  Prepare --> Interview",
+  "```",
+  "",
+  "```mermaid",
+  "this is not valid mermaid",
+  "```",
+  "",
+  "<script>window.compromised = true</script>",
+].join("\n");
 
 const database = openDatabase(databasePath);
 migrateDatabase(database);
@@ -101,6 +128,11 @@ store.change(change, transaction => {
   gigs.forEach(gig => transaction.gigs.create(gig));
   transaction.people.create(person);
   transaction.tasks.create(task);
+  transaction.documents.create({
+    document,
+    content: documentContent,
+    contentHash: createHash("sha256").update(documentContent).digest("hex"),
+  });
 });
 database.close();
 

@@ -306,6 +306,11 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 .agent-tool-activity.is-success i { background: currentColor; }
 .agent-tool-activity.is-error { color: var(--red); }
 .agent-tool-activity.is-cancelled { color: var(--muted); }
+.document-actions { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); background: #fff; }
+.document-actions article { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.document-actions article > span { min-width: 0; overflow: hidden; color: var(--ink); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.document-actions article > div { display: flex; gap: 10px; }
+.document-actions a { color: var(--amber); text-transform: uppercase; font: 8px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .07em; }
 .agent-message.is-user { margin-left: 42px; padding: 13px 14px; background: rgba(23,108,85,.055); border-left: 1px solid rgba(23,108,85,.34); }
 .agent-message.is-user header { color: var(--signal); }
 .agent-message.is-assistant header { color: var(--amber); }
@@ -362,6 +367,30 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 @keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.document-viewer { width: min(920px, calc(100% - 48px)); min-height: 100vh; margin: 0 auto; padding: 40px 0 72px; }
+.document-viewer > header { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.document-viewer > header h1 { margin: 7px 0 0; font: 400 34px/1.15 Baskerville, "Iowan Old Style", serif; }
+.document-viewer > header a { padding: 10px 16px; color: #fff; background: var(--amber); text-transform: uppercase; font: 9px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .09em; }
+.document-viewer-content { padding: 36px clamp(0px, 5vw, 56px); color: var(--ink); background: #fff; border: 1px solid var(--line); border-top: 0; }
+.document-viewer-content > pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; font: 14px/1.7 "SFMono-Regular", Consolas, monospace; }
+.document-viewer-status, .document-viewer-error { margin-top: 28px; padding: 24px; border: 1px solid var(--line); background: #fff; }
+.document-viewer-error h2 { margin: 0 0 8px; font: 400 24px/1.2 Baskerville, "Iowan Old Style", serif; }
+.document-markdown { font-size: 15px; line-height: 1.7; }
+.document-markdown h1, .document-markdown h2, .document-markdown h3, .document-markdown h4, .document-markdown h5, .document-markdown h6 { margin: 1.5em 0 .5em; line-height: 1.2; }
+.document-markdown h1:first-child, .document-markdown h2:first-child { margin-top: 0; }
+.document-markdown pre { padding: 14px; overflow-x: auto; background: #f5f3ed; }
+.document-markdown code { font-family: "SFMono-Regular", Consolas, monospace; }
+.document-markdown blockquote { margin-left: 0; padding-left: 16px; color: var(--muted); border-left: 3px solid var(--amber); }
+.document-markdown a { color: var(--signal); text-decoration: underline; }
+.mermaid-diagram { margin: 22px 0; overflow-x: auto; text-align: center; }
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-loading { min-height: 120px; margin: 22px 0; background: #f5f3ed; }
+.mermaid-fallback { white-space: pre-wrap; }
+.markdown-table { overflow-x: auto; }
+.markdown-table table { width: 100%; border-collapse: collapse; }
+.markdown-table th, .markdown-table td { padding: 8px 10px; text-align: left; border: 1px solid var(--line); }
+.markdown-table th { background: #f5f3ed; }
+
 @media (max-width: 980px) {
   .dashboard-with-agent { margin-right: 0; }
   .app-shell { padding: 0 20px; }
@@ -376,6 +405,9 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 }
 
 @media (max-width: 620px) {
+  .document-viewer { width: calc(100% - 28px); padding-top: 22px; }
+  .document-viewer > header { align-items: start; flex-direction: column; }
+  .document-viewer-content { padding: 24px 18px; }
   .agent-panel.is-layout-panel { width: 100vw; }
   .agent-resize-handle { display: none; }
   .agent-panel.is-layout-full { --agent-rail-width: 68px; }

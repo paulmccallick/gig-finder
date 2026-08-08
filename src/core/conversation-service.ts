@@ -266,6 +266,37 @@ export function compactMessageForPersistence(
       const output = part.output;
       if (part.toolName === "get_document" && isRecord(output)) {
         const record = isRecord(output.record) ? output.record : null;
+        if (
+          output.status === "ok"
+          && record?.storage === "managed"
+          && typeof record.reference === "string"
+          && typeof record.displayName === "string"
+          && typeof record.documentType === "string"
+          && (record.mediaType === "text/markdown" || record.mediaType === "text/plain")
+          && typeof record.version === "number"
+          && Number.isInteger(record.version)
+          && record.version > 0
+          && typeof record.currentVersion === "number"
+          && Number.isInteger(record.currentVersion)
+          && record.currentVersion > 0
+          && record.version <= record.currentVersion
+        ) {
+          return {
+            ...part,
+            output: {
+              status: "ok",
+              record: {
+                reference: record.reference,
+                storage: "managed",
+                displayName: record.displayName,
+                documentType: record.documentType,
+                mediaType: record.mediaType,
+                version: record.version,
+                currentVersion: record.currentVersion,
+              },
+            },
+          };
+        }
         const documentId = record && typeof record.reference === "string"
           ? record.reference
           : null;
@@ -273,7 +304,7 @@ export function compactMessageForPersistence(
           ? record.version
           : record && typeof record.currentVersion === "number"
             ? record.currentVersion
-          : null;
+            : null;
         if (documentId) return { ...part, output: { documentId, version } };
       }
       return { ...part, output: compactToolOutput(output, maxToolResultCharacters) };
@@ -306,8 +337,17 @@ async function hydrateLatestDocuments(
   const latest = new Map<string, { messageIndex: number; partIndex: number; version: number | null }>();
   messages.forEach((message, messageIndex) => message.parts.forEach((part, partIndex) => {
     if (part.type !== "tool" || part.toolName !== "get_document" || !isRecord(part.output)) return;
-    const documentId = typeof part.output.documentId === "string" ? part.output.documentId : null;
-    const version = typeof part.output.version === "number" ? part.output.version : null;
+    const record = isRecord(part.output.record) ? part.output.record : null;
+    const documentId = typeof record?.reference === "string"
+      ? record.reference
+      : typeof part.output.documentId === "string"
+        ? part.output.documentId
+        : null;
+    const version = typeof record?.version === "number"
+      ? record.version
+      : typeof part.output.version === "number"
+        ? part.output.version
+        : null;
     if (documentId) latest.set(documentId, { messageIndex, partIndex, version });
   }));
   const hydrated = messages.map(message => ({ ...message, parts: [...message.parts] }));
