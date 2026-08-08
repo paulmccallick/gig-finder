@@ -32,7 +32,6 @@ export interface GigFinderAgentOptions {
   model: import("ai").LanguageModel;
   logger: import("pino").Logger;
   tools?: import("./gig-finder-tools").GigFinderTools;
-  canUpdateRecords?: boolean;
   profileDocuments?: ProfileDocumentContext[];
   now?: () => Date;
   maxSteps?: number;

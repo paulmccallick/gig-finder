@@ -29,19 +29,30 @@ import type { CandidateProfile } from "./types";
 
 type ModelFactory = (modelId: AgentModelId) => Promise<LanguageModel>;
 
-export interface GigFinderConversationRuntimeOptions {
+interface GigFinderConversationRuntimeBaseOptions {
   profile: CandidateProfile;
   profileDocuments?: () => ProfileDocumentContext[];
   modelFactory?: ModelFactory;
   selectModel?: () => AgentModelId;
   logger: Logger;
-  reads?: GigFinderReadCapabilities;
-  mutations?: GigFinderMutationCapabilities;
-  actor?: string;
-  toolExtensions?: GigFinderToolExtensions;
   maxSteps?: number;
   maxOutputTokens?: number;
 }
+
+export type GigFinderConversationRuntimeOptions = GigFinderConversationRuntimeBaseOptions & (
+  | {
+      reads: GigFinderReadCapabilities;
+      mutations: GigFinderMutationCapabilities;
+      actor?: string;
+      toolExtensions: GigFinderToolExtensions;
+    }
+  | {
+      reads?: undefined;
+      mutations?: undefined;
+      actor?: undefined;
+      toolExtensions?: undefined;
+    }
+);
 
 export function safeAgentError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -257,7 +268,15 @@ export class GigFinderConversationRuntime implements ConversationAgentRuntime {
     const selectedModel = this.options.selectModel?.() ?? defaultAgentModelId;
     const logger = this.options.logger.child({ requestId: input.requestId });
     logger.debug({ event: "agent.model.selected", modelId: selectedModel }, "Selected agent model");
-    const tools = this.options.reads
+    const configuredCapabilities = [
+      this.options.reads,
+      this.options.mutations,
+      this.options.toolExtensions,
+    ].filter(capability => capability !== undefined).length;
+    if (configuredCapabilities !== 0 && configuredCapabilities !== 3) {
+      throw new Error("Agent read, mutation, and tool-extension capabilities must be configured together.");
+    }
+    const tools = this.options.reads && this.options.mutations && this.options.toolExtensions
       ? createGigFinderTools(
           this.options.reads,
           logger,
@@ -271,7 +290,6 @@ export class GigFinderConversationRuntime implements ConversationAgentRuntime {
       model: await (this.options.modelFactory ?? createCodexLanguageModel)(selectedModel),
       logger,
       tools,
-      canUpdateRecords: this.options.mutations !== undefined,
       profileDocuments: this.options.profileDocuments?.() ?? [],
       maxSteps: this.options.maxSteps,
       maxOutputTokens: this.options.maxOutputTokens,

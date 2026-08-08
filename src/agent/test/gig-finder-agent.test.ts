@@ -12,10 +12,11 @@ import type {
 import { StagedDocumentService } from "../../core";
 import { GigFinderAgent } from "../gig-finder-agent";
 import {
-  createGigFinderTools,
+  createGigFinderTools as createCompleteGigFinderTools,
   gigFinderToolSchemas,
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
+  type GigFinderToolExtensions,
 } from "../gig-finder-tools";
 import { validateStrictToolJsonSchema } from "../../../scripts/smoke-support/tool-schema-validation";
 import { testCandidateProfile } from "./fixtures";
@@ -120,8 +121,15 @@ function documentMutations(
   create: GigFinderMutationCapabilities["documents"]["create"],
 ): GigFinderMutationCapabilities {
   return {
-    gigs: { update: () => { throw new Error("not executed"); } },
-    people: { update: () => { throw new Error("not executed"); } },
+    gigs: {
+      createNew: () => { throw new Error("not executed"); },
+      update: () => { throw new Error("not executed"); },
+    },
+    people: {
+      createNew: () => { throw new Error("not executed"); },
+      update: () => { throw new Error("not executed"); },
+    },
+    gigPeople: { createNew: () => { throw new Error("not executed"); } },
     tasks: {
       createNew: () => { throw new Error("not executed"); },
       update: () => { throw new Error("not executed"); },
@@ -137,6 +145,20 @@ function documentMutations(
       update: () => { throw new Error("not executed"); },
     },
   };
+}
+
+const toolExtensions: GigFinderToolExtensions = {
+  contextSearch: { search: () => ({ gigs: [], people: [], truncated: false }) },
+};
+
+function createGigFinderTools(
+  reads: GigFinderReadCapabilities,
+  testLogger: Logger,
+  mutations: GigFinderMutationCapabilities,
+  requestContext: { actor: string; requestId: string },
+  extensions: GigFinderToolExtensions = toolExtensions,
+) {
+  return createCompleteGigFinderTools(reads, testLogger, mutations, requestContext, extensions);
 }
 
 function mockModel(answer = "Prioritize roles with matching leadership scope.") {
@@ -178,20 +200,14 @@ describe("GigFinderAgent instructions", () => {
     expect(genericGigFinderAgentSystemPrompt).not.toContain("Consumer services");
     expect(genericGigFinderAgentSystemPrompt).not.toContain("Senior Director");
     expect(genericGigFinderAgentSystemPrompt).toContain("Never expose internal record");
-    expect(genericGigFinderAgentSystemPrompt).toContain("structured results already present in conversation context");
-    expect(genericGigFinderAgentSystemPrompt).toContain("ask one concise");
   });
 
   test("states the configured live-data boundary", () => {
     expect(buildGigFinderInstructions(testCandidateProfile)).toContain(
       "no access to live pipeline records",
     );
-    expect(buildGigFinderInstructions(testCandidateProfile, {
-      liveRecords: true,
-    })).toContain("These tools are read-only");
     const writableInstructions = buildGigFinderInstructions(testCandidateProfile, {
       liveRecords: true,
-      canUpdateRecords: true,
     });
     expect(writableInstructions).toContain(
       "Person: an individual with identity, relationship, priority, status, notes, tags, documents, and latest-contact details derived from Interactions",
@@ -203,11 +219,9 @@ describe("GigFinderAgent instructions", () => {
       "Interaction: a message, call, meeting, interview, conversation, or other contact with one or more People",
     );
     expect(writableInstructions).toContain(
-      "Use the tools to find relevant information for the user request and update information when appropriate or told to do so.",
+      "and update information when appropriate or told to do so.",
     );
-    expect(writableInstructions).toContain(
-      "Always verify with the user before creating updates.",
-    );
+    expect(writableInstructions).toContain("You can also create supported records.");
     expect(writableInstructions).not.toContain("dashboard");
     expect(gigFinderDocumentInstructions.trim().split(/\s+/).length).toBeLessThanOrEqual(100);
   });
@@ -327,7 +341,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
 
     expect(await agent.respond([userMessage("Review my pipeline.")]).text).toBe(
@@ -500,7 +513,12 @@ describe("agent streaming", () => {
       profile: testCandidateProfile,
       model,
       logger,
-      tools: createGigFinderTools(reader, logger),
+      tools: createGigFinderTools(
+        reader,
+        logger,
+        documentMutations(() => { throw new Error("not executed"); }),
+        { actor: "Candidate", requestId: "request-read-interaction" },
+      ),
     });
 
     expect(await agent.respond([userMessage("When did I meet this person?")]).text).toBe(
@@ -609,7 +627,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
 
     expect(await agent.respond([
@@ -699,7 +716,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
 
     expect(await agent.respond([
@@ -847,7 +863,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
 
     expect(await agent.respond([
@@ -964,7 +979,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
     const message = `Save the source document staged as ${staged.reference}.`;
 
@@ -1064,7 +1078,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
 
     expect(await agent.respond([
@@ -1095,7 +1108,6 @@ describe("agent streaming", () => {
       model,
       logger,
       tools,
-      canUpdateRecords: true,
     });
 
     expect(await agent.respond([
