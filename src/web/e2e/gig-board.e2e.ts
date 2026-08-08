@@ -282,14 +282,15 @@ test("GigFinderAgent preserves delayed reasoning and tool activity through the f
 test("managed document reads produce view and download actions", async ({ page }) => {
   const documentId = "doc_11111111-1111-4111-8111-111111111111";
   const content = [
-    "# Interview Brief",
-    "",
-    "- Review the product strategy",
-    "- Prepare leadership examples",
+    "Prepare for the interview.",
     "",
     "```mermaid",
     "flowchart LR",
     "  Prepare --> Interview",
+    "```",
+    "",
+    "```mermaid",
+    "this is not valid mermaid",
     "```",
     "",
     "<script>window.compromised = true</script>",
@@ -360,12 +361,13 @@ test("managed document reads produce view and download actions", async ({ page }
   await actions.getByRole("link", { name: "View" }).click();
   const viewer = await popupPromise;
   await expect(viewer.getByRole("heading", { name: "Interview Brief", level: 1 }).first()).toBeVisible();
-  await expect(viewer.getByText("Review the product strategy")).toBeVisible();
+  await expect(viewer.getByText("Prepare for the interview.")).toBeVisible();
   await expect(viewer.getByLabel("Mermaid diagram").locator("svg")).toBeVisible();
+  await expect(viewer.getByLabel("Mermaid diagram unavailable")).toBeVisible();
   await expect(viewer.getByText("window.compromised", { exact: false })).toHaveCount(0);
   expect(await viewer.evaluate(() => "compromised" in window)).toBe(false);
   await viewer.reload();
-  await expect(viewer.getByText("Prepare leadership examples")).toBeVisible();
+  await expect(viewer.getByText("Prepare for the interview.")).toBeVisible();
   await expect(viewer.getByLabel("Mermaid diagram").locator("svg")).toBeVisible();
 
   const viewerDownloadPromise = viewer.waitForEvent("download");

@@ -33,7 +33,10 @@ function MermaidDiagram({ source }: { source: string }) {
     return () => { active = false; };
   }, [reactId, source]);
 
-  if (failed) return <pre className="mermaid-fallback"><code>{source}</code></pre>;
+  if (failed) return <pre
+    className="mermaid-fallback"
+    aria-label="Mermaid diagram unavailable"
+  ><code>{source}</code></pre>;
   if (!svg) return <div className="mermaid-loading" aria-label="Rendering diagram" />;
   return <div
     className="mermaid-diagram"
