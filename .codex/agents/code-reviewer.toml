@@ -31,5 +31,6 @@ RULES:
  - Do not edit the architecture overview or adrs
  - do not edit product documentation.
  - all issues must be posted to the pull request as comments
+ - notify the user if any documents in the architecture folder changed, as the developer is not to change them.
 
 """
