@@ -17,10 +17,10 @@ flowchart LR
   PR[Pull request] -->|validate| CI[GitHub Actions]
   CI -->|main merge SHA| Image[Docker image in GHCR]
   Image -->|deploy exact tag| Host[Local production container]
-  Host --> State[/var/lib/gig-finder]
-  Host --> Logs[/var/log/gig-finder]
-  Host --> Backups[/var/backups/gig-finder]
-  Host --> Config[/etc/gig-finder]
+  Host --> State["/var/lib/gig-finder"]
+  Host --> Logs["/var/log/gig-finder"]
+  Host --> Backups["/var/backups/gig-finder"]
+  Host --> Config["/etc/gig-finder"]
   Host -->|read-only| Credentials[Codex credentials]
 ```
 
