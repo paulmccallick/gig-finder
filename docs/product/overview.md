@@ -92,5 +92,4 @@ documents, perform operator artifact maintenance, read or write legacy
 Business Events, or access arbitrary files, email, calendars, or external services.
 Agent mutations are audited and idempotent. Eligible creations and updates can
 be reverted when no later edit or dependent record would be overwritten or
-orphaned. The agent verifies the intended change with the user before mutating
-records or documents.
+orphaned.
