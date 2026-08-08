@@ -34,4 +34,6 @@ export interface GigFinderAgentOptions {
   tools?: import("./gig-finder-tools").GigFinderTools;
   profileDocuments?: ProfileDocumentContext[];
   now?: () => Date;
+  maxSteps?: number;
+  maxOutputTokens?: number;
 }

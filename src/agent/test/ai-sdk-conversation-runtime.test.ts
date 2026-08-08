@@ -2,10 +2,18 @@ import { describe, expect, test } from "bun:test";
 import type { ConversationMessage } from "../../core/conversation-service";
 import {
   conversationStream,
+  safeAgentError,
   toModelMessages,
 } from "../ai-sdk-conversation-runtime";
 
 describe("AI SDK conversation adapter", () => {
+  test("surfaces only explicitly bounded live-smoke provider errors", () => {
+    expect(safeAgentError(new Error("Codex provider rejected live smoke request (400): invalid tool registry")))
+      .toBe("Codex provider rejected live smoke request (400): invalid tool registry");
+    expect(safeAgentError(new Error("private provider failure")))
+      .toBe("The GigFinderAgent could not complete that response. Please try again.");
+  });
+
   test("maps application messages and completed tools to model messages", () => {
     const messages: ConversationMessage[] = [{
       id: "user-1",

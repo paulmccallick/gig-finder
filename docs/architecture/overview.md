@@ -17,6 +17,15 @@ flowchart LR
   Data --> Files[versioned files and context files]
 ```
 
+Pre-release verification exercises this same built web composition root from a
+clean exact commit with isolated synthetic state. Deterministic smoke uses a
+smoke-only scripted Responses server that validates the complete runtime tool
+registry against known provider rules before scripting tool calls. Local live
+smoke uses the operator's existing Codex authentication and a small bounded
+request. Mock implementation and validation code remain in a dedicated smoke
+entry point; the production server bundle contains only the guarded endpoint
+seam and defaults to the subscription provider.
+
 ## Package boundaries
 
 - `src/core/` owns domain models, client-neutral contracts, validation, ports,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   StrictToolSchemaError,
   validateStrictToolJsonSchema,
-} from "./strict-tool-schema";
+} from "../../../scripts/smoke-support/tool-schema-validation";
 
 describe("strict tool schema validation", () => {
   test("traverses arrays, combinators, nullable branches, definitions, and refs", () => {
@@ -63,5 +63,14 @@ describe("strict tool schema validation", () => {
     expect((error as Error).message).toContain("$.properties.nested");
     expect((error as Error).message).not.toContain(privateValue);
     expect((error as Error).message.length).toBeLessThan(200);
+  });
+
+  test("rejects the provider-unsupported URI format without leaking schema content", () => {
+    expect(() => validateStrictToolJsonSchema("unsafe_url", {
+      type: "object",
+      properties: { url: { type: "string", format: "uri", description: "private" } },
+      required: ["url"],
+      additionalProperties: false,
+    })).toThrow("Invalid provider tool schema for unsafe_url at $.properties.url: format uri is unsupported");
   });
 });

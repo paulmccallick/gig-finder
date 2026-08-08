@@ -31,7 +31,7 @@ import {
   type GigFinderMutationCapabilities,
   type GigFinderToolExtensions,
 } from "../gig-finder-tools";
-import { validateStrictToolJsonSchema } from "./strict-tool-schema";
+import { validateStrictToolJsonSchema } from "../../../scripts/smoke-support/tool-schema-validation";
 
 const logger = {
   debug: () => undefined,

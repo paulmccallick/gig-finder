@@ -14,6 +14,11 @@ Environment variables override file configuration:
 - Agent: `CODEX_HOME`, `CODEX_AGENT_MODEL`, and `AI_SDK_DEVTOOLS`. The local
   deployment script maps host-side `GIG_FINDER_CODEX_HOME` to container-side
   `CODEX_HOME`.
+- Smoke verification: `GIG_FINDER_SMOKE_MODE` is set only by the smoke harness.
+  Deterministic mode also supplies its isolated HTTP endpoint through
+  `GIG_FINDER_SMOKE_PROVIDER_URL`; the application rejects that endpoint in
+  every other mode. These are verification seams, not production provider
+  configuration.
 - Upload limits: `DOCUMENT_UPLOAD_MAX_BYTES`,
   `DOCUMENT_EXTRACTION_MAX_CHARACTERS`, `DOCUMENT_PDF_MAX_PAGES`,
   `DOCUMENT_DOCX_MAX_UNCOMPRESSED_BYTES`, `DOCUMENT_STAGE_TTL_MS`,

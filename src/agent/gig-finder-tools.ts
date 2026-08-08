@@ -1224,7 +1224,7 @@ export function createGigFinderTools(
 }
 
 export type GigFinderTools = ReturnType<typeof createGigFinderTools>;
-export const gigFinderToolSchemas = {
+export const gigFinderReadToolSchemas = {
   search_gigs_and_people: searchGigsAndPeopleInputSchema,
   list_gigs: listGigsInputSchema,
   get_gig: getInputSchema,
@@ -1239,6 +1239,9 @@ export const gigFinderToolSchemas = {
   list_documents: listDocumentsInputSchema,
   list_document_versions: listDocumentVersionsInputSchema,
   get_document: getDocumentInputSchema,
+} as const;
+
+export const gigFinderMutationToolSchemas = {
   create_gig: createGigInputSchema,
   update_gig: updateGigInputSchema,
   update_person: updatePersonInputSchema,
@@ -1252,4 +1255,9 @@ export const gigFinderToolSchemas = {
   create_document: createDocumentInputSchema,
   update_document: updateDocumentInputSchema,
   revert_change: revertChangeInputSchema,
+} as const;
+
+export const gigFinderToolSchemas = {
+  ...gigFinderReadToolSchemas,
+  ...gigFinderMutationToolSchemas,
 } as const;
