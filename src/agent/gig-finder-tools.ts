@@ -807,8 +807,8 @@ function documentMutationResult(result: ManagedDocumentMutationResult) {
 export function createGigFinderTools(
   reads: GigFinderReadCapabilities,
   logger: Logger,
-  mutations?: GigFinderMutationCapabilities,
-  requestContext?: { actor: string; requestId: string },
+  mutations: GigFinderMutationCapabilities,
+  requestContext: { actor: string; requestId: string },
   extensions?: GigFinderToolExtensions,
 ) {
   const readTools = {
@@ -963,7 +963,6 @@ export function createGigFinderTools(
       ),
     }),
   };
-  if (!mutations || !requestContext) return readTools;
   return {
     ...readTools,
     ...(mutations.gigs.createNew ? { create_gig: tool({

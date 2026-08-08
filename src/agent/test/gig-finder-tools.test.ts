@@ -200,36 +200,15 @@ const nullInteractionsInput = {
 
 describe("GigFinderAgent tools", () => {
   test("registers the approved tools with agent-facing descriptions", () => {
-    const tools = createGigFinderTools(reader, logger);
-    expect(Object.keys(tools)).toEqual([
-      "list_gigs",
-      "get_gig",
-      "list_people",
-      "get_person",
-      "list_gig_person_relationships",
-      "get_gig_person_relationship",
-      "list_tasks",
-      "get_task",
-      "list_interactions",
-      "get_interaction",
-      "list_documents",
-      "list_document_versions",
-      "get_document",
-    ]);
-    for (const definition of Object.values(tools)) {
-      expect(definition.description?.length).toBeGreaterThan(40);
-      expect(definition.strict).toBe(true);
-    }
-  });
-
-  test("registers mutation tools only when the update boundary is supplied", () => {
     const tools = createGigFinderTools(
       reader,
       logger,
       mutations,
       { actor: "Candidate", requestId: "request-1" },
+      { contextSearch: { search: () => ({ gigs: [], people: [], truncated: false }) } },
     );
     expect(Object.keys(tools)).toEqual([
+      "search_gigs_and_people",
       "list_gigs",
       "get_gig",
       "list_people",
@@ -268,36 +247,11 @@ describe("GigFinderAgent tools", () => {
     expect(tools.create_document.strict).toBe(true);
     expect(tools.update_document.strict).toBe(true);
     expect(tools.revert_change.strict).toBe(true);
-  });
-
-  test("keeps read-only and mutation-enabled runtime tools in exact registry parity", () => {
-    const extensions = {
-      contextSearch: {
-        search: () => ({ gigs: [], people: [], truncated: false }),
-      },
-    };
-    const readOnly = createGigFinderTools(reader, logger, undefined, undefined, extensions);
-    const writable = createGigFinderTools(
-      reader,
-      logger,
-      mutations,
-      { actor: "Candidate", requestId: "request-parity" },
-      extensions,
-    );
-    const mutationNames = new Set([
-      "create_gig", "update_gig", "update_person", "create_person",
-      "create_gig_person_relationship", "create_task", "update_task",
-      "create_interaction", "update_interaction", "delete_interaction", "create_document", "update_document",
-      "revert_change",
-    ]);
-    const registryNames = Object.keys(gigFinderToolSchemas);
-    expect(Object.keys(readOnly).sort()).toEqual(
-      registryNames.filter(name => !mutationNames.has(name)).sort(),
-    );
-    expect(Object.keys(writable).sort()).toEqual(registryNames.sort());
-    for (const [name, registeredTool] of Object.entries(writable)) {
-      if (!mutationNames.has(name)) continue;
-      expect(registeredTool.description).not.toMatch(/report .*(?:change|document|record) ID/i);
+    expect(Object.keys(tools).sort()).toEqual(Object.keys(gigFinderToolSchemas).sort());
+    for (const definition of Object.values(tools)) {
+      expect(definition.description?.length).toBeGreaterThan(40);
+      expect(definition.strict).toBe(true);
+      expect(definition.description).not.toMatch(/report .*(?:change|document|record) ID/i);
     }
   });
 
@@ -324,7 +278,7 @@ describe("GigFinderAgent tools", () => {
         }),
         read: id => ({ status: "not_found" as const, id }),
       },
-    }, logger);
+    }, logger, mutations, { actor: "Candidate", requestId: "request-read" });
     const options = { toolCallId: "call-read", messages: [], abortSignal: undefined, context: {} };
     expect(await tools.list_people.execute?.(nullPeopleInput, options)).toMatchObject({
       items: [{ id: "person-1", name: "Standalone Person" }],
@@ -374,7 +328,7 @@ describe("GigFinderAgent tools", () => {
           };
         },
       },
-    }, logger);
+    }, logger, mutations, { actor: "Candidate", requestId: "request-person" });
 
     const result = await tools.get_person.execute?.(
       { id: "person-1" },
@@ -436,7 +390,7 @@ describe("GigFinderAgent tools", () => {
           ? { status: "ok" as const, record }
           : { status: "not_found" as const, id },
       },
-    }, meetingLogger);
+    }, meetingLogger, mutations, { actor: "Candidate", requestId: "request-interaction" });
     const options = { toolCallId: "call-meeting", messages: [], abortSignal: undefined, context: {} };
     const input = {
       ...nullInteractionsInput,
@@ -1443,7 +1397,7 @@ describe("GigFinderAgent tools", () => {
           throw new PersistenceConsistencyError("Document link is inconsistent.");
         },
       },
-    }, logger);
+    }, logger, mutations, { actor: "Candidate", requestId: "request-document" });
 
     expect(await tools.get_document.execute?.(
       { reference: managedDocument.id, version: null },
@@ -1787,7 +1741,12 @@ describe("GigFinderAgent tools", () => {
       warn: (entry: Record<string, unknown>) => entries.push(entry),
       error: () => undefined,
     } as unknown as Logger;
-    const tools = createGigFinderTools(reader, capturingLogger);
+    const tools = createGigFinderTools(
+      reader,
+      capturingLogger,
+      mutations,
+      { actor: "Candidate", requestId: "request-filtered-log" },
+    );
 
     await tools.list_gigs.execute?.(
       {
@@ -1820,7 +1779,12 @@ describe("GigFinderAgent tools", () => {
       warn: (entry: Record<string, unknown>) => entries.push(entry),
       error: () => undefined,
     } as unknown as Logger;
-    const tools = createGigFinderTools(reader, capturingLogger);
+    const tools = createGigFinderTools(
+      reader,
+      capturingLogger,
+      mutations,
+      { actor: "Candidate", requestId: "request-unfiltered-log" },
+    );
 
     await tools.list_gigs.execute?.(
       { ...nullGigsInput, overdueOnly: false, offset: 0, limit: 20 },
@@ -1843,7 +1807,12 @@ describe("GigFinderAgent tools", () => {
       warn: (entry: Record<string, unknown>) => warningEntries.push(entry),
       error: () => undefined,
     } as unknown as Logger;
-    const tools = createGigFinderTools(reader, capturingLogger);
+    const tools = createGigFinderTools(
+      reader,
+      capturingLogger,
+      mutations,
+      { actor: "Candidate", requestId: "request-not-found-log" },
+    );
 
     await tools.get_gig.execute?.(
       { id: "missing-gig" },

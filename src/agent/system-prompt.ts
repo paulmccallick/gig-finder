@@ -85,16 +85,13 @@ export function buildGigFinderInstructions(
   profile: CandidateProfile,
   capabilities: {
     liveRecords?: boolean;
-    canUpdateRecords?: boolean;
     profileDocuments?: ProfileDocumentContext[];
   } = {},
 ) {
   const dataAccess = capabilities.liveRecords
     ? `${entityInstructions}
 
-Use the tools to find relevant information for the user request
-       and update information when appropriate or told to do so. You can also create supported records.\n
-      "}
+Use the tools to find relevant information for the user request and update information when appropriate or told to do so. You can also create supported records.
 
 ${gigFinderDocumentInstructions}
 
