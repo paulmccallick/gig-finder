@@ -26,6 +26,8 @@ import {
 } from "../../core/errors";
 import {
   createGigFinderTools,
+  gigFinderMutationToolSchemas,
+  gigFinderReadToolSchemas,
   gigFinderToolSchemas,
   type GigFinderReadCapabilities,
   type GigFinderMutationCapabilities,
@@ -284,13 +286,9 @@ describe("GigFinderAgent tools", () => {
       { actor: "Candidate", requestId: "request-parity" },
       extensions,
     );
-    const mutationNames = new Set([
-      "create_gig", "update_gig", "update_person", "create_person",
-      "create_gig_person_relationship", "create_task", "update_task",
-      "create_interaction", "update_interaction", "delete_interaction", "create_document", "update_document",
-      "revert_change",
-    ]);
+    const mutationNames = new Set<string>(Object.keys(gigFinderMutationToolSchemas));
     const registryNames = Object.keys(gigFinderToolSchemas);
+    expect(Object.keys(readOnly).sort()).toEqual(Object.keys(gigFinderReadToolSchemas).sort());
     expect(Object.keys(readOnly).sort()).toEqual(
       registryNames.filter(name => !mutationNames.has(name)).sort(),
     );

@@ -29,11 +29,11 @@ bun run smoke:live
 Deterministic mode runs `bun run build`, starts the built production server and
 a smoke-only mock provider on random loopback ports, and creates a new
 file-backed SQLite database with isolated synthetic configuration, profile,
-documents, artifacts, logs, and backups under ignored `tmp/`. CI supplies
-`SMOKE_REVISION` to confirm the checkout revision. The harness validates
+documents, artifacts, logs, and backups under ignored `tmp/`. The harness validates
 migrations and health, every registered tool, audited mutations, upload and
 document hydration, conversation resume, and an application restart against
-the same database. No Codex credentials are used.
+the same database. No Codex credentials are used. This is a local development
+and review check; it is not added to GitHub Actions.
 
 Live mode requires an existing local Codex login in `CODEX_HOME` (or the
 default `~/.codex`). It refuses a dirty worktree, runs `bun run build`, starts

@@ -1,7 +1,11 @@
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { gigFinderToolSchemas } from "../src/agent/gig-finder-tools";
+import {
+  gigFinderMutationToolSchemas,
+  gigFinderToolSchemas,
+} from "../src/agent/gig-finder-tools";
+import { smokeEnvironment as createSmokeEnvironment } from "./smoke-support/environment";
 
 type Mode = "deterministic" | "live";
 type JsonRecord = Record<string, unknown>;
@@ -9,17 +13,15 @@ type JsonRecord = Record<string, unknown>;
 const repositoryRoot = path.resolve(import.meta.dir, "..");
 const mode = process.argv[2] as Mode | undefined;
 const expectedTools = Object.keys(gigFinderToolSchemas).sort();
-const mutationTools = new Set([
-  "create_gig", "update_gig", "create_person", "update_person",
-  "create_gig_person_relationship", "create_task", "update_task",
-  "create_interaction", "update_interaction", "delete_interaction",
-  "create_document", "update_document", "revert_change",
-]);
+const mutationTools = new Set<string>(Object.keys(gigFinderMutationToolSchemas));
 
 const record = (value: unknown): value is JsonRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const reason = (value: unknown) => (value instanceof Error ? value.message : String(value))
   .replace(/\s+/g, " ").slice(0, 300);
+
+const smokeEnvironment = (overrides: Record<string, string> = {}) =>
+  createSmokeEnvironment(process.env, overrides);
 
 class SmokeFailure extends Error {
   constructor(
@@ -73,8 +75,10 @@ async function requireClean(revision: string) {
   }
 }
 
-async function createStateRoot(runMode: Mode) {
-  const root = path.join(repositoryRoot, "tmp", `smoke-${runMode}-${process.pid}-${crypto.randomUUID()}`);
+const stateRootPath = (runMode: Mode) =>
+  path.join(repositoryRoot, "tmp", `smoke-${runMode}-${process.pid}-${crypto.randomUUID()}`);
+
+async function createStateRoot(root: string) {
   for (const directory of ["data", "profile", "profile/documents", "artifacts", "logs", "backups"]) {
     await mkdir(path.join(root, directory), { recursive: true });
   }
@@ -352,8 +356,7 @@ function startBuiltServer(
 ) {
   return Bun.spawn(["bun", "dist/server/server.js"], {
     cwd: repositoryRoot,
-    env: {
-      ...process.env,
+    env: smokeEnvironment({
       HOST: "127.0.0.1",
       PORT: String(port),
       STATIC_ROOT: path.join(repositoryRoot, "dist/client"),
@@ -363,7 +366,7 @@ function startBuiltServer(
       AI_SDK_DEVTOOLS: "false",
       LOG_LEVEL: "error",
       ...extraEnv,
-    },
+    }),
     stdout: "ignore",
     stderr: "ignore",
   });
@@ -372,11 +375,10 @@ function startBuiltServer(
 async function initializeState(stateRoot: string, revision: string) {
   try {
     await command("bun", ["dist/server/maintenance.js", "initialize"], {
-      env: {
-        ...process.env,
+      env: smokeEnvironment({
         GIG_FINDER_CONTEXT_ROOT: stateRoot,
         LOG_LEVEL: "error",
-      },
+      }),
     });
   } catch (error) {
     throw new SmokeFailure("health-and-migrations", revision, "database-initialize", reason(error));
@@ -387,17 +389,18 @@ async function runDeterministic(revision: string) {
   const startedAt = Date.now();
   await requireClean(revision);
   await command("bun", ["run", "build"], { stdout: "inherit", stderr: "inherit" });
-  const resources: LocalResources = { processes: [] };
+  const stateRoot = stateRootPath("deterministic");
+  const resources: LocalResources = { processes: [], stateRoot };
   const interrupt = () => void cleanupLocal(resources).finally(() => process.exit(130));
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
   try {
-    resources.stateRoot = await createStateRoot("deterministic");
-    await initializeState(resources.stateRoot, revision);
+    await createStateRoot(stateRoot);
+    await initializeState(stateRoot, revision);
     const mockPort = await freePort();
     const mock = Bun.spawn(["bun", "dist/server/smoke-provider-server.js"], {
       cwd: repositoryRoot,
-      env: { ...process.env, HOST: "127.0.0.1", PORT: String(mockPort) },
+      env: smokeEnvironment({ HOST: "127.0.0.1", PORT: String(mockPort) }),
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -406,19 +409,19 @@ async function runDeterministic(revision: string) {
     await waitForEndpoint(`${mockBaseURL}/status`, revision, "mock-provider-health");
 
     const appPort = await freePort();
-    let application = startBuiltServer(revision, resources.stateRoot, appPort, "deterministic", {
+    let application = startBuiltServer(revision, stateRoot, appPort, "deterministic", {
       GIG_FINDER_SMOKE_PROVIDER_URL: mockBaseURL,
     });
     resources.processes.push(application);
     const baseURL = `http://127.0.0.1:${appPort}`;
-    const serverLog = path.join(resources.stateRoot, "logs/server.log");
+    const serverLog = path.join(stateRoot, "logs/server.log");
     await waitForHealth(baseURL, revision, "deterministic-health", serverLog);
     const state = await deterministicScenarios(baseURL, revision);
 
     application.kill();
     await Promise.race([application.exited, Bun.sleep(3_000)]);
     resources.processes = resources.processes.filter(process => process !== application);
-    application = startBuiltServer(revision, resources.stateRoot, appPort, "deterministic", {
+    application = startBuiltServer(revision, stateRoot, appPort, "deterministic", {
       GIG_FINDER_SMOKE_PROVIDER_URL: mockBaseURL,
     });
     resources.processes.push(application);
@@ -504,19 +507,20 @@ async function runLive(revision: string) {
     throw new SmokeFailure("authentication", revision, "live-auth", "Codex authentication is unavailable. Run `codex login`.");
   }
   await command("bun", ["run", "build"], { stdout: "inherit", stderr: "inherit" });
-  const stateRoot = await createStateRoot("live");
-  await initializeState(stateRoot, revision);
-  const port = await freePort();
-  const server = startBuiltServer(revision, stateRoot, port, "live", { CODEX_HOME: codexHome });
-  const cleanup = async () => {
-    server.kill();
-    await Promise.race([server.exited, Bun.sleep(3_000)]);
-    await rm(stateRoot, { recursive: true, force: true });
+  const stateRoot = stateRootPath("live");
+  const resources: LocalResources = {
+    processes: [],
+    stateRoot,
   };
-  const interrupt = () => void cleanup().finally(() => process.exit(130));
+  const interrupt = () => void cleanupLocal(resources).finally(() => process.exit(130));
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
   try {
+    await createStateRoot(stateRoot);
+    await initializeState(stateRoot, revision);
+    const port = await freePort();
+    const server = startBuiltServer(revision, stateRoot, port, "live", { CODEX_HOME: codexHome });
+    resources.processes.push(server);
     const baseURL = `http://127.0.0.1:${port}`;
     await waitForHealth(baseURL, revision, "live-health", path.join(stateRoot, "logs/server.log"));
     const timeoutMs = Number(Bun.env.SMOKE_LIVE_TIMEOUT_MS ?? "90000");
@@ -560,7 +564,7 @@ async function runLive(revision: string) {
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", interrupt);
-    await cleanup();
+    await cleanupLocal(resources);
   }
 }
 
