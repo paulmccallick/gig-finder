@@ -3,7 +3,7 @@ description = "Read-only reviewer for code correctness, architecture boundaries,
 sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
-writable_roots = ["tmp"]
+writable_roots = ["tmp", "dist"]
 network_access = true
 
 developer_instructions = """
