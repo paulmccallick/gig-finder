@@ -43,6 +43,33 @@ const starterPrompts = [
   "Which role categories are poor fits?",
 ];
 
+const genericInterruptedResponseWarning =
+  "GigFinderAgent's response was interrupted before it completed. Please retry.";
+const stepLimitExhaustedWarning =
+  "Processing stopped before all requested work finished. Already completed actions were retained.";
+
+export function agentInteractionWarning({
+  finishReason,
+  isAbort,
+  isDisconnect,
+  isError,
+  deliveredTextCharacters,
+}: {
+  finishReason?: string;
+  isAbort: boolean;
+  isDisconnect: boolean;
+  isError: boolean;
+  deliveredTextCharacters: number;
+}) {
+  if (!isAbort && !isDisconnect && !isError && finishReason === "tool-calls") {
+    return stepLimitExhaustedWarning;
+  }
+  if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
+    return genericInterruptedResponseWarning;
+  }
+  return null;
+}
+
 function messageText(parts: UIMessage["parts"]) {
   return parts.filter(part => part.type === "text").map(part => part.text ?? "").join("");
 }
@@ -322,37 +349,42 @@ export function AgentPanel({
     messages: initialMessages,
     transport,
     throttle: 30,
-    onFinish: ({ message, isAbort, isDisconnect, isError }) => {
+    onFinish: ({ message, isAbort, isDisconnect, isError, finishReason }) => {
       const deliveredTextCharacters = messageText(message.parts).length;
       if (hasSuccessfulMutation(message.parts)) onDataChanged?.();
       const savedReferences = savedUploadReferences(message.parts);
-      const completed = !isAbort
+      const normallyCompleted = !isAbort
         && !isDisconnect
         && !isError
         && deliveredTextCharacters > 0;
-      if (completed) {
+      const stepLimitExhausted = !isAbort
+        && !isDisconnect
+        && !isError
+        && finishReason === "tool-calls";
+      const retained = normallyCompleted || stepLimitExhausted;
+      if (retained) {
         for (const reference of savedReferences) {
           void discardStagedDocument(reference).catch(() => undefined);
         }
       }
-      if (completed && savedReferences.length > 0) {
+      if (retained && savedReferences.length > 0) {
         setUpload(current => current && savedReferences.includes(current.reference)
           ? null
           : current);
       }
-      if (completed) {
+      if (retained) {
         void loadConversations().then(setConversations).catch(() => undefined);
       }
-      if (!isAbort && (isDisconnect || isError || deliveredTextCharacters === 0)) {
-        setInteractionFailure(
-          "GigFinderAgent's response was interrupted before it completed. Please retry.",
-        );
-      }
+      setInteractionFailure(agentInteractionWarning({
+        finishReason,
+        isAbort,
+        isDisconnect,
+        isError,
+        deliveredTextCharacters,
+      }));
     },
     onError: () => {
-      setInteractionFailure(
-        "GigFinderAgent's response was interrupted before it completed. Please retry.",
-      );
+      setInteractionFailure(genericInterruptedResponseWarning);
     },
   });
   const previousStatusRef = useRef(status);
@@ -361,6 +393,9 @@ export function AgentPanel({
   const latestAssistantParts = status === "streaming" && latestMessage?.role === "assistant"
     ? latestMessage.parts
     : undefined;
+  const stepLimitReached = !error
+    && !conversationFailure
+    && interactionFailure === stepLimitExhaustedWarning;
   const activity = currentAgentActivity(status, latestAssistantParts);
   const activeRef = useRef(active);
   const resizeRef = useRef<{
@@ -804,9 +839,11 @@ export function AgentPanel({
 
       {(error || interactionFailure || conversationFailure) && (
         <div className="agent-error" role="alert">
-          <span>RESPONSE INTERRUPTED</span>
+          <span>{stepLimitReached ? "PROCESSING LIMIT REACHED" : "RESPONSE INTERRUPTED"}</span>
           <p>{conversationFailure || interactionFailure || (error ? "The GigFinderAgent could not complete that response. Please retry." : "The GigFinderAgent could not complete that response.")}</p>
-          <button type="button" onClick={retry} disabled={modelSaving}>Retry response</button>
+          {!stepLimitReached && (
+            <button type="button" onClick={retry} disabled={modelSaving}>Retry response</button>
+          )}
           <button type="button" onClick={() => {
             clearError();
             setInteractionFailure(null);

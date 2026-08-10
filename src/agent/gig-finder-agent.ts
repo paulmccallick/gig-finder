@@ -34,6 +34,8 @@ type EndLogEvent = Pick<StepEndLogEvent, "usage" | "finishReason"> & {
   steps: readonly { text: string; toolCalls: readonly unknown[] }[];
 };
 
+export const defaultAgentStepLimit = 20;
+
 function textCharacters(messages: ModelMessage[]) {
   return messages.reduce((total, message) => {
     if (typeof message.content === "string") return total + message.content.length;
@@ -48,6 +50,7 @@ export class GigFinderAgent {
 
   respond(messages: ModelMessage[], signal?: AbortSignal) {
     const startedAt = performance.now();
+    const effectiveMaxSteps = this.options.maxSteps ?? defaultAgentStepLimit;
     let activeStep: {
       callId: string;
       stepNumber: number;
@@ -78,7 +81,7 @@ export class GigFinderAgent {
       instructions,
       messages,
       tools: this.options.tools,
-      stopWhen: isStepCount(this.options.maxSteps ?? 5),
+      stopWhen: isStepCount(effectiveMaxSteps),
       maxOutputTokens: this.options.maxOutputTokens,
       abortSignal: signal,
       maxRetries: 1,
@@ -155,11 +158,19 @@ export class GigFinderAgent {
         activeStep = null;
       },
       onEnd: ({ usage, finishReason, steps }: EndLogEvent) => {
-        const outcome = wasAborted ? "aborted" : "completed";
-        log.info({
+        const stepLimitExhausted = !wasAborted
+          && finishReason === "tool-calls"
+          && steps.length === effectiveMaxSteps;
+        const outcome = wasAborted
+          ? "aborted"
+          : stepLimitExhausted
+            ? "step_limit_exhausted"
+            : "completed";
+        const entry = {
           ...interaction,
           event: "model.interaction.finished",
           outcome,
+          configuredStepLimit: effectiveMaxSteps,
           latencyMs: Math.round(performance.now() - startedAt),
           finishReason,
           stepCount: steps.length,
@@ -178,7 +189,12 @@ export class GigFinderAgent {
             cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
             reasoningTokens: usage.outputTokenDetails.reasoningTokens,
           },
-        }, `${outcome === "aborted" ? "Aborted" : "Completed"} model interaction`);
+        };
+        if (stepLimitExhausted) {
+          log.warn(entry, "Model interaction reached the configured step limit");
+        } else {
+          log.info(entry, `${outcome === "aborted" ? "Aborted" : "Completed"} model interaction`);
+        }
       },
       onAbort: ({ steps }: { steps: readonly unknown[] }) => {
         wasAborted = true;
