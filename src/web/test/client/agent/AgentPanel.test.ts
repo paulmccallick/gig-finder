@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "ai";
 import {
+  agentInteractionWarning,
   hasSavedUpload,
   hasSuccessfulMutation,
   documentActions,
@@ -22,6 +23,34 @@ import {
 } from "../../../client/agent/agent-activity";
 
 describe("agent activity presentation", () => {
+  test("selects distinct warnings for step exhaustion and interruption", () => {
+    expect(agentInteractionWarning({
+      finishReason: "tool-calls",
+      isAbort: false,
+      isDisconnect: false,
+      isError: false,
+      deliveredTextCharacters: 0,
+    })).toBe(
+      "Processing stopped before all requested work finished. Already completed actions were retained.",
+    );
+    expect(agentInteractionWarning({
+      finishReason: "stop",
+      isAbort: false,
+      isDisconnect: false,
+      isError: false,
+      deliveredTextCharacters: 24,
+    })).toBeNull();
+    expect(agentInteractionWarning({
+      finishReason: undefined,
+      isAbort: false,
+      isDisconnect: true,
+      isError: false,
+      deliveredTextCharacters: 0,
+    })).toBe(
+      "GigFinderAgent's response was interrupted before it completed. Please retry.",
+    );
+  });
+
   test("maps every current tool to a friendly label", () => {
     expect(Object.keys(agentToolLabels).sort()).toEqual([
       "create_document", "create_gig", "create_gig_person_relationship",

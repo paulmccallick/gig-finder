@@ -423,6 +423,42 @@ test("GigFinderAgent surfaces and retries an interrupted empty response", async 
   expect(attempts).toBe(2);
 });
 
+test("GigFinderAgent warns when the step limit retains completed actions", async ({ page }) => {
+  await page.route("**/api/agent/messages", async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "x-vercel-ai-ui-message-stream": "v1",
+      },
+      body: [
+        'data: {"type":"start","messageId":"assistant-step-limit"}',
+        'data: {"type":"start-step"}',
+        'data: {"type":"tool-input-start","toolCallId":"call-1","toolName":"update_gig"}',
+        'data: {"type":"tool-input-delta","toolCallId":"call-1","inputTextDelta":"{\\"id\\":\\"gig-1\\"}"}',
+        'data: {"type":"tool-input-available","toolCallId":"call-1","toolName":"update_gig","input":{"id":"gig-1"}}',
+        'data: {"type":"tool-output-available","toolCallId":"call-1","output":{"status":"ok","changeId":"agent-tool:call-1"}}',
+        'data: {"type":"finish-step"}',
+        'data: {"type":"finish","finishReason":"tool-calls"}',
+        "data: [DONE]",
+        "",
+      ].join("\n\n"),
+    });
+  });
+
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "GigFinder" });
+  await panel.getByLabel("Message GigFinderAgent").fill("Update several records");
+  await panel.getByRole("button", { name: /Send/ }).click();
+  const alert = panel.getByRole("alert");
+  await expect(alert).toContainText("PROCESSING LIMIT REACHED");
+  await expect(alert).toContainText("Processing stopped before all requested work finished");
+  await expect(alert).toContainText("Already completed actions were retained");
+  await expect(alert).not.toContainText("response was interrupted");
+  await expect(alert.getByRole("button", { name: "Retry response" })).toHaveCount(0);
+  await expect(panel.getByText("Updating gig complete")).toBeVisible();
+});
+
 test("document upload stages without the agent and attaches to the next message", async ({ page }) => {
   const stagedReference = "staged-document:11111111-1111-4111-8111-111111111111";
   let agentRequests = 0;

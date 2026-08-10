@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { simulateReadableStream, type ModelMessage } from "ai";
+import { simulateReadableStream, tool, type ModelMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { Logger } from "pino";
+import { z } from "zod";
 import type {
   ChangeContext,
   GigRecord,
@@ -11,6 +12,7 @@ import type {
 } from "../../core";
 import { StagedDocumentService } from "../../core";
 import { GigFinderAgent } from "../gig-finder-agent";
+import type { GigFinderAgentOptions } from "../types";
 import {
   createGigFinderTools as createCompleteGigFinderTools,
   gigFinderToolSchemas,
@@ -183,6 +185,52 @@ function mockModel(answer = "Prioritize roles with matching leadership scope.") 
     }),
   });
 }
+
+function toolCallStep(index: number) {
+  return {
+    stream: simulateReadableStream({
+      chunks: [
+        { type: "stream-start" as const, warnings: [] },
+        {
+          type: "tool-call" as const,
+          toolCallId: `tool-call-${index}`,
+          toolName: "continue_work",
+          input: JSON.stringify({ step: index }),
+        },
+        {
+          type: "finish" as const,
+          finishReason: { unified: "tool-calls" as const, raw: undefined },
+          usage,
+        },
+      ],
+    }),
+  };
+}
+
+const finalAnswerStep = {
+  stream: simulateReadableStream({
+    chunks: [
+      { type: "stream-start" as const, warnings: [] },
+      { type: "text-start" as const, id: "text-final" },
+      { type: "text-delta" as const, id: "text-final", delta: "All requested work finished." },
+      { type: "text-end" as const, id: "text-final" },
+      {
+        type: "finish" as const,
+        finishReason: { unified: "stop" as const, raw: undefined },
+        usage,
+      },
+    ],
+  }),
+};
+
+const continuingTool = tool({
+  description: "Advances a synthetic multi-step workflow.",
+  inputSchema: z.object({ step: z.number() }),
+  execute: async ({ step }) => ({ completedStep: step }),
+});
+const syntheticTools = {
+  continue_work: continuingTool,
+} as unknown as NonNullable<GigFinderAgentOptions["tools"]>;
 
 describe("GigFinderAgent instructions", () => {
   test("formats trusted current UTC turn context", () => {
@@ -420,6 +468,77 @@ describe("agent streaming", () => {
       },
     });
     expect(completion?.data.latencyMs).toBeNumber();
+  });
+
+  test("allows a workflow longer than five steps to finish with the production default", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: [
+        toolCallStep(1),
+        toolCallStep(2),
+        toolCallStep(3),
+        toolCallStep(4),
+        toolCallStep(5),
+        toolCallStep(6),
+        finalAnswerStep,
+      ],
+    });
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
+      model,
+      logger,
+      tools: syntheticTools,
+    });
+
+    const result = agent.respond([userMessage("Complete the synthetic workflow.")]);
+
+    expect(await result.text).toBe("All requested work finished.");
+    expect(model.doStreamCalls).toHaveLength(7);
+    expect((await result.steps)).toHaveLength(7);
+  });
+
+  test("logs step-limit exhaustion distinctly and retains successful tool results", async () => {
+    const logEntries: Array<{ level: string; data: Record<string, unknown> }> = [];
+    const testLogger = {
+      debug: (data: Record<string, unknown>) => logEntries.push({ level: "debug", data }),
+      info: (data: Record<string, unknown>) => logEntries.push({ level: "info", data }),
+      warn: (data: Record<string, unknown>) => logEntries.push({ level: "warn", data }),
+      error: (data: Record<string, unknown>) => logEntries.push({ level: "error", data }),
+    } as unknown as Logger;
+    const model = new MockLanguageModelV4({
+      doStream: [toolCallStep(1), toolCallStep(2)],
+    });
+    const agent = new GigFinderAgent({
+      profile: testCandidateProfile,
+      model,
+      logger: testLogger,
+      tools: syntheticTools,
+      maxSteps: 2,
+    });
+
+    const result = agent.respond([userMessage("Keep working beyond the limit.")]);
+    const steps = await result.steps;
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]?.toolResults[0]).toMatchObject({
+      toolName: "continue_work",
+      output: { completedStep: 1 },
+    });
+    expect(logEntries.find(entry => entry.data.event === "model.interaction.finished"))
+      .toMatchObject({
+        level: "warn",
+        data: {
+          outcome: "step_limit_exhausted",
+          configuredStepLimit: 2,
+          stepCount: 2,
+          toolCallCount: 2,
+          finishReason: "tool-calls",
+          usage: {
+            inputTokens: 20,
+            outputTokens: 16,
+            totalTokens: 36,
+          },
+        },
+      });
   });
 
   test("executes an interaction read tool and streams the model's final answer", async () => {
