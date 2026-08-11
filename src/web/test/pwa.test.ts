@@ -47,12 +47,12 @@ describe("PWA assets and cache boundary", () => {
 
   test("registers the revisioned worker, activates a waiting update, and reloads once", async () => {
     class Worker extends EventTarget {
-      state: ServiceWorkerState = "installed";
+      constructor(public state: ServiceWorkerState) { super(); }
       messages: unknown[] = [];
       postMessage(message: unknown) { this.messages.push(message); }
     }
     class Registration extends EventTarget {
-      waiting: Worker | null = new Worker();
+      waiting: Worker | null = new Worker("installed");
       installing: Worker | null = null;
       updateCalls = 0;
       async update() { this.updateCalls += 1; }
@@ -86,6 +86,15 @@ describe("PWA assets and cache boundary", () => {
     scheduled[0]?.();
     await Promise.resolve();
     expect(container.registration.updateCalls).toBe(1);
+    const installing = new Worker("installing");
+    container.registration.installing = installing;
+    container.registration.dispatchEvent(new Event("updatefound"));
+    container.registration.installing = null;
+    installing.state = "installed";
+    installing.dispatchEvent(new Event("statechange"));
+    expect(updates).toHaveLength(2);
+    updates[1]?.activate();
+    expect(installing.messages).toEqual([{ type: "SKIP_WAITING" }]);
     container.dispatchEvent(new Event("controllerchange"));
     container.dispatchEvent(new Event("controllerchange"));
     expect(reloads).toBe(1);

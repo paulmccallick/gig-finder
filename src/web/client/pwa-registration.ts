@@ -21,9 +21,12 @@ export async function observeServiceWorker(
     if (worker?.state !== "installed" || !environment.serviceWorkers.controller) return;
     onUpdate({ activate: () => worker.postMessage({ type: "SKIP_WAITING" }) });
   };
-  const onInstallingStateChange = () => offerUpdate(registration.installing);
+  let observedInstalling: ServiceWorker | null = null;
+  const onInstallingStateChange = () => offerUpdate(observedInstalling);
   const onUpdateFound = () => {
-    registration.installing?.addEventListener("statechange", onInstallingStateChange);
+    observedInstalling?.removeEventListener("statechange", onInstallingStateChange);
+    observedInstalling = registration.installing;
+    observedInstalling?.addEventListener("statechange", onInstallingStateChange);
   };
   offerUpdate(registration.waiting);
   registration.addEventListener("updatefound", onUpdateFound);
@@ -39,7 +42,7 @@ export async function observeServiceWorker(
 
   return () => {
     registration.removeEventListener("updatefound", onUpdateFound);
-    registration.installing?.removeEventListener("statechange", onInstallingStateChange);
+    observedInstalling?.removeEventListener("statechange", onInstallingStateChange);
     environment.serviceWorkers.removeEventListener("controllerchange", onControllerChange);
     environment.cancelSchedule(timer);
   };
