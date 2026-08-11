@@ -1,0 +1,20 @@
+import { describe,expect,test } from "bun:test";
+import { scanCompany,type GigScoutHttpPort } from "..";
+import type { platformAdapters } from "../contracts";
+type Adapter=typeof platformAdapters[number];
+const fixtures:Record<Adapter,{url:string;body:unknown}>={
+  greenhouse:{url:"https://boards.greenhouse.io/example-labs",body:{jobs:[{id:101,title:"Reliability Gardener",absolute_url:"https://boards.greenhouse.io/example-labs/jobs/101",location:{name:"Remote"},content:"<p>Grow systems.</p>"}]}},
+  lever:{url:"https://jobs.lever.co/example-labs",body:[{id:"role-1",text:"Reliability Gardener",hostedUrl:"https://jobs.lever.co/example-labs/role-1",categories:{location:"Remote"},description:"<p>Grow systems.</p>"}]},
+  smartrecruiters:{url:"https://careers.smartrecruiters.com/ExampleLabs",body:{totalFound:1,content:[{id:"role-1",name:"Reliability Gardener",postingUrl:"https://jobs.smartrecruiters.com/ExampleLabs/role-1",location:{fullLocation:"Remote"},jobAd:{sections:{jobDescription:{text:"<p>Grow systems.</p>"}}}}]}},
+  ashby:{url:"https://jobs.ashbyhq.com/example-labs",body:{jobs:[{id:"role-1",title:"Reliability Gardener",jobUrl:"https://jobs.ashbyhq.com/example-labs/role-1",location:"Remote",descriptionHtml:"<p>Grow systems.</p>"}]}},
+  workday:{url:"https://example.wd1.myworkdayjobs.com/en-US/careers",body:{total:1,jobPostings:[{title:"Reliability Gardener",externalPath:"/job/role-1",locationsText:"Remote"}]}},
+  "oracle-hcm":{url:"https://hcm.example.test/hcmUI/CandidateExperience/en/sites/CX_1",body:{count:1,items:[{requisitionList:[{Id:"role-1",Title:"Reliability Gardener",ExternalCareerSiteURL:"https://hcm.example.test/jobs/role-1",PrimaryLocation:"Remote",ShortDescriptionStr:"Grow systems."}]}]}},
+  adp:{url:"https://myjobs.adp.com/example-labs/cx",body:{totalCount:1,jobRequisitions:[{reqId:"role-1",publishedJobTitle:"Reliability Gardener",jobUrl:"https://myjobs.adp.com/example-labs/jobs/role-1",jobDescription:"Grow systems."}]}},
+  eightfold:{url:"https://talent.example.test/careers?domain=example.test",body:{total:1,positions:[{id:"role-1",name:"Reliability Gardener",publicUrl:"https://talent.example.test/careers/role-1",standardizedLocations:["Remote"],jobDescription:"Grow systems."}]}},
+  jibe:{url:"https://careers.example.test/search",body:{total:1,jobs:[{id:"role-1",title:"Reliability Gardener",url:"/jobs/role-1",location:"Remote",description:"Grow systems."}]}},
+  "successfactors-rmk":{url:"https://careers.example.test/services/recruiting/v1/jobs?locale=en_US",body:{totalResults:1,searchResults:[{response:{id:"role-1",title:"Reliability Gardener",url:"/job/role-1",location:"Remote"}}]}},
+  gem:{url:"https://jobs.gem.com/example-labs",body:{data:{oatsExternalJobPostings:{jobPostings:[{id:"role-1",extId:"role-1",title:"Reliability Gardener",descriptionHtml:"Grow systems.",locations:[{name:"Remote",isRemote:true}]}]}}}},
+};
+describe("generic platform adapters",()=>{
+  for(const [adapter,fixture] of Object.entries(fixtures) as Array<[Adapter,(typeof fixtures)[Adapter]]>)test(`${adapter} plans and normalizes its official API`,async()=>{let requested="";const http:GigScoutHttpPort={async request(input){requested=input.url;return{status:200,url:input.url,headers:{},body:JSON.stringify(fixture.body)};}};const result=await scanCompany({companyId:"company-1",configurationVersionId:"config-1",sources:[{key:"official",type:"platform",adapter,url:fixture.url,active:true,maxPages:2,searchTerms:[]}]},{http});expect(requested).toStartWith("https://");expect(result.sources[0]?.status).toBe("succeeded_with_results");expect(result.positions[0]?.title).toBe("Reliability Gardener");expect(result.positions[0]?.canonicalUrl).toStartWith("https://");});
+});

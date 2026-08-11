@@ -22,6 +22,8 @@ import { LocalDocumentConverter } from "./document-conversion";
 import { createDocumentUploadHandler } from "./document-upload-handler";
 import { createWebHandler } from "./request-handler";
 import { createStaticFileHandler } from "./static-files";
+import { ScoutRuntime } from "../operations/scout-runtime";
+import { importScoutCompany } from "../core/scout-company-import";
 
 type ProcessEnvironment = Record<string, string | undefined>;
 
@@ -53,6 +55,7 @@ export interface WebConfiguration {
     maxDocuments: number;
     maxTotalCharacters: number;
   };
+  scout: { batchSize:number; concurrency:number };
 }
 
 function positiveInteger(
@@ -155,6 +158,7 @@ export function loadWebConfiguration(
         "DOCUMENT_STAGE_MAX_CHARACTERS",
       ),
     },
+    scout: { batchSize: positiveInteger(environment.GIG_FINDER_SCOUT_BATCH_SIZE,20,"GIG_FINDER_SCOUT_BATCH_SIZE"), concurrency: positiveInteger(environment.GIG_FINDER_SCOUT_CONCURRENCY,5,"GIG_FINDER_SCOUT_CONCURRENCY") },
   };
 }
 
@@ -170,8 +174,10 @@ export async function createWebApplication(configuration: WebConfiguration) {
     database: configuration.context.database,
     artifacts: configuration.context.artifacts,
     profileDocuments: configuration.context.profileDocuments,
+    scoutDescriptions: configuration.context.scoutDescriptions,
   }, {
     defaultAgentModel: configuration.defaultAgentModel,
+    scoutDefaults: configuration.scout,
     onProfileDocumentMaterializationFailure: (error, document) => logging.logger.error({
       event: "profile_document.materialization_failed",
       documentId: document.id,
@@ -180,6 +186,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
     }, "Profile document materialization remains pending"),
   });
   const gigFinder = local.application;
+  const scoutRuntime=new ScoutRuntime(local.scoutStore,{dataPath:configuration.context.scoutQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});scoutRuntime.start();
   const stagedDocuments = new StagedDocumentService(configuration.staging);
   const uploadHandler = createDocumentUploadHandler(
     new LocalDocumentConverter(configuration.uploads),
@@ -242,6 +249,8 @@ export async function createWebApplication(configuration: WebConfiguration) {
     staticFiles: configuration.server.staticRoot
       ? createStaticFileHandler(configuration.server.staticRoot)
       : undefined,
+    scout: local.scout,
+    importScoutCompany:value=>importScoutCompany(value,local.scoutCompanyImportStore),
   });
 
   return {
@@ -253,6 +262,6 @@ export async function createWebApplication(configuration: WebConfiguration) {
       aiSdkDevTools,
     },
     maxRequestBodySize: configuration.uploads.maxBytes + 1_000_000,
-    close: local.close,
+    close: async()=>{await scoutRuntime.close();local.close();},
   };
 }

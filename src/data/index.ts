@@ -11,4 +11,6 @@ export * from "./legacy-artifact-migration";
 export * from "./profile-document-files";
 export * from "./local-application";
 export * from "./settings-store";
+export * from "./scout-company-import-store";
+export * from "./scout-run-store";
 export * from "./store";

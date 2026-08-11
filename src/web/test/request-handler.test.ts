@@ -8,7 +8,9 @@ import {
   DataStore,
   migrateDatabase,
   openDatabase,
+  SqliteScoutCompanyImportStore,
 } from "../../data";
+import { importScoutCompany } from "../../core/scout-company-import";
 import { createWebHandler } from "../request-handler";
 
 const artifacts: ArtifactPort = {
@@ -43,10 +45,15 @@ beforeEach(() => {
     uploadHandler: async () => new Response(null),
     discardStagedDocument: () => false,
     requestLogger: () => logger,
+    importScoutCompany:value=>importScoutCompany(value,new SqliteScoutCompanyImportStore(database)),
   });
 });
 
 afterEach(() => database.close());
+
+describe("Gig Scout company API",()=>{
+  test("creates one private company idempotently without returning its configuration",async()=>{const body={id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{title:"title",url:"url"}}]};const first=await fetchRequest(new Request("http://localhost/api/gig-scout/companies",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}),requestServer);expect(first.status).toBe(201);expect(await first.json()).toEqual({created:1,unchanged:0,versioned:0,rejected:0});const second=await fetchRequest(new Request("http://localhost/api/gig-scout/companies",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}),requestServer);expect(second.status).toBe(200);expect(await second.json()).toEqual({created:0,unchanged:1,versioned:0,rejected:0});});
+});
 
 function createVersionedDocument() {
   application.gigs.create({ actor: "test", source: "test", summary: "Create synthetic gig" }, {

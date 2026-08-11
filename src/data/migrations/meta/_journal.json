@@ -169,6 +169,13 @@
       "when": 1786123612374,
       "tag": "0023_lumpy_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1786420800000,
+      "tag": "0024_gig_scout",
+      "breakpoints": true
     }
   ]
 }

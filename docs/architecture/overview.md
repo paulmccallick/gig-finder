@@ -76,6 +76,7 @@ seam and defaults to the subscription provider.
 - [ADR 0007: Deploy Docker images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
 - [ADR 0008: Adapt domain capabilities to strict agent tools](decisions/0008-agent-tool-contracts.md) defines tool patches, schema strictness, and generated contract documentation.
 - [ADR 0009: Keep personal data out of source control](decisions/0009-keep-personal-data-out-of-source-control.md) prohibits private job-search records in tracked files and requires synthetic fixtures.
+- [ADR 0010: Use BunQueue for durable background work](decisions/0010-use-bunqueue-for-background-work.md) runs long-lived Gig Scout scans outside request and browser lifetimes while keeping GigFinder state authoritative.
 
 Runtime settings are documented in [Configuration](configuration.md). Production
 layout and procedures are documented in the [Deployment runbook](deployment-runbook.md).
