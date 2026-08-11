@@ -25,8 +25,10 @@ to Home Screen action on iOS or iPadOS. Standalone and ordinary browser launches
 use `/` and the same server-side application.
 
 The worker pre-caches only the minimal HTML shell and same-origin,
-content-hashed files under `/assets/`. Navigations are network-first and fall
-back to that shell when the server cannot be reached. API responses, agent
+content-hashed files under `/assets/`. The document-viewer route is part of the
+initial shell bundle so an offline reload or deep link does not depend on an
+uncached lazy chunk. Navigations are network-first and fall back to that shell
+when the server cannot be reached. API responses, agent
 streams, conversations, documents, uploads, health responses, and all other
 user data remain network-only and are never written to a service-worker cache.
 The offline shell explains that live data and agent operations require the

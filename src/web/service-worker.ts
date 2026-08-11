@@ -59,12 +59,16 @@ self.addEventListener("fetch", event => {
     applicationOrigin: self.location.origin,
   });
   if (strategy === "navigation-network-first") {
-    event.respondWith(fetch(request).catch(async () =>
-      (await caches.match(SHELL_PATH)) ?? Response.error()));
+    event.respondWith(fetch(request).catch(async () => {
+      const cache = await caches.open(CACHE_NAME);
+      return (await cache.match(SHELL_PATH)) ?? Response.error();
+    }));
     return;
   }
   if (strategy === "static-cache-first") {
-    event.respondWith(caches.match(request).then(cached => cached ?? fetch(request)));
+    event.respondWith(caches.open(CACHE_NAME)
+      .then(cache => cache.match(request))
+      .then(cached => cached ?? fetch(request)));
   }
 });
 

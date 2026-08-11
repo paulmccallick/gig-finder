@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { observeServiceWorker, type ServiceWorkerUpdate } from "../client/pwa-registration";
 import { pwaCacheStrategy } from "../pwa-cache-policy";
 
 const publicRoot = path.resolve(import.meta.dir, "../public");
@@ -44,13 +45,51 @@ describe("PWA assets and cache boundary", () => {
     expect(strategy("https://cdn.example/assets/app.js")).toBe("network-only");
   });
 
-  test("registers the worker and implements explicit update activation and offline fallback", async () => {
-    const client = await readFile(path.resolve(import.meta.dir, "../client/pwa.tsx"), "utf8");
-    const worker = await readFile(path.resolve(import.meta.dir, "../service-worker.ts"), "utf8");
-    expect(client).toContain("navigator.serviceWorker.register");
-    expect(client).toContain("SKIP_WAITING");
-    expect(client).toContain("controllerchange");
-    expect(worker).toContain("caches.match(SHELL_PATH)");
-    expect(worker).toContain("name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME");
+  test("registers the revisioned worker, activates a waiting update, and reloads once", async () => {
+    class Worker extends EventTarget {
+      state: ServiceWorkerState = "installed";
+      messages: unknown[] = [];
+      postMessage(message: unknown) { this.messages.push(message); }
+    }
+    class Registration extends EventTarget {
+      waiting: Worker | null = new Worker();
+      installing: Worker | null = null;
+      updateCalls = 0;
+      async update() { this.updateCalls += 1; }
+    }
+    class Container extends EventTarget {
+      controller = {} as ServiceWorker;
+      registration = new Registration();
+      requestedUrl = "";
+      async register(url: string) {
+        this.requestedUrl = url;
+        return this.registration as unknown as ServiceWorkerRegistration;
+      }
+    }
+    const container = new Container();
+    const updates: ServiceWorkerUpdate[] = [];
+    const scheduled: Array<() => void> = [];
+    let reloads = 0;
+    let cancelled = false;
+    const cleanup = await observeServiceWorker({
+      serviceWorkers: container as unknown as ServiceWorkerContainer,
+      revision: "revision one",
+      schedule: callback => { scheduled.push(callback); return 7; },
+      cancelSchedule: timer => { cancelled = timer === 7; },
+      reload: () => { reloads += 1; },
+    }, update => updates.push(update));
+
+    expect(container.requestedUrl).toBe("/service-worker.js?revision=revision%20one");
+    expect(updates).toHaveLength(1);
+    updates[0]?.activate();
+    expect(container.registration.waiting?.messages).toEqual([{ type: "SKIP_WAITING" }]);
+    scheduled[0]?.();
+    await Promise.resolve();
+    expect(container.registration.updateCalls).toBe(1);
+    container.dispatchEvent(new Event("controllerchange"));
+    container.dispatchEvent(new Event("controllerchange"));
+    expect(reloads).toBe(1);
+    cleanup();
+    expect(cancelled).toBe(true);
   });
 });

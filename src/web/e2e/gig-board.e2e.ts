@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
+test("document deep links show a clear server-required state when offline", async ({ page }) => {
+  await page.route("**/api/documents/**", route => route.abort("internetdisconnected"));
+  await page.goto("/documents/doc_11111111-1111-4111-8111-111111111111/versions/1");
+  await expect(page.getByRole("heading", { name: "Document unavailable" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("requires the GigFinder application server");
+});
+
 test("active board, filters, gig drawer, and archive are functional", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

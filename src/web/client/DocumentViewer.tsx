@@ -77,7 +77,10 @@ export function DocumentViewer({ location }: { location: DocumentViewerLocation 
     }).then(value => {
       if (active) setDocument(value);
     }).catch(error => {
-      if (active) setFailure(error instanceof Error ? error.message : "This document could not be opened.");
+      if (!active) return;
+      setFailure(error instanceof TypeError
+        ? "This document requires the GigFinder application server. Reconnect, then reload."
+        : error instanceof Error ? error.message : "This document could not be opened.");
     });
     return () => { active = false; };
   }, [location?.reference, location?.version]);
