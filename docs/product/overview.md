@@ -6,6 +6,11 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 
 - The dashboard presents gigs, people, and tasks with search,
   filters, urgency signals, details, and captured job descriptions.
+- The dashboard is installable from supported Chromium browsers and can be
+  added to an iPhone or iPad home screen. Installed and ordinary browser modes
+  use the same application. A previously loaded application shell can open
+  while offline, but live records, documents, conversations, and agent
+  operations always require the GigFinder server.
 - The CLI reads and updates the same records and linked documents with audited mutations and
   non-persisting dry-run previews where available.
 - The agent window uses the candidate profile; reads complete current gigs,
@@ -40,6 +45,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - Development uses `context/`; production uses isolated Unix state,
   configuration, log, and backup paths mounted into a local container built
   from the exact revision merged to GitHub.
+- A newly deployed web revision presents an in-application reload notice. The
+  user chooses when to activate it; activation replaces the prior static cache
+  and reloads the application into the new revision.
 
 ## Entities
 

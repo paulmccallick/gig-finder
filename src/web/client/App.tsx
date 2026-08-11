@@ -333,5 +333,5 @@ export function App() {
 }
 
 export function AppError({ error }: { error: unknown }) {
-  return <main className="fatal-error"><span className="eyebrow">Data fault</span><h1>Dashboard data could not be loaded.</h1><p>{error instanceof Error ? error.message : "An unknown error occurred."}</p><code>Check the local API and SQLite database</code></main>;
+  return <main className="fatal-error"><span className="eyebrow">Live data unavailable</span><h1>Dashboard data could not be loaded.</h1><p>{error instanceof Error ? error.message : "An unknown error occurred."}</p><code>GigFinder needs its application server for live data and agent operations. Reconnect, then reload.</code></main>;
 }

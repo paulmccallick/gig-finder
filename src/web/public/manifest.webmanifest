@@ -1,0 +1,14 @@
+{
+  "name": "GigFinder",
+  "short_name": "GigFinder",
+  "description": "An agent-enabled job search workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ed",
+  "theme_color": "#071014",
+  "icons": [
+    { "src": "/icons/gig-finder-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/gig-finder-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

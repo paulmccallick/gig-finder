@@ -17,6 +17,28 @@ The container listens on port `3001`, published only as
 `127.0.0.1:3001`. Local development uses dashboard port `5173` and API port
 `3101` by default.
 
+## Installed web application
+
+Production includes a web app manifest and a revision-keyed service worker.
+Use the browser install action in a current Chromium browser, or Safari's Add
+to Home Screen action on iOS or iPadOS. Standalone and ordinary browser launches
+use `/` and the same server-side application.
+
+The worker pre-caches only the minimal HTML shell and same-origin,
+content-hashed files under `/assets/`. Navigations are network-first and fall
+back to that shell when the server cannot be reached. API responses, agent
+streams, conversations, documents, uploads, health responses, and all other
+user data remain network-only and are never written to a service-worker cache.
+The offline shell explains that live data and agent operations require the
+server.
+
+Each Docker build injects its Git revision into the client cache name. On
+activation, the worker deletes older GigFinder static caches. A running client
+checks for a replacement worker, displays a persistent update notice when one
+is ready, and reloads only after the user accepts it. This preserves the
+immutable-image model: no runtime-generated application asset or mutable state
+is added to the image.
+
 ## Pre-release smoke verification
 
 Run both commands from a clean checkout of the exact commit being approved:

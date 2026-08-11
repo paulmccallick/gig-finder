@@ -6,6 +6,9 @@ RUN bun install --frozen-lockfile
 
 FROM install AS build
 
+ARG GIT_REVISION
+ENV APP_REVISION=${GIT_REVISION}
+
 COPY . .
 RUN bun run build
 
