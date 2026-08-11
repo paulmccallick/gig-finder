@@ -111,6 +111,51 @@ test("mobile board remains usable", async ({ page }) => {
   await page.screenshot({ path: "test-results/playwright/agent-mobile.png", fullPage: false });
 });
 
+test("agent controls stay inside constrained standalone and tablet viewports", async ({ page }) => {
+  const assertControlsInsideViewport = async () => {
+    const panel = page.getByRole("complementary", { name: "GigFinder" });
+    const messages = panel.locator(".agent-messages");
+    const composer = panel.locator(".agent-composer");
+    const close = panel.getByRole("button", { name: "Close GigFinder" });
+    const send = panel.getByRole("button", { name: "Send" });
+
+    await expect(panel).toBeVisible();
+    await expect(close).toBeInViewport();
+    await expect(send).toBeInViewport();
+
+    const [panelBox, messagesBox, composerBox, closeBox, sendBox] = await Promise.all([
+      panel.boundingBox(),
+      messages.boundingBox(),
+      composer.boundingBox(),
+      close.boundingBox(),
+      send.boundingBox(),
+    ]);
+    if (!panelBox || !messagesBox || !composerBox || !closeBox || !sendBox) {
+      throw new Error("Expected the constrained agent controls to have layout boxes.");
+    }
+    const panelRight = panelBox.x + panelBox.width;
+    const panelBottom = panelBox.y + panelBox.height;
+    expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(panelRight);
+    expect(sendBox.x + sendBox.width).toBeLessThanOrEqual(panelRight);
+    expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(panelBottom);
+    expect(messagesBox.y + messagesBox.height).toBeLessThanOrEqual(composerBox.y);
+    expect(await messages.evaluate(element => getComputedStyle(element).overflowY)).toBe("auto");
+  };
+
+  // The reporter's 2934 × 1856 screenshot was captured at device scale factor 2.
+  await page.setViewportSize({ width: 1467, height: 928 });
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "GigFinder" });
+  if (await panel.getAttribute("data-layout") === "full") {
+    await panel.getByRole("button", { name: "Dock agent to side" }).click();
+  }
+  await panel.getByLabel("Message GigFinderAgent").fill("Keep the submit control visible.");
+  await assertControlsInsideViewport();
+
+  await page.setViewportSize({ width: 820, height: 600 });
+  await assertControlsInsideViewport();
+});
+
 test("GigFinderAgent streams guidance and remains available across dashboard views", async ({ page }) => {
   const diagnostics: string[] = [];
   page.on("console", message => {
