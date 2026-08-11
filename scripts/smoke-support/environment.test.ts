@@ -4,6 +4,7 @@ import { smokeEnvironment } from "./environment";
 test("smoke child environments cannot inherit application or legacy state overrides", () => {
   expect(smokeEnvironment({
     PATH: "/synthetic/bin",
+    HOME: "/synthetic/home",
     GIG_FINDER_DATABASE: "/real/gig-finder.db",
     JOB_SEARCH_CONTEXT_ROOT: "/real/context",
     LOG_DIRECTORY: "/real/logs",
@@ -13,6 +14,7 @@ test("smoke child environments cannot inherit application or legacy state overri
     CODEX_HOME: "/synthetic/codex",
   })).toEqual({
     PATH: "/synthetic/bin",
+    HOME: "/synthetic/home",
     GIG_FINDER_CONTEXT_ROOT: "/synthetic/context",
     CODEX_HOME: "/synthetic/codex",
   });
