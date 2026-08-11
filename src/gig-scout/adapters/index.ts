@@ -24,7 +24,10 @@ export async function scanSource(source:SourceConfiguration,http:GigScoutHttpPor
         if(!extracted.hasNext||source.type==="html")page=source.maxPages;
       }catch(error){terminalError=error;attempts.push({adapter:source.type,stage:`listing_page_${page}`,requestCount:1,responseCount:0,candidateCount:0,acceptedCount:0,rejectedCount:0,validationStatus:"failed",startedAt,completedAt:clock.now().toISOString(),failure:{code:error instanceof DOMException&&error.name==="AbortError"?"cancelled":"source_attempt_failed",message:bounded(error,"Source attempt failed.")},diagnostics:[]});if(!retryable(error))retry=3;}
     }
-    if(!pageComplete)return{sourceKey:source.key,status:"failed",positions:[],attempts:attempts.length?attempts:[{adapter:source.type,stage:"listing",requestCount:0,responseCount:0,candidateCount:0,acceptedCount:0,rejectedCount:0,validationStatus:"failed",startedAt:clock.now().toISOString(),completedAt:clock.now().toISOString(),failure:{code:"source_failed",message:bounded(terminalError,"Source failed.")},diagnostics:[]}]};
+    if(!pageComplete){
+      if(positions.length){const validation=validatePositions(positions,surfaceVerified);const final=attempts.at(-1)!;final.acceptedCount=validation.accepted.length;final.rejectedCount=validation.rejected;final.diagnostics=validation.diagnostics;return{sourceKey:source.key,status:"partial",positions:validation.accepted,attempts};}
+      return{sourceKey:source.key,status:"failed",positions:[],attempts:attempts.length?attempts:[{adapter:source.type,stage:"listing",requestCount:0,responseCount:0,candidateCount:0,acceptedCount:0,rejectedCount:0,validationStatus:"failed",startedAt:clock.now().toISOString(),completedAt:clock.now().toISOString(),failure:{code:"source_failed",message:bounded(terminalError,"Source failed.")},diagnostics:[]}]};
+    }
   }
   const validation=validatePositions(positions,surfaceVerified);const final=attempts.at(-1)!;final.acceptedCount=validation.accepted.length;final.rejectedCount=validation.rejected;final.validationStatus=validation.status==="suspicious_empty"?"suspicious":"verified";final.diagnostics=validation.diagnostics;
   return{sourceKey:source.key,status:validation.status,positions:validation.accepted,attempts};

@@ -3,7 +3,8 @@ import type { CompanyScanResult, SourceConfiguration } from "../gig-scout";
 export type ScoutRunStatus = "queued"|"running"|"completed"|"partial"|"failed";
 export interface ScoutCompanyJob { runId:string;runCompanyId:string;companyId:string;configurationVersionId:string;sources:SourceConfiguration[] }
 export interface ScoutRunSummary { id:string;status:ScoutRunStatus;batchSize:number;concurrency:number;createdAt:string;startedAt:string|null;completedAt:string|null;companyCount:number;succeededCount:number;failedCount:number }
-export interface ScoutRunDetail extends ScoutRunSummary { companies:Array<{id:string;companyId:string;status:string;failureCode:string|null;failureMessage:string|null}> }
+export interface ScoutRunSourceDetail { id:string;sourceKey:string;status:string;candidateCount:number;acceptedCount:number;rejectedCount:number;attempts:Array<{attemptNumber:number;stage:string;validationStatus:string;failureCode:string|null;failureMessage:string|null}> }
+export interface ScoutRunDetail extends ScoutRunSummary { companies:Array<{id:string;companyId:string;status:string;failureCode:string|null;failureMessage:string|null;sources:ScoutRunSourceDetail[]}> }
 export interface ScoutPositionPage { items:Array<{id:string;title:string;company:string;canonicalUrl:string;location:string|null;observedAt:string;sourceStatus:string;descriptionArtifactId:string|null;provenance:unknown}>;offset:number;limit:number;total:number }
 export interface ScoutRunStore {
   startOrReuse(batchSize:number,concurrency:number,now:string):{run:ScoutRunSummary;created:boolean};

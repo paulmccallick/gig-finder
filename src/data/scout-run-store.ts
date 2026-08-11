@@ -96,14 +96,15 @@ export class SqliteScoutRunStore implements ScoutRunStore {
       .query(`SELECT * FROM scout_runs WHERE id=?`)
       .get(runId) as Record<string, unknown> | null;
     if (!run) return null;
-    return {
-      ...summary(run),
-      companies: this.db
+    const companies = this.db
         .query(
           `SELECT id,company_id companyId,status,failure_code failureCode,failure_message failureMessage FROM scout_run_companies WHERE run_id=? ORDER BY company_id`,
         )
-        .all(runId) as ScoutRunDetail["companies"],
-    };
+        .all(runId) as Array<Omit<ScoutRunDetail["companies"][number],"sources">>;
+    return {...summary(run),companies:companies.map(company=>{
+      const sources=(this.db.query(`SELECT rs.id,s.source_key sourceKey,rs.status,rs.candidate_count candidateCount,rs.accepted_count acceptedCount,rs.rejected_count rejectedCount FROM scout_run_sources rs JOIN scout_company_configuration_sources s ON s.id=rs.configuration_source_id WHERE rs.run_company_id=? ORDER BY s.source_key`).all(company.id) as Array<Omit<ScoutRunDetail["companies"][number]["sources"][number],"attempts">>);
+      return{...company,sources:sources.map(source=>({...source,attempts:this.db.query(`SELECT attempt_number attemptNumber,stage,validation_status validationStatus,failure_code failureCode,failure_message failureMessage FROM scout_source_attempts WHERE run_source_id=? ORDER BY attempt_number`).all(source.id) as ScoutRunDetail["companies"][number]["sources"][number]["attempts"]}))};
+    })};
   }
   pendingJobs(limit: number) {
     const rows = this.db
@@ -139,21 +140,20 @@ export class SqliteScoutRunStore implements ScoutRunStore {
   private finalize(runId: string, now: string) {
     const counts = this.db
       .query(
-        `SELECT count(*) total,sum(status='succeeded') succeeded,sum(status IN ('partial','failed')) failed,sum(status='queued') pending FROM scout_run_companies WHERE run_id=?`,
+        `SELECT count(*) total,sum(status='succeeded') succeeded,sum(status='partial') partial,sum(status='failed') failed,sum(status='queued') pending FROM scout_run_companies WHERE run_id=?`,
       )
       .get(runId) as {
       total: number;
       succeeded: number;
+      partial: number;
       failed: number;
       pending: number;
     };
     const status = counts.pending
       ? "running"
-      : counts.failed
-        ? counts.succeeded
-          ? "partial"
-          : "failed"
-        : "completed";
+      : counts.partial || (counts.failed && counts.succeeded)
+        ? "partial"
+        : counts.failed ? "failed" : "completed";
     this.db
       .query(
         `UPDATE scout_runs SET status=?,started_at=coalesce(started_at,?),completed_at=?,succeeded_count=?,failed_count=? WHERE id=?`,
@@ -176,7 +176,7 @@ export class SqliteScoutRunStore implements ScoutRunStore {
           )
           .get(job.configurationVersionId, source.sourceKey) as { id: string };
         const runSourceId = id("srs", job.runCompanyId, source.sourceKey);
-        const counts = source.attempts.at(-1)!;
+        const counts = source.attempts.reduce((total,attempt)=>({candidateCount:total.candidateCount+attempt.candidateCount,acceptedCount:total.acceptedCount+attempt.acceptedCount,rejectedCount:total.rejectedCount+attempt.rejectedCount}),{candidateCount:0,acceptedCount:0,rejectedCount:0});
         this.db
           .query(
             `INSERT OR REPLACE INTO scout_run_sources(id,run_company_id,configuration_source_id,status,candidate_count,accepted_count,rejected_count) VALUES(?,?,?,?,?,?,?)`,
@@ -236,7 +236,7 @@ export class SqliteScoutRunStore implements ScoutRunStore {
         status.startsWith("succeeded_"),
       )
         ? "succeeded"
-        : statuses.some((status) => status.startsWith("succeeded_"))
+        : statuses.some((status) => status.startsWith("succeeded_")||status==="partial")
           ? "partial"
           : "failed";
       this.db

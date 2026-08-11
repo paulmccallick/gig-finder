@@ -12,6 +12,7 @@ const commonSource = z.object({
   active: z.boolean().default(true),
   maxPages: z.number().int().min(1).max(100).default(10),
 }).strict();
+const boundedPattern=z.string().trim().min(1).max(500).refine(value=>!(/\\[1-9]|\(\?[=!<]|\([^)]*(?:\*|\+|\{\d+,?\d*\})[^)]*\)(?:\*|\+|\{\d+,?\d*\})|\.\*[^)]*\.\*/.test(value)),"Pattern uses unsupported backtracking constructs.");
 
 export const jsonSourceSchema = commonSource.extend({
   type: z.literal("json"),
@@ -27,13 +28,13 @@ export const jsonSourceSchema = commonSource.extend({
 
 export const htmlSourceSchema = commonSource.extend({
   type: z.literal("html"),
-  listingPattern: z.string().trim().min(1).max(500),
-  titlePattern: z.string().trim().min(1).max(500),
-  urlPattern: z.string().trim().min(1).max(500),
-  idPattern: z.string().trim().min(1).max(500).optional(),
-  descriptionPattern: z.string().trim().min(1).max(500).optional(),
-  locationPattern: z.string().trim().min(1).max(500).optional(),
-  expectedSurfacePattern: z.string().trim().min(1).max(500),
+  listingPattern: boundedPattern,
+  titlePattern: boundedPattern,
+  urlPattern: boundedPattern,
+  idPattern: boundedPattern.optional(),
+  descriptionPattern: boundedPattern.optional(),
+  locationPattern: boundedPattern.optional(),
+  expectedSurfacePattern: boundedPattern,
 }).strict();
 
 export const platformSourceSchema=commonSource.extend({

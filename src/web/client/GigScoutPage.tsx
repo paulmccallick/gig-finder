@@ -16,11 +16,20 @@ type Position = {
   location: string | null;
   observedAt: string;
   sourceStatus: string;
+  descriptionArtifactId: string | null;
+  provenance: { sourceKey?: string; sourceUrl?: string; description?: string };
 };
+type RunDetail=Run&{companies:Array<{id:string;companyId:string;status:string;failureCode:string|null;failureMessage:string|null;sources:Array<{id:string;sourceKey:string;status:string;candidateCount:number;acceptedCount:number;rejectedCount:number;attempts:Array<{attemptNumber:number;stage:string;validationStatus:string;failureCode:string|null;failureMessage:string|null}>}>}>};
 export function GigScoutPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [detail,setDetail]=useState<RunDetail|null>(null);
+  const [companyFilter,setCompanyFilter]=useState("");
+  const [textFilter,setTextFilter]=useState("");
+  const [offset,setOffset]=useState(0);
+  const [total,setTotal]=useState(0);
+  const limit=20;
   const [error, setError] = useState<string | null>(null);
   const refresh = async () => {
     try {
@@ -48,14 +57,16 @@ export function GigScoutPage() {
       setPositions([]);
       return;
     }
+    const query=new URLSearchParams({limit:String(limit),offset:String(offset)});if(companyFilter)query.set("company",companyFilter);if(textFilter)query.set("text",textFilter);
     void fetch(
-      `/api/gig-scout/runs/${encodeURIComponent(selected)}/positions?limit=100`,
+      `/api/gig-scout/runs/${encodeURIComponent(selected)}/positions?${query}`,
       { cache: "no-store" },
     )
       .then((response) => response.json())
-      .then((page: { items: Position[] }) => setPositions(page.items))
+      .then((page: { items: Position[];total:number }) => {setPositions(page.items);setTotal(page.total);})
       .catch(() => setError("Could not load Scout positions."));
-  }, [selected, runs]);
+    void fetch(`/api/gig-scout/runs/${encodeURIComponent(selected)}`,{cache:"no-store"}).then(response=>response.json()).then((value:RunDetail)=>setDetail(value)).catch(()=>setError("Could not load Scout diagnostics."));
+  }, [selected, runs,companyFilter,textFilter,offset]);
   const start = async () => {
     const response = await fetch("/api/gig-scout/runs", { method: "POST" });
     const result = (await response.json()) as { run: Run };
@@ -103,6 +114,11 @@ export function GigScoutPage() {
                 <span>{run.companyCount} companies</span>
               </div>
             ))}
+          <div className="scout-filters">
+            <label>Company <input value={companyFilter} onChange={event=>{setCompanyFilter(event.target.value);setOffset(0);}} /></label>
+            <label>Title or location <input value={textFilter} onChange={event=>{setTextFilter(event.target.value);setOffset(0);}} /></label>
+          </div>
+          {detail&&<details><summary>Company diagnostics</summary>{detail.companies.map(company=><div key={company.id}><strong>{company.companyId}: {company.status}</strong>{company.failureMessage&&<p>{company.failureMessage}</p>}<ul>{company.sources.map(source=><li key={source.id}>{source.sourceKey}: {source.status} · {source.acceptedCount}/{source.candidateCount} accepted · {source.rejectedCount} rejected{source.attempts.map(attempt=><span key={attempt.attemptNumber}> · attempt {attempt.attemptNumber} {attempt.stage}: {attempt.validationStatus}{attempt.failureCode?` (${attempt.failureCode})`:""}</span>)}</li>)}</ul></div>)}</details>}
           {positions.length === 0 ? (
             <p>No positions were observed for this run.</p>
           ) : (
@@ -114,6 +130,8 @@ export function GigScoutPage() {
                     <th>Company</th>
                     <th>Location</th>
                     <th>Source status</th>
+                    <th>Description</th>
+                    <th>Provenance</th>
                     <th>Observed</th>
                   </tr>
                 </thead>
@@ -132,6 +150,8 @@ export function GigScoutPage() {
                       <td>{position.company}</td>
                       <td>{position.location ?? "—"}</td>
                       <td>{position.sourceStatus}</td>
+                      <td>{position.descriptionArtifactId ? "Captured" : "Not provided"}</td>
+                      <td>{position.provenance.sourceUrl?<a href={position.provenance.sourceUrl} target="_blank" rel="noreferrer">{position.provenance.sourceKey??"Source"}</a>:position.provenance.sourceKey??"—"}</td>
                       <td>{new Date(position.observedAt).toLocaleString()}</td>
                     </tr>
                   ))}
@@ -139,6 +159,7 @@ export function GigScoutPage() {
               </table>
             </div>
           )}
+          <nav aria-label="Scout result pages"><button type="button" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Previous</button><span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} of {total}</span><button type="button" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Next</button></nav>
         </>
       )}
     </section>
