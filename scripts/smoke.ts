@@ -584,6 +584,7 @@ try {
   const head = await revision();
   const result = mode === "deterministic" ? await runDeterministic(head) : await runLive(head);
   console.log(JSON.stringify({ status: "passed", ...result }));
+  process.exit(0);
 } catch (error) {
   if (error instanceof SmokeFailure) {
     console.error(JSON.stringify({
