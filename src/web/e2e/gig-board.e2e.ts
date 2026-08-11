@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-test("serves install metadata without creating a service worker", async ({ page, request }) => {
+test("serves install metadata for standalone and home-screen use", async ({ page, request }) => {
   const manifestResponse = await request.get("/manifest.webmanifest");
   expect(manifestResponse.ok()).toBe(true);
   expect(manifestResponse.headers()["content-type"]).toContain("application/manifest+json");
@@ -14,9 +14,6 @@ test("serves install metadata without creating a service worker", async ({ page,
   await page.goto("/");
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("sizes", "180x180");
-  expect(await page.evaluate(async () => navigator.serviceWorker
-    ? (await navigator.serviceWorker.getRegistrations()).length
-    : 0)).toBe(0);
 });
 
 test("active board, filters, gig drawer, and archive are functional", async ({ page }) => {

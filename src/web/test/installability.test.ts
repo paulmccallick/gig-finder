@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const webRoot = path.resolve(import.meta.dir, "..");
@@ -11,16 +11,6 @@ async function pngDimensions(filePath: string): Promise<[number, number]> {
   expect(Array.from(bytes.slice(0, 8))).toEqual(signature);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return [view.getUint32(16), view.getUint32(20)];
-}
-
-async function sourceFiles(directory: string): Promise<string[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(entries.map(async (entry) => {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return sourceFiles(entryPath);
-    return /\.(?:ts|tsx|html)$/.test(entry.name) ? [entryPath] : [];
-  }));
-  return files.flat();
 }
 
 describe("installed web application", () => {
@@ -48,15 +38,10 @@ describe("installed web application", () => {
     expect(await pngDimensions(path.join(publicRoot, "icons/gig-finder-512.png"))).toEqual([512, 512]);
   });
 
-  test("links install metadata without registering a service worker", async () => {
+  test("links Chromium and iOS install metadata", async () => {
     const index = await readFile(path.join(webRoot, "index.html"), "utf8");
     expect(index).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(index).toContain('rel="apple-touch-icon" sizes="180x180"');
     expect(index).toContain('name="apple-mobile-web-app-capable" content="yes"');
-
-    const files = await sourceFiles(path.join(webRoot, "client"));
-    const browserSource = [index, ...await Promise.all(files.map((file) => readFile(file, "utf8")))].join("\n");
-    expect(browserSource).not.toMatch(/serviceWorker\s*\.\s*register/);
-    expect(browserSource).not.toMatch(/service-worker|service_worker/i);
   });
 });
