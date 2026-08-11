@@ -111,6 +111,79 @@ test("mobile board remains usable", async ({ page }) => {
   await page.screenshot({ path: "test-results/playwright/agent-mobile.png", fullPage: false });
 });
 
+test("agent controls stay inside constrained standalone and tablet viewports", async ({ page }) => {
+  const longResponse = Array.from(
+    { length: 80 },
+    (_, index) => `Conversation detail ${index + 1}: keep the next action concise and evidence-based.`,
+  ).join("\n");
+  const stream = [
+    'data: {"type":"start","messageId":"assistant-constrained"}',
+    'data: {"type":"start-step"}',
+    'data: {"type":"text-start","id":"text-constrained"}',
+    `data: ${JSON.stringify({ type: "text-delta", id: "text-constrained", delta: longResponse })}`,
+    'data: {"type":"text-end","id":"text-constrained"}',
+    'data: {"type":"finish-step"}',
+    'data: {"type":"finish"}',
+    "data: [DONE]",
+    "",
+  ].join("\n\n");
+  await page.route("**/api/agent/messages", route => route.fulfill({
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream",
+      "x-vercel-ai-ui-message-stream": "v1",
+      "cache-control": "no-store",
+    },
+    body: stream,
+  }));
+
+  const assertControlsInsideViewport = async () => {
+    const panel = page.getByRole("complementary", { name: "GigFinder" });
+    const messages = panel.locator(".agent-messages");
+    const composer = panel.locator(".agent-composer");
+    const close = panel.getByRole("button", { name: "Close GigFinder" });
+    const send = panel.getByRole("button", { name: "Send" });
+
+    await expect(panel).toBeVisible();
+    await expect(close).toBeInViewport();
+    await expect(send).toBeInViewport();
+
+    const [panelBox, messagesBox, composerBox, closeBox, sendBox] = await Promise.all([
+      panel.boundingBox(),
+      messages.boundingBox(),
+      composer.boundingBox(),
+      close.boundingBox(),
+      send.boundingBox(),
+    ]);
+    if (!panelBox || !messagesBox || !composerBox || !closeBox || !sendBox) {
+      throw new Error("Expected the constrained agent controls to have layout boxes.");
+    }
+    const panelRight = panelBox.x + panelBox.width;
+    const panelBottom = panelBox.y + panelBox.height;
+    expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(panelRight);
+    expect(sendBox.x + sendBox.width).toBeLessThanOrEqual(panelRight);
+    expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(panelBottom);
+    expect(messagesBox.y + messagesBox.height).toBeLessThanOrEqual(composerBox.y);
+    expect(await messages.evaluate(element => getComputedStyle(element).overflowY)).toBe("auto");
+    expect(await messages.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  };
+
+  // The reporter's 2934 × 1856 screenshot was captured at device scale factor 2.
+  await page.setViewportSize({ width: 1467, height: 928 });
+  await page.goto("/");
+  const panel = page.getByRole("complementary", { name: "GigFinder" });
+  if (await panel.getAttribute("data-layout") === "full") {
+    await panel.getByRole("button", { name: "Dock agent to side" }).click();
+  }
+  await panel.getByLabel("Message GigFinderAgent").fill("Keep the submit control visible.");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await expect(panel).toContainText("Conversation detail 80");
+  await assertControlsInsideViewport();
+
+  await page.setViewportSize({ width: 820, height: 600 });
+  await assertControlsInsideViewport();
+});
+
 test("GigFinderAgent streams guidance and remains available across dashboard views", async ({ page }) => {
   const diagnostics: string[] = [];
   page.on("console", message => {
