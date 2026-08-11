@@ -54,7 +54,7 @@ export type SourceOutcomeStatus = typeof sourceOutcomeStatuses[number];
 
 export interface SourceDiagnostic { code: string; category: "validation" | "extraction" | "network"; count: number; message: string; }
 export interface SourceAttempt { adapter: SourceConfiguration["type"]; stage: string; requestCount: number; responseCount: number; candidateCount: number; acceptedCount: number; rejectedCount: number; validationStatus: "verified" | "suspicious" | "failed"; startedAt: string; completedAt: string; failure?: { code: string; message: string }; diagnostics: SourceDiagnostic[]; }
-export interface PositionProvenance { sourceKey: string; sourceUrl: string; description: "listing" | "detail" | "none"; }
+export interface PositionProvenance { sourceKey: string; sourceUrl: string; description: "listing" | "detail" | "none"; descriptionUrl: string | null; }
 export interface NormalizedPosition { sourceKey: string; externalId: string | null; canonicalUrl: string; title: string; location: string | null; description: string | null; provenance: PositionProvenance; }
 export interface SourceOutcome { sourceKey: string; status: SourceOutcomeStatus; positions: NormalizedPosition[]; attempts: SourceAttempt[]; }
 export interface CompanyScanResult { companyId: string; configurationVersionId: string; positions: NormalizedPosition[]; sources: SourceOutcome[]; }

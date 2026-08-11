@@ -16,7 +16,8 @@ export function extractJson(source: Extract<SourceConfiguration, { type: "json" 
     let canonicalUrl: string;
     try { canonicalUrl = new URL(rawUrl, source.url).toString(); } catch { return []; }
     const id = read(source.fields.id); const location = read(source.fields.location);
-    return [{ sourceKey: source.key, externalId: typeof id === "string" || typeof id === "number" ? String(id) : null, canonicalUrl, title: title.trim(), location: typeof location === "string" ? location.trim() || null : null, description: normalizeDescription(read(source.fields.description)), provenance: { sourceKey: source.key, sourceUrl: source.url, description: source.fields.description ? "listing" : "none" } }];
+    const description=normalizeDescription(read(source.fields.description));
+    return [{ sourceKey: source.key, externalId: typeof id === "string" || typeof id === "number" ? String(id) : null, canonicalUrl, title: title.trim(), location: typeof location === "string" ? location.trim() || null : null, description, provenance: { sourceKey: source.key, sourceUrl: source.url, description: description ? "listing" : "none",descriptionUrl:description?null:canonicalUrl } }];
   });
   const next = source.nextPagePath ? atPath(parsed, source.nextPagePath) : undefined;
   return { positions, hasNext: Boolean(next), surfaceVerified: true };

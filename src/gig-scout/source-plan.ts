@@ -1,5 +1,5 @@
 import type { SourceConfiguration } from "./contracts";
-export interface PlannedRequest { url: string; method: "GET" | "POST"; body?: string; }
+export interface PlannedRequest { url: string; method: "GET" | "POST"; body?: string; headers?: Record<string,string>; }
 export function planSourceRequest(source: SourceConfiguration, page = 1): PlannedRequest {
   if(source.type==="platform")throw new Error("Platform sources use their adapter request planner.");
   const url = new URL(source.url);
