@@ -17,6 +17,7 @@ describe("static dashboard files", () => {
     await mkdir(path.join(directory, "assets"));
     await writeFile(path.join(directory, "index.html"), "<main>GigFinder</main>");
     await writeFile(path.join(directory, "assets", "app.js"), "export {};");
+    await writeFile(path.join(directory, "manifest.webmanifest"), "{}");
     const handler = createStaticFileHandler(directory);
 
     const asset = await handler(new Request("http://localhost/assets/app.js"));
@@ -29,5 +30,10 @@ describe("static dashboard files", () => {
     expect(fallback?.headers.get("cache-control")).toBe("no-cache");
     expect(await handler(new Request("http://localhost/api/gigs"))).toBeNull();
     expect(await handler(new Request("http://localhost/missing.js"))).toBeNull();
+
+    const manifest = await handler(new Request("http://localhost/manifest.webmanifest"));
+    expect(manifest?.status).toBe(200);
+    expect(manifest?.headers.get("content-type")).toBe("application/manifest+json");
+    expect(manifest?.headers.get("cache-control")).toBe("no-cache");
   });
 });

@@ -1,6 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
+test("serves install metadata for standalone and home-screen use", async ({ page, request }) => {
+  const manifestResponse = await request.get("/manifest.webmanifest");
+  expect(manifestResponse.ok()).toBe(true);
+  expect(manifestResponse.headers()["content-type"]).toContain("application/manifest+json");
+  expect(await manifestResponse.json()).toMatchObject({
+    name: "GigFinder",
+    start_url: "/",
+    display: "standalone",
+  });
+
+  await page.goto("/");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("sizes", "180x180");
+});
+
 test("active board, filters, gig drawer, and archive are functional", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
