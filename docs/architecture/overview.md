@@ -11,25 +11,24 @@ flowchart LR
   Web --> Uploads[Upload conversion and staging]
   Core --> Agent[Agent runtime]
   Core --> Data
+  Core --> ScoutEngine[Scout engine]
+  ScoutEngine -->|Durable company work| Queue[BunQueue]
+  Queue --> ScoutSourcing[Scout sourcing]
+  ScoutSourcing --> |Bounded HTTP| CareerSites[Official career sites]
   Agent <-->|AI SDK Core| Model[Codex provider]
   Agent -->|Validated tool calls| Core
   Data --> SQLite[(SQLite)]
-  Data --> Files[versioned files and context files]
+  Data --> Files[versioned files, context files, and Scout artifacts]
 ```
 
 ## Package boundaries
 
 - `src/core/` owns domain models, client-neutral contracts, validation, ports,
   conversation orchestration, framework-neutral sanitization of assistant text
-  and reasoning, and application services. User-authored identifiers and
-  structured tool and attachment data remain available for follow-up operations
-  while web presentation omits system-added capabilities. Core has no dependency
-  on client or persistence packages.
+  and reasoning, and application services.
 - `src/data/` implements core persistence ports, SQLite transactions, auditing,
   private context resolution, managed filesystem projections, and guarded
-  legacy migrations. Interaction rollout migrates Meetings and historical
-  Person contact state while leaving legacy Business Events and Event Sources
-  intact for separately approved follow-up work.
+  legacy migrations.
 - `src/agent/` adapts core capabilities to model-facing tools and AI SDK Core.
   Agent policy is separate from the configured candidate profile.
 - `src/web/` owns HTTP, AI SDK UI adaptation, uploads and conversion, static
@@ -38,11 +37,7 @@ flowchart LR
 - `src/cli/` translates commands and flags into the same core contracts used by
   other clients.
 - `src/operations/` contains operator-facing database and deployment programs.
-- `src/scout/` is the persistence-neutral official-source scanner. Platform
-  implementations share one adapter interface and are selected by a small
-  registry; each implementation owns request construction, response decoding,
-  reported totals, pagination, record extraction, and platform evidence.
-  Shared normalization and reconciliation remain outside platform classes.
+- `src/core/scout` is the persistence-neutral official-source scanner. Uses bunqueue for offline processing
 - `src/web/app.ts` and `src/cli/app.ts` are composition roots; only composition
   roots construct concrete data adapters.
 
