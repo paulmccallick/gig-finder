@@ -29,7 +29,10 @@ const summary = (row: Record<string, unknown>): ScoutRunSummary => ({
   failedCount: Number(row.failed_count),
 });
 export class SqliteScoutRunStore implements ScoutRunStore {
-  constructor(private readonly db: Database, private readonly descriptionsRoot?: string) {}
+  constructor(
+    private readonly db: Database,
+    private readonly descriptionsRoot?: string,
+  ) {}
   startOrReuse(batchSize: number, concurrency: number, now: string) {
     return this.db.transaction(() => {
       const active = this.db
@@ -97,14 +100,40 @@ export class SqliteScoutRunStore implements ScoutRunStore {
       .get(runId) as Record<string, unknown> | null;
     if (!run) return null;
     const companies = this.db
-        .query(
-          `SELECT id,company_id companyId,status,failure_code failureCode,failure_message failureMessage FROM scout_run_companies WHERE run_id=? ORDER BY company_id`,
-        )
-        .all(runId) as Array<Omit<ScoutRunDetail["companies"][number],"sources">>;
-    return {...summary(run),companies:companies.map(company=>{
-      const sources=(this.db.query(`SELECT rs.id,s.source_key sourceKey,rs.status,rs.candidate_count candidateCount,rs.accepted_count acceptedCount,rs.rejected_count rejectedCount FROM scout_run_sources rs JOIN scout_company_configuration_sources s ON s.id=rs.configuration_source_id WHERE rs.run_company_id=? ORDER BY s.source_key`).all(company.id) as Array<Omit<ScoutRunDetail["companies"][number]["sources"][number],"attempts">>);
-      return{...company,sources:sources.map(source=>({...source,attempts:this.db.query(`SELECT attempt_number attemptNumber,stage,validation_status validationStatus,failure_code failureCode,failure_message failureMessage FROM scout_source_attempts WHERE run_source_id=? ORDER BY attempt_number`).all(source.id) as ScoutRunDetail["companies"][number]["sources"][number]["attempts"]}))};
-    })};
+      .query(
+        `SELECT id,company_id companyId,status,failure_code failureCode,failure_message failureMessage FROM scout_run_companies WHERE run_id=? ORDER BY company_id`,
+      )
+      .all(runId) as Array<
+      Omit<ScoutRunDetail["companies"][number], "sources">
+    >;
+    return {
+      ...summary(run),
+      companies: companies.map((company) => {
+        const sources = this.db
+          .query(
+            `SELECT rs.id,s.source_key sourceKey,rs.status,rs.candidate_count candidateCount,rs.accepted_count acceptedCount,rs.rejected_count rejectedCount FROM scout_run_sources rs JOIN scout_company_configuration_sources s ON s.id=rs.configuration_source_id WHERE rs.run_company_id=? ORDER BY s.source_key`,
+          )
+          .all(company.id) as Array<
+          Omit<
+            ScoutRunDetail["companies"][number]["sources"][number],
+            "attempts"
+          >
+        >;
+        return {
+          ...company,
+          sources: sources.map((source) => ({
+            ...source,
+            attempts: this.db
+              .query(
+                `SELECT attempt_number attemptNumber,stage,validation_status validationStatus,failure_code failureCode,failure_message failureMessage FROM scout_source_attempts WHERE run_source_id=? ORDER BY attempt_number`,
+              )
+              .all(
+                source.id,
+              ) as ScoutRunDetail["companies"][number]["sources"][number]["attempts"],
+          })),
+        };
+      }),
+    };
   }
   pendingJobs(limit: number) {
     const rows = this.db
@@ -134,8 +163,12 @@ export class SqliteScoutRunStore implements ScoutRunStore {
     );
     this.db.transaction(() => ids.forEach((item) => update.run(now, item)))();
   }
-  recoverDispatch(){
-    this.db.query(`UPDATE scout_run_outbox SET dispatch_status='pending',dispatched_at=NULL WHERE run_company_id IN (SELECT id FROM scout_run_companies WHERE status='queued')`).run();
+  recoverDispatch() {
+    this.db
+      .query(
+        `UPDATE scout_run_outbox SET dispatch_status='pending',dispatched_at=NULL WHERE run_company_id IN (SELECT id FROM scout_run_companies WHERE status='queued')`,
+      )
+      .run();
   }
   private finalize(runId: string, now: string) {
     const counts = this.db
@@ -153,7 +186,9 @@ export class SqliteScoutRunStore implements ScoutRunStore {
       ? "running"
       : counts.partial || (counts.failed && counts.succeeded)
         ? "partial"
-        : counts.failed ? "failed" : "completed";
+        : counts.failed
+          ? "failed"
+          : "completed";
     this.db
       .query(
         `UPDATE scout_runs SET status=?,started_at=coalesce(started_at,?),completed_at=?,succeeded_count=?,failed_count=? WHERE id=?`,
@@ -176,7 +211,14 @@ export class SqliteScoutRunStore implements ScoutRunStore {
           )
           .get(job.configurationVersionId, source.sourceKey) as { id: string };
         const runSourceId = id("srs", job.runCompanyId, source.sourceKey);
-        const counts = source.attempts.reduce((total,attempt)=>({candidateCount:total.candidateCount+attempt.candidateCount,acceptedCount:total.acceptedCount+attempt.acceptedCount,rejectedCount:total.rejectedCount+attempt.rejectedCount}),{candidateCount:0,acceptedCount:0,rejectedCount:0});
+        const counts = source.attempts.reduce(
+          (total, attempt) => ({
+            candidateCount: total.candidateCount + attempt.candidateCount,
+            acceptedCount: total.acceptedCount + attempt.acceptedCount,
+            rejectedCount: total.rejectedCount + attempt.rejectedCount,
+          }),
+          { candidateCount: 0, acceptedCount: 0, rejectedCount: 0 },
+        );
         this.db
           .query(
             `INSERT OR REPLACE INTO scout_run_sources(id,run_company_id,configuration_source_id,status,candidate_count,accepted_count,rejected_count) VALUES(?,?,?,?,?,?,?)`,
@@ -194,7 +236,7 @@ export class SqliteScoutRunStore implements ScoutRunStore {
           const attemptId = id("sat", runSourceId, String(index + 1));
           this.db
             .query(
-            `INSERT OR REPLACE INTO scout_source_attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              `INSERT OR REPLACE INTO scout_source_attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             )
             .run(
               attemptId,
@@ -232,13 +274,16 @@ export class SqliteScoutRunStore implements ScoutRunStore {
           this.observe(job, runSourceId, position, now);
       }
       const statuses = result.sources.map((source) => source.status);
-      const companyStatus = statuses.length > 0 && statuses.every((status) =>
-        status.startsWith("succeeded_"),
-      )
-        ? "succeeded"
-        : statuses.some((status) => status.startsWith("succeeded_")||status==="partial")
-          ? "partial"
-          : "failed";
+      const companyStatus =
+        statuses.length > 0 &&
+        statuses.every((status) => status.startsWith("succeeded_"))
+          ? "succeeded"
+          : statuses.some(
+                (status) =>
+                  status.startsWith("succeeded_") || status === "partial",
+              )
+            ? "partial"
+            : "failed";
       this.db
         .query(
           `UPDATE scout_run_companies SET status=?,completed_at=?,failure_code=?,failure_message=? WHERE id=? AND status='queued'`,
@@ -289,23 +334,47 @@ export class SqliteScoutRunStore implements ScoutRunStore {
       );
     this.db
       .query(
-      `INSERT OR IGNORE INTO scout_position_observations(id,run_source_id,position_id,description_artifact_id,title,canonical_url,location,provenance_json,observed_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR IGNORE INTO scout_position_observations(id,run_source_id,position_id,description_artifact_id,title,canonical_url,location,provenance_json,observed_at) VALUES(?,?,?,?,?,?,?,?,?)`,
       )
       .run(
-      id("sobs", runSourceId, positionId),
-      runSourceId,
-      positionId,
-      descriptionArtifactId,
+        id("sobs", runSourceId, positionId),
+        runSourceId,
+        positionId,
+        descriptionArtifactId,
         position.title,
         position.canonicalUrl,
         position.location,
         JSON.stringify(position.provenance),
-      now,
-    );
+        now,
+      );
   }
-  private materializeDescription(position:NormalizedPosition,now:string){
-    if(!position.description||!this.descriptionsRoot)return null;
-    const content=position.description;const hash=createHash("sha256").update(content).digest("hex");const artifactId=`sdesc_${hash}`;const relative=path.join(hash.slice(0,2),`${hash}.md`);const target=path.resolve(this.descriptionsRoot,relative);const root=path.resolve(this.descriptionsRoot);if(!target.startsWith(`${root}${path.sep}`))throw new Error("Unsafe Scout description path.");mkdirSync(path.dirname(target),{recursive:true});const temporary=`${target}.${crypto.randomUUID()}.tmp`;writeFileSync(temporary,content,{encoding:"utf8",mode:0o600});renameSync(temporary,target);this.db.query(`INSERT OR IGNORE INTO scout_description_artifacts(id,file_path,content_hash,media_type,byte_count,provenance_json,created_at) VALUES(?,?,?,'text/markdown',?,?,?)`).run(artifactId,relative,hash,Buffer.byteLength(content),JSON.stringify(position.provenance),now);return artifactId;
+  private materializeDescription(position: NormalizedPosition, now: string) {
+    if (!position.description || !this.descriptionsRoot) return null;
+    const content = position.description;
+    const hash = createHash("sha256").update(content).digest("hex");
+    const artifactId = `sdesc_${hash}`;
+    const relative = path.join(hash.slice(0, 2), `${hash}.md`);
+    const target = path.resolve(this.descriptionsRoot, relative);
+    const root = path.resolve(this.descriptionsRoot);
+    if (!target.startsWith(`${root}${path.sep}`))
+      throw new Error("Unsafe Scout description path.");
+    mkdirSync(path.dirname(target), { recursive: true });
+    const temporary = `${target}.${crypto.randomUUID()}.tmp`;
+    writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporary, target);
+    this.db
+      .query(
+        `INSERT OR IGNORE INTO scout_description_artifacts(id,file_path,content_hash,media_type,byte_count,provenance_json,created_at) VALUES(?,?,?,'text/markdown',?,?,?)`,
+      )
+      .run(
+        artifactId,
+        relative,
+        hash,
+        Buffer.byteLength(content),
+        JSON.stringify(position.provenance),
+        now,
+      );
+    return artifactId;
   }
   commitInfrastructureFailure(
     job: ScoutCompanyJob,
