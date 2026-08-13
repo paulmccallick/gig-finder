@@ -25,6 +25,7 @@ export class ScoutRuntime {
   >;
   private timer: ReturnType<typeof setInterval> | null = null;
   private starting = false;
+  private bootstrapPromise: Promise<void> | null = null;
   private readonly logger?: ScoutLogger;
   constructor(
     private readonly store: ScoutRunStore,
@@ -395,12 +396,13 @@ export class ScoutRuntime {
       { event: "scout.queue.startup_reconciliation_started" },
       "Scout queue startup reconciliation started",
     );
-    void this.bootstrap();
+    this.bootstrapPromise = this.bootstrap();
   }
   private async bootstrap() {
     while (this.starting && !this.timer) {
       try {
         await this.dispatch();
+        if (!this.starting) return;
         safeScoutLog(
           this.logger,
           "info",
@@ -411,6 +413,7 @@ export class ScoutRuntime {
           "Scout queue startup reconciliation completed",
         );
         this.worker.run();
+        if (!this.starting) return;
         this.starting = false;
         this.timer = setInterval(
           () => void this.dispatch().catch(() => undefined),
@@ -443,6 +446,8 @@ export class ScoutRuntime {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.starting = false;
+    await this.bootstrapPromise;
+    this.bootstrapPromise = null;
     const closed = await Promise.allSettled([
       this.worker.close(),
       this.queue.close(),
