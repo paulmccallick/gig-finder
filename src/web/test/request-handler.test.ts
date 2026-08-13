@@ -10,7 +10,7 @@ import {
   openDatabase,
   SqliteScoutCompanyImportStore,
 } from "../../data";
-import { importScoutCompany } from "../../core/scout-company-import";
+import { importScoutCompany } from "../../core/scout/engine/company-import";
 import { createWebHandler } from "../request-handler";
 
 const artifacts: ArtifactPort = {

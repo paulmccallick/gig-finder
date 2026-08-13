@@ -23,7 +23,8 @@ import { createDocumentUploadHandler } from "./document-upload-handler";
 import { createWebHandler } from "./request-handler";
 import { createStaticFileHandler } from "./static-files";
 import { ScoutRuntime } from "../operations/scout-runtime";
-import { importScoutCompany } from "../core/scout-company-import";
+import { importScoutCompany } from "../core/scout/engine/company-import";
+import { scoutTemplateCatalog } from "../operations/scout-template-catalog";
 
 type ProcessEnvironment = Record<string, string | undefined>;
 
@@ -186,7 +187,13 @@ export async function createWebApplication(configuration: WebConfiguration) {
     }, "Profile document materialization remains pending"),
   });
   const gigFinder = local.application;
-  const scoutRuntime=new ScoutRuntime(local.scoutStore,{dataPath:configuration.context.scoutQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});scoutRuntime.start();
+  const scoutRuntime = new ScoutRuntime(local.scoutStore, {
+    dataPath: configuration.context.scoutQueue,
+    batchSize: configuration.scout.batchSize,
+    concurrency: configuration.scout.concurrency,
+    logger: logging.logger,
+  });
+  scoutRuntime.start();
   const stagedDocuments = new StagedDocumentService(configuration.staging);
   const uploadHandler = createDocumentUploadHandler(
     new LocalDocumentConverter(configuration.uploads),
@@ -250,7 +257,11 @@ export async function createWebApplication(configuration: WebConfiguration) {
       ? createStaticFileHandler(configuration.server.staticRoot)
       : undefined,
     scout: local.scout,
-    importScoutCompany:value=>importScoutCompany(value,local.scoutCompanyImportStore),
+    importScoutCompany: value => importScoutCompany(
+      value,
+      local.scoutCompanyImportStore,
+      scoutTemplateCatalog,
+    ),
   });
 
   return {

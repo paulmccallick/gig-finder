@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import type { ScoutCompanyImportStore } from "../core/scout-company-import";
-import type { SourceConfiguration } from "../gig-scout";
+import type { ScoutCompanyImportStore } from "../core/scout/engine/company-import";
+import type { SourceConfiguration } from "../core/scout/sourcing/contracts";
 import { createHash } from "node:crypto";
 
 const sourceId = (configurationId: string, key: string) => `ssrc_${createHash("sha256").update(`${configurationId}\0${key}`).digest("hex").slice(0,32)}`;

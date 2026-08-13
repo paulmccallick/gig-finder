@@ -1,0 +1,82 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "jobsyn",
+  "recordsPaths": [
+    "jobs"
+  ],
+  "totalPaths": [
+    "pagination.total"
+  ],
+  "pageSize": 40,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "clearQuery": false,
+      "removeQuery": [
+        "listing_origin"
+      ]
+    },
+    "query": {
+      "page": "{page}",
+      "offset": "{offset}",
+      "num_items": "40",
+      "q": "{term}"
+    },
+    "headers": {
+      "origin": "{query.listing_origin}",
+      "x-origin": "{queryHost.listing_origin}"
+    }
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "guid"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title_exact"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "guid"
+      ],
+      "template": "{source.query.listing_origin}/{record.location_exact:slug}/{record.title_slug|record.title_exact:slug}/{value}/job/",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location_exact"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "description"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

@@ -19,17 +19,57 @@ type Position = {
   descriptionArtifactId: string | null;
   provenance: { sourceKey?: string; sourceUrl?: string; description?: string };
 };
-type RunDetail=Run&{companies:Array<{id:string;companyId:string;status:string;failureCode:string|null;failureMessage:string|null;sources:Array<{id:string;sourceKey:string;status:string;candidateCount:number;acceptedCount:number;rejectedCount:number;attempts:Array<{attemptNumber:number;stage:string;validationStatus:string;failureCode:string|null;failureMessage:string|null}>}>}>};
+type RunDetail = Run & {
+  companies: Array<{
+    id: string;
+    companyId: string;
+    status: string;
+    failureCode: string | null;
+    failureMessage: string | null;
+    sources: Array<{
+      id: string;
+      sourceKey: string;
+      status: string;
+      candidateCount: number;
+      acceptedCount: number;
+      rejectedCount: number;
+      attempts: Array<{
+        id: string;
+        attemptNumber: number;
+        stage: string;
+        sourceReportedTotal: number | null;
+        recordsReceived: number;
+        recordsParsed: number;
+        recordsEvaluable: number;
+        recordsEvaluated: number;
+        pagesRequested: number;
+        pagesValidated: number;
+        uniqueIdentities: number;
+        validationStatus: string;
+        failureCode: string | null;
+        failureMessage: string | null;
+        diagnostics: Array<{
+          code: string;
+          category: string;
+          count: number;
+          message: string;
+        }>;
+      }>;
+    }>;
+  }>;
+};
 export function GigScoutPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [detail,setDetail]=useState<RunDetail|null>(null);
-  const [companyFilter,setCompanyFilter]=useState("");
-  const [textFilter,setTextFilter]=useState("");
-  const [offset,setOffset]=useState(0);
-  const [total,setTotal]=useState(0);
-  const limit=20;
+  const [detail, setDetail] = useState<RunDetail | null>(null);
+  const [companyFilter, setCompanyFilter] = useState("");
+  const [textFilter, setTextFilter] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [searchTerms, setSearchTerms] = useState("");
+  const [searchLocations, setSearchLocations] = useState("");
+  const limit = 20;
   const [error, setError] = useState<string | null>(null);
   const refresh = async () => {
     try {
@@ -57,18 +97,49 @@ export function GigScoutPage() {
       setPositions([]);
       return;
     }
-    const query=new URLSearchParams({limit:String(limit),offset:String(offset)});if(companyFilter)query.set("company",companyFilter);if(textFilter)query.set("text",textFilter);
+    const query = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (companyFilter) query.set("company", companyFilter);
+    if (textFilter) query.set("text", textFilter);
     void fetch(
       `/api/gig-scout/runs/${encodeURIComponent(selected)}/positions?${query}`,
       { cache: "no-store" },
     )
       .then((response) => response.json())
-      .then((page: { items: Position[];total:number }) => {setPositions(page.items);setTotal(page.total);})
+      .then((page: { items: Position[]; total: number }) => {
+        setPositions(page.items);
+        setTotal(page.total);
+      })
       .catch(() => setError("Could not load Scout positions."));
-    void fetch(`/api/gig-scout/runs/${encodeURIComponent(selected)}`,{cache:"no-store"}).then(response=>response.json()).then((value:RunDetail)=>setDetail(value)).catch(()=>setError("Could not load Scout diagnostics."));
-  }, [selected, runs,companyFilter,textFilter,offset]);
+    void fetch(`/api/gig-scout/runs/${encodeURIComponent(selected)}`, {
+      cache: "no-store",
+    })
+      .then((response) => response.json())
+      .then((value: RunDetail) => setDetail(value))
+      .catch(() => setError("Could not load Scout diagnostics."));
+  }, [selected, runs, companyFilter, textFilter, offset]);
   const start = async () => {
-    const response = await fetch("/api/gig-scout/runs", { method: "POST" });
+    const profileValues = (value: string) =>
+      value
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    const response = await fetch("/api/gig-scout/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        searchProfile: {
+          terms: profileValues(searchTerms),
+          locations: profileValues(searchLocations),
+        },
+      }),
+    });
+    if (!response.ok) {
+      setError("Could not start the Scout run.");
+      return;
+    }
     const result = (await response.json()) as { run: Run };
     setSelected(result.run.id);
     await refresh();
@@ -80,9 +151,27 @@ export function GigScoutPage() {
           <p className="eyebrow">Official career sources</p>
           <h2 id="scout-title">Gig Scout</h2>
         </div>
-        <button type="button" onClick={() => void start()}>
-          Start full scan
-        </button>
+        <div>
+          <label>
+            Search terms{" "}
+            <input
+              value={searchTerms}
+              onChange={(event) => setSearchTerms(event.target.value)}
+              placeholder="Comma-separated"
+            />
+          </label>
+          <label>
+            Search locations{" "}
+            <input
+              value={searchLocations}
+              onChange={(event) => setSearchLocations(event.target.value)}
+              placeholder="Comma-separated"
+            />
+          </label>
+          <button type="button" onClick={() => void start()}>
+            Start full scan
+          </button>
+        </div>
       </div>
       {error && <p role="alert">{error}</p>}
       {runs === null ? (
@@ -115,10 +204,73 @@ export function GigScoutPage() {
               </div>
             ))}
           <div className="scout-filters">
-            <label>Company <input value={companyFilter} onChange={event=>{setCompanyFilter(event.target.value);setOffset(0);}} /></label>
-            <label>Title or location <input value={textFilter} onChange={event=>{setTextFilter(event.target.value);setOffset(0);}} /></label>
+            <label>
+              Company{" "}
+              <input
+                value={companyFilter}
+                onChange={(event) => {
+                  setCompanyFilter(event.target.value);
+                  setOffset(0);
+                }}
+              />
+            </label>
+            <label>
+              Title or location{" "}
+              <input
+                value={textFilter}
+                onChange={(event) => {
+                  setTextFilter(event.target.value);
+                  setOffset(0);
+                }}
+              />
+            </label>
           </div>
-          {detail&&<details><summary>Company diagnostics</summary>{detail.companies.map(company=><div key={company.id}><strong>{company.companyId}: {company.status}</strong>{company.failureMessage&&<p>{company.failureMessage}</p>}<ul>{company.sources.map(source=><li key={source.id}>{source.sourceKey}: {source.status} · {source.acceptedCount}/{source.candidateCount} accepted · {source.rejectedCount} rejected{source.attempts.map(attempt=><span key={attempt.attemptNumber}> · attempt {attempt.attemptNumber} {attempt.stage}: {attempt.validationStatus}{attempt.failureCode?` (${attempt.failureCode})`:""}</span>)}</li>)}</ul></div>)}</details>}
+          {detail && (
+            <details>
+              <summary>Company diagnostics</summary>
+              {detail.companies.map((company) => (
+                <div key={company.id}>
+                  <strong>
+                    {company.companyId}: {company.status}
+                  </strong>
+                  {company.failureMessage && <p>{company.failureMessage}</p>}
+                  <ul>
+                    {company.sources.map((source) => (
+                      <li key={source.id}>
+                        {source.sourceKey}: {source.status} ·{" "}
+                        {source.acceptedCount}/{source.candidateCount} accepted
+                        · {source.rejectedCount} rejected
+                        {source.attempts.map((attempt) => (
+                          <span key={attempt.attemptNumber}>
+                            {" "}
+                            · attempt {attempt.attemptNumber} {attempt.stage}:
+                            reported {attempt.sourceReportedTotal ?? "unknown"},
+                            received {attempt.recordsReceived}, parsed{" "}
+                            {attempt.recordsParsed}, evaluable{" "}
+                            {attempt.recordsEvaluable}, evaluated{" "}
+                            {attempt.recordsEvaluated}, pages{" "}
+                            {attempt.pagesValidated}/{attempt.pagesRequested},
+                            unique {attempt.uniqueIdentities}:{" "}
+                            {attempt.validationStatus}
+                            {attempt.failureCode
+                              ? ` (${attempt.failureCode})`
+                              : ""}
+                            {attempt.diagnostics.map((diagnostic) => (
+                              <span key={`${diagnostic.code}-${diagnostic.category}`}>
+                                {" "}
+                                · {diagnostic.code} ({diagnostic.count}):{" "}
+                                {diagnostic.message}
+                              </span>
+                            ))}
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </details>
+          )}
           {positions.length === 0 ? (
             <p>No positions were observed for this run.</p>
           ) : (
@@ -150,8 +302,24 @@ export function GigScoutPage() {
                       <td>{position.company}</td>
                       <td>{position.location ?? "—"}</td>
                       <td>{position.sourceStatus}</td>
-                      <td>{position.descriptionArtifactId ? "Captured" : "Not provided"}</td>
-                      <td>{position.provenance.sourceUrl?<a href={position.provenance.sourceUrl} target="_blank" rel="noreferrer">{position.provenance.sourceKey??"Source"}</a>:position.provenance.sourceKey??"—"}</td>
+                      <td>
+                        {position.descriptionArtifactId
+                          ? "Captured"
+                          : "Not provided"}
+                      </td>
+                      <td>
+                        {position.provenance.sourceUrl ? (
+                          <a
+                            href={position.provenance.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {position.provenance.sourceKey ?? "Source"}
+                          </a>
+                        ) : (
+                          (position.provenance.sourceKey ?? "—")
+                        )}
+                      </td>
                       <td>{new Date(position.observedAt).toLocaleString()}</td>
                     </tr>
                   ))}
@@ -159,7 +327,26 @@ export function GigScoutPage() {
               </table>
             </div>
           )}
-          <nav aria-label="Scout result pages"><button type="button" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Previous</button><span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} of {total}</span><button type="button" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Next</button></nav>
+          <nav aria-label="Scout result pages">
+            <button
+              type="button"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - limit))}
+            >
+              Previous
+            </button>
+            <span>
+              {total === 0 ? 0 : offset + 1}–{Math.min(offset + limit, total)}{" "}
+              of {total}
+            </span>
+            <button
+              type="button"
+              disabled={offset + limit >= total}
+              onClick={() => setOffset(offset + limit)}
+            >
+              Next
+            </button>
+          </nav>
         </>
       )}
     </section>

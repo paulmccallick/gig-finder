@@ -1,0 +1,106 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "jibe",
+  "recordsPaths": [
+    "jobs",
+    "results"
+  ],
+  "totalPaths": [
+    "total",
+    "totalCount"
+  ],
+  "pageSize": 20,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "record": {
+    "unwrapPaths": [
+      "data"
+    ]
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "origin",
+      "path": "/api/jobs",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {
+      "keywords": "{term}",
+      "page": "{page}",
+      "company": "{variable.company}",
+      "location": "{override.location}"
+    },
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "slug",
+        "id",
+        "reqId"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title",
+        "name"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "url",
+        "jobUrl",
+        "applyUrl"
+      ],
+      "fallbackPaths": [
+        "slug",
+        "id",
+        "reqId"
+      ],
+      "fallbackTemplate": "{source.origin}/jobs/{value}?lang={record.language|en-us}",
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location",
+        "city",
+        "state",
+        "country"
+      ],
+      "separator": ", ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "description"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [
+      {
+        "name": "company"
+      }
+    ],
+    "overrides": [
+      {
+        "name": "location"
+      }
+    ]
+  }
+}

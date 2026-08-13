@@ -1,0 +1,80 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "icims",
+  "recordsPaths": [
+    "jobs",
+    "results"
+  ],
+  "totalPaths": [
+    "total",
+    "totalCount"
+  ],
+  "pageSize": 20,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {
+      "q": "{term}",
+      "page": "{page}"
+    },
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id",
+        "jobId"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title",
+        "jobTitle"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "url",
+        "jobUrl",
+        "applyUrl"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "description"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

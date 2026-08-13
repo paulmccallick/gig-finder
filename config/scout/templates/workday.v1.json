@@ -1,0 +1,91 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "workday",
+  "recordsPaths": [
+    "jobPostings"
+  ],
+  "totalPaths": [
+    "total"
+  ],
+  "pageSize": 20,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "request": {
+    "method": "POST",
+    "endpoint": {
+      "mode": "origin",
+      "path": "/wday/cxs/{variable.tenant}/{variable.site}/jobs",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {},
+    "headers": {},
+    "body": {
+      "appliedFacets": {},
+      "limit": 20,
+      "offset": "{offset}",
+      "searchText": "{term}"
+    }
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "externalPath"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "externalPath"
+      ],
+      "template": "{source.origin}/{variable.site}{value}",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "locationsText",
+        "remoteType"
+      ],
+      "separator": " - ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "descriptionUrl": {
+      "paths": [
+        "externalPath"
+      ],
+      "template": "{source.origin}/wday/cxs/{variable.tenant}/{variable.site}{value}",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [
+      {
+        "name": "tenant",
+        "required": true
+      },
+      {
+        "name": "site",
+        "required": true
+      }
+    ],
+    "overrides": []
+  }
+}

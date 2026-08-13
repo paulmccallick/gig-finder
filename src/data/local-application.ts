@@ -11,7 +11,7 @@ import { LocalProfileDocumentFiles } from "./profile-document-files";
 import { validateDatabase } from "./maintenance";
 import { SqliteConversationRepository } from "./conversation-store";
 import { SqliteScoutRunStore } from "./scout-run-store";
-import { ScoutRunService } from "../core/scout-runs";
+import { ScoutRunService } from "../core/scout/engine/runs";
 import { SqliteScoutCompanyImportStore } from "./scout-company-import-store";
 
 export interface LocalApplicationPaths { database: string; artifacts: string; profileDocuments?: string; scoutDescriptions?:string }

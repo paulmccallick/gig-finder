@@ -1,0 +1,77 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "adp",
+  "recordsPaths": [
+    "jobRequisitions",
+    "requisitions"
+  ],
+  "totalPaths": [
+    "totalCount",
+    "count"
+  ],
+  "pageSize": 100,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "reqId",
+        "clientRequisitionID"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "publishedJobTitle",
+        "jobTitle"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "jobUrl",
+        "applyUrl"
+      ],
+      "fallbackPaths": [
+        "reqId",
+        "clientRequisitionID"
+      ],
+      "fallbackTemplate": "{source.origin}/{source.pathAfter.career-site|careers}/cx/job-details?reqId={value}",
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "requisitionLocations.*.address.cityName",
+        "requisitionLocations.*.address.countrySubdivisionLevel1.shortName",
+        "requisitionLocations.*.address.country.longName",
+        "workLocations.*.address.cityName"
+      ],
+      "separator": ", ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "jobDescription",
+        "jobQualifications"
+      ],
+      "separator": "\n\n",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  },
+  "requestHook": "adp-session"
+}

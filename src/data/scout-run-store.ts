@@ -5,15 +5,16 @@ import path from "node:path";
 import type {
   CompanyScanResult,
   NormalizedPosition,
+  ScoutSearchProfile,
   SourceConfiguration,
-} from "../gig-scout";
+} from "../core/scout/engine";
 import type {
   ScoutCompanyJob,
   ScoutPositionPage,
   ScoutRunDetail,
   ScoutRunStore,
   ScoutRunSummary,
-} from "../core/scout-runs";
+} from "../core/scout/engine/runs";
 const id = (kind: string, ...parts: string[]) =>
   `${kind}_${createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 32)}`;
 const summary = (row: Record<string, unknown>): ScoutRunSummary => ({
@@ -33,7 +34,12 @@ export class SqliteScoutRunStore implements ScoutRunStore {
     private readonly db: Database,
     private readonly descriptionsRoot?: string,
   ) {}
-  startOrReuse(batchSize: number, concurrency: number, now: string) {
+  startOrReuse(
+    batchSize: number,
+    concurrency: number,
+    now: string,
+    searchProfile: ScoutSearchProfile = { terms: [], locations: [] },
+  ) {
     return this.db.transaction(() => {
       const active = this.db
         .query(
@@ -49,9 +55,16 @@ export class SqliteScoutRunStore implements ScoutRunStore {
         .all() as Array<{ id: string; current_configuration_id: string }>;
       this.db
         .query(
-          `INSERT INTO scout_runs(id,status,batch_size,concurrency,created_at,company_count) VALUES(?,'queued',?,?,?,?)`,
+          `INSERT INTO scout_runs(id,status,batch_size,concurrency,created_at,company_count,search_profile_json) VALUES(?,'queued',?,?,?,?,?)`,
         )
-        .run(runId, batchSize, concurrency, now, companies.length);
+        .run(
+          runId,
+          batchSize,
+          concurrency,
+          now,
+          companies.length,
+          JSON.stringify(searchProfile),
+        );
       for (const company of companies) {
         const runCompanyId = id("src", runId, company.id);
         this.db
@@ -123,13 +136,23 @@ export class SqliteScoutRunStore implements ScoutRunStore {
           ...company,
           sources: sources.map((source) => ({
             ...source,
-            attempts: this.db
+            attempts: (this.db
               .query(
-                `SELECT attempt_number attemptNumber,stage,validation_status validationStatus,failure_code failureCode,failure_message failureMessage FROM scout_source_attempts WHERE run_source_id=? ORDER BY attempt_number`,
+                `SELECT id,attempt_number attemptNumber,stage,source_reported_total sourceReportedTotal,records_received recordsReceived,records_parsed recordsParsed,records_evaluable recordsEvaluable,records_evaluated recordsEvaluated,pages_requested pagesRequested,pages_validated pagesValidated,unique_identities uniqueIdentities,validation_status validationStatus,failure_code failureCode,failure_message failureMessage FROM scout_source_attempts WHERE run_source_id=? ORDER BY attempt_number`,
               )
-              .all(
-                source.id,
-              ) as ScoutRunDetail["companies"][number]["sources"][number]["attempts"],
+              .all(source.id) as Array<
+              Omit<
+                ScoutRunDetail["companies"][number]["sources"][number]["attempts"][number],
+                "diagnostics"
+              >
+            >).map((attempt) => ({
+              ...attempt,
+              diagnostics: this.db
+                .query(
+                  `SELECT code,category,count,message FROM scout_attempt_diagnostics WHERE source_attempt_id=? ORDER BY id`,
+                )
+                .all(attempt.id) as ScoutRunDetail["companies"][number]["sources"][number]["attempts"][number]["diagnostics"],
+            })),
           })),
         };
       }),
@@ -138,7 +161,7 @@ export class SqliteScoutRunStore implements ScoutRunStore {
   pendingJobs(limit: number) {
     const rows = this.db
       .query(
-        `SELECT rc.run_id,rc.id run_company_id,rc.company_id,rc.company_configuration_id,group_concat(s.settings_json,char(30)) settings FROM scout_run_companies rc JOIN scout_run_outbox o ON o.run_company_id=rc.id JOIN scout_company_configuration_sources s ON s.company_configuration_id=rc.company_configuration_id AND s.active=1 WHERE o.dispatch_status='pending' AND rc.status='queued' GROUP BY rc.id ORDER BY o.created_at,o.id LIMIT ?`,
+        `SELECT rc.run_id,rc.id run_company_id,rc.company_id,rc.company_configuration_id,r.search_profile_json,group_concat(s.settings_json,char(30)) settings FROM scout_run_companies rc JOIN scout_runs r ON r.id=rc.run_id JOIN scout_run_outbox o ON o.run_company_id=rc.id JOIN scout_company_configuration_sources s ON s.company_configuration_id=rc.company_configuration_id AND s.active=1 WHERE o.dispatch_status='pending' AND rc.status='queued' GROUP BY rc.id ORDER BY o.created_at,o.id LIMIT ?`,
       )
       .all(limit) as Array<{
       run_id: string;
@@ -146,12 +169,14 @@ export class SqliteScoutRunStore implements ScoutRunStore {
       company_id: string;
       company_configuration_id: string;
       settings: string;
+      search_profile_json: string;
     }>;
     return rows.map((row) => ({
       runId: row.run_id,
       runCompanyId: row.run_company_id,
       companyId: row.company_id,
       configurationVersionId: row.company_configuration_id,
+      searchProfile: JSON.parse(row.search_profile_json),
       sources: row.settings
         .split(String.fromCharCode(30))
         .map((value) => JSON.parse(value) as SourceConfiguration),
@@ -214,10 +239,14 @@ export class SqliteScoutRunStore implements ScoutRunStore {
         const counts = source.attempts.reduce(
           (total, attempt) => ({
             candidateCount: total.candidateCount + attempt.candidateCount,
-            acceptedCount: total.acceptedCount + attempt.acceptedCount,
+            acceptedCount: total.acceptedCount,
             rejectedCount: total.rejectedCount + attempt.rejectedCount,
           }),
-          { candidateCount: 0, acceptedCount: 0, rejectedCount: 0 },
+          {
+            candidateCount: 0,
+            acceptedCount: source.positions.length,
+            rejectedCount: 0,
+          },
         );
         this.db
           .query(
@@ -236,19 +265,27 @@ export class SqliteScoutRunStore implements ScoutRunStore {
           const attemptId = id("sat", runSourceId, String(index + 1));
           this.db
             .query(
-              `INSERT OR REPLACE INTO scout_source_attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              `INSERT OR REPLACE INTO scout_source_attempts(id,run_source_id,attempt_number,source_method,stage,request_count,response_count,source_reported_total,records_received,records_parsed,records_evaluable,records_evaluated,candidate_count,accepted_count,rejected_count,pages_requested,pages_validated,unique_identities,validation_status,started_at,completed_at,failure_code,failure_message) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             )
             .run(
               attemptId,
               runSourceId,
               index + 1,
-              attempt.adapter,
+              attempt.sourceMethod,
               attempt.stage,
               attempt.requestCount,
               attempt.responseCount,
+              attempt.sourceReportedTotal ?? null,
+              attempt.recordsReceived ?? 0,
+              attempt.recordsParsed ?? attempt.candidateCount,
+              attempt.recordsEvaluable ?? attempt.candidateCount,
+              attempt.recordsEvaluated ?? attempt.candidateCount,
               attempt.candidateCount,
               attempt.acceptedCount,
               attempt.rejectedCount,
+              attempt.pagesRequested ?? attempt.requestCount,
+              attempt.pagesValidated ?? attempt.responseCount,
+              attempt.uniqueIdentities ?? attempt.acceptedCount,
               attempt.validationStatus,
               attempt.startedAt,
               attempt.completedAt,
