@@ -58,7 +58,11 @@ export async function scanSource(
             "Runtime safety policy was reached before source exhaustion was proven.",
         });
         if (final) final.validationStatus = "failed";
-        const validation = validatePositions(positions, surfaceVerified);
+        const validation = validatePositions(
+          positions,
+          surfaceVerified,
+          searchProfile,
+        );
         applyValidation(
           attemptPositions,
           validation.accepted,
@@ -251,7 +255,11 @@ export async function scanSource(
       }
       if (!pageComplete) {
         if (positions.length) {
-          const validation = validatePositions(positions, surfaceVerified);
+          const validation = validatePositions(
+            positions,
+            surfaceVerified,
+            searchProfile,
+          );
           applyValidation(
             attemptPositions,
             validation.accepted,
@@ -320,7 +328,11 @@ export async function scanSource(
       if (lastAttempt.recordsReceived === 0) break;
     }
   }
-  const validation = validatePositions(positions, surfaceVerified);
+  const validation = validatePositions(
+    positions,
+    surfaceVerified,
+    searchProfile,
+  );
   applyValidation(
     attemptPositions,
     validation.accepted,

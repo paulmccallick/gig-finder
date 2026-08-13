@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { defaultScoutSearchProfile } from "../../core/scout/engine";
 type Run = {
   id: string;
   status: string;
@@ -7,6 +8,7 @@ type Run = {
   companyCount: number;
   succeededCount: number;
   failedCount: number;
+  searchProfile: { terms: string[]; locations: string[] };
 };
 type Position = {
   id: string;
@@ -67,8 +69,12 @@ export function GigScoutPage() {
   const [textFilter, setTextFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  const [searchTerms, setSearchTerms] = useState("");
-  const [searchLocations, setSearchLocations] = useState("");
+  const [searchTerms, setSearchTerms] = useState(
+    defaultScoutSearchProfile.terms.join(", "),
+  );
+  const [searchLocations, setSearchLocations] = useState(
+    defaultScoutSearchProfile.locations.join(", "),
+  );
   const limit = 20;
   const [error, setError] = useState<string | null>(null);
   const refresh = async () => {
@@ -203,6 +209,14 @@ export function GigScoutPage() {
                 <span>{run.companyCount} companies</span>
               </div>
             ))}
+          {detail && (
+            <div className="scout-summary" aria-label="Run search profile">
+              <span>Titles: {detail.searchProfile.terms.join(", ")}</span>
+              <span>
+                Locations: {detail.searchProfile.locations.join(", ")}
+              </span>
+            </div>
+          )}
           <div className="scout-filters">
             <label>
               Company{" "}

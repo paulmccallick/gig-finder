@@ -3,7 +3,7 @@ import type {
   ScoutSearchProfile,
   SourceConfiguration,
 } from "../sourcing/contracts";
-import { scoutSearchProfileSchema } from "../sourcing/contracts";
+import { resolveScoutSearchProfile } from "../sourcing/contracts";
 
 export type ScoutRunStatus =
   | "queued"
@@ -30,6 +30,7 @@ export interface ScoutRunSummary {
   companyCount: number;
   succeededCount: number;
   failedCount: number;
+  searchProfile: ScoutSearchProfile;
 }
 export interface ScoutRunSourceDetail {
   id: string;
@@ -124,7 +125,7 @@ export class ScoutRunService {
     settings: Partial<{
       batchSize: number;
       concurrency: number;
-      searchProfile: ScoutSearchProfile;
+      searchProfile: Partial<ScoutSearchProfile>;
     }> = {},
   ) {
     const batchSize = settings.batchSize ?? this.defaults.batchSize;
@@ -133,9 +134,7 @@ export class ScoutRunService {
       throw new Error("Scout batch size must be from 1 through 100.");
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 50)
       throw new Error("Scout concurrency must be from 1 through 50.");
-    const searchProfile = scoutSearchProfileSchema.parse(
-      settings.searchProfile ?? {},
-    );
+    const searchProfile = resolveScoutSearchProfile(settings.searchProfile);
     return this.store.startOrReuse(
       batchSize,
       concurrency,

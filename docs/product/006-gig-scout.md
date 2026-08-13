@@ -13,10 +13,11 @@
 ## 🛠️ Functional Specifications
 
 - **Trigger**: The user launches a full scan from the Gig Scout workspace and later opens its progress or results.
-- **Input Data**: Private target-company configuration, one authoritative official listing source per company, reusable generic source adapters, and candidate-specific search and exclusion criteria.
+- **Input Data**: Private target-company configuration, one authoritative official listing source per company, reusable generic source adapters, and candidate-specific search and exclusion criteria. For the current release, Scout supplies temporary application defaults when a run omits or empties title terms or locations; a non-empty run dimension replaces its default.
 - **Happy Path**:
   1. The system accepts one durable run and processes each configured company independently with bounded retries and concurrency.
-  2. The user can follow durable progress and inspect accepted positions plus clear company and source outcomes after completion.
+  2. The resolved title and location profile is captured immutably with the run and applied to every company source.
+  3. The user can follow durable progress and inspect accepted positions plus clear company and source outcomes after completion.
 - **Alternative Paths**:
   - A source is verified empty -> Record success only when the source's explicit semantics and reconciliation support that conclusion.
   - A page fails, repeats prior results, or cannot be parsed reliably -> Preserve diagnostics and report a non-success outcome rather than silently omitting jobs.
@@ -28,8 +29,9 @@
   - **Given** a configured full scan, **When** the initiating request ends, **Then** accepted work continues durably and remains observable.
   - **Given** a completed source attempt, **When** its outcome is marked successful, **Then** source-reported, received, parsed, evaluated, accepted, rejected, page-validation, and distinct-identity evidence reconciles.
   - **Given** repeated delivery or recovery, **When** a company job runs again, **Then** logical outcomes and stored descriptions are not duplicated.
+  - **Given** normalized candidates from any JSON or DOM source, **When** title and location filters are active, **Then** Scout accepts a position only when its title matches at least one title term and its location matches at least one location term, case-insensitively; profile rejections remain reconciled diagnostics.
 - **Error Boundaries**: One company's exhaustion or unsupported source becomes an explicit company outcome and does not erase other companies' completed results.
-- **Data Validation**: Only official configured sources are scanned; private targeting stays outside tracked adapters; accepted postings have real posting identity and application semantics.
+- **Data Validation**: Only official configured sources are scanned; private targeting stays outside tracked adapters; accepted postings have real posting identity and application semantics. Temporary default title terms are Director, Senior Director, Sr. Director, Senior Vice President, SVP, Vice President, VP Engineering, Head of Engineering, and Head of Technology. Default locations are Seattle, Bellevue, Redmond, Remote, and Washington.
 
 ## 🛑 Out of Scope
 
