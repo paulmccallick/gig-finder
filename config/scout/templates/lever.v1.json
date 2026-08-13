@@ -1,0 +1,75 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "lever",
+  "recordsPaths": [
+    "$"
+  ],
+  "totalPaths": [],
+  "pageSize": 100,
+  "exhaustion": {
+    "mode": "single-response"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "canonicalHost": "api.lever.co",
+      "publicUrlTemplate": "https://api.lever.co/v0/postings/{path.0}?mode=json",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {},
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "text"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "hostedUrl",
+        "applyUrl"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "categories.location"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "description",
+        "lists.*.content",
+        "additional"
+      ],
+      "separator": "\n\n",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

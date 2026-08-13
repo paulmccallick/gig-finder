@@ -26,7 +26,7 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   await server.stop(true);
-  application.close();
+  await application.close();
 }
 
 process.once("SIGINT", () => void stop());

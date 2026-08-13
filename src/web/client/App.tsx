@@ -21,13 +21,14 @@ import { NetworkingBoard } from "./NetworkingBoard";
 import { loadTasks, type TasksResult } from "./data/tasks";
 import { TaskBoard } from "./TaskBoard";
 import { AgentLauncher, AgentPanel } from "./agent/AgentPanel";
+import { GigScoutPage } from "./GigScoutPage";
 import {
   defaultAgentPanelWidth,
   initialAgentWorkspace,
   updateAgentWorkspace,
 } from "./agent/agent-workspace";
 
-type WorkspaceView = "gigs" | "network" | "tasks";
+type WorkspaceView = "gigs" | "network" | "tasks" | "scout";
 
 interface GigArtifacts {
   jobDescription: string | null;
@@ -170,11 +171,11 @@ function GigDrawer({ gig, onClose }: { gig: GigSummary; onClose: () => void }) {
 }
 
 function WorkspaceTabs({ active, onChange }: { active: WorkspaceView; onChange: (value: WorkspaceView) => void }) {
-  return <nav className="workspace-tabs" aria-label="Workspace"><button aria-current={active === "gigs" ? "page" : undefined} onClick={() => onChange("gigs")}><span>01</span> Opportunities</button><button aria-current={active === "network" ? "page" : undefined} onClick={() => onChange("network")}><span>02</span> Networking</button><button aria-current={active === "tasks" ? "page" : undefined} onClick={() => onChange("tasks")}><span>03</span> Tasks</button></nav>;
+  return <nav className="workspace-tabs" aria-label="Workspace"><button aria-current={active === "gigs" ? "page" : undefined} onClick={() => onChange("gigs")}><span>01</span> Opportunities</button><button aria-current={active === "network" ? "page" : undefined} onClick={() => onChange("network")}><span>02</span> Networking</button><button aria-current={active === "tasks" ? "page" : undefined} onClick={() => onChange("tasks")}><span>03</span> Tasks</button><button aria-current={active === "scout" ? "page" : undefined} onClick={() => onChange("scout")}><span>04</span> Gig Scout</button></nav>;
 }
 
 function Masthead({ today, active, onChange }: { today: string; active: WorkspaceView; onChange: (value: WorkspaceView) => void }) {
-  const titles: Record<WorkspaceView, string> = { gigs: "Opportunity Control Room", network: "Relationship Control Room", tasks: "Action Control Room" };
+  const titles: Record<WorkspaceView, string> = { gigs: "Opportunity Control Room", network: "Relationship Control Room", tasks: "Action Control Room", scout:"Gig Scout Control Room" };
   return <><header className="masthead"><div className="brand-block"><span className="system-mark"><span /> PM</span><div><p className="eyebrow">Search operations / {today}</p><h1>{titles[active]}</h1></div></div><div className="system-status"><span /> DATABASE ONLINE</div></header><WorkspaceTabs active={active} onChange={onChange} /></>;
 }
 
@@ -304,7 +305,9 @@ export function App() {
     ? <GigBoard gigs={result.data} onNavigate={setView} />
     : view === "network"
       ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard people={peopleResult.data} /></main>
-      : <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>;
+      : view === "tasks"
+        ? <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>
+        : <main className="app-shell"><Masthead today={todayInPacific()} active="scout" onChange={setView} /><GigScoutPage /></main>;
   return (
     <>
       <div

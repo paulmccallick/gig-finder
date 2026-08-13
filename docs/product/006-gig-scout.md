@@ -1,0 +1,43 @@
+# FRR-006: Gig Scout
+
+## 📋 Status
+
+`Implemented`
+
+## 🎯 Context & Problem
+
+- **User Story**: As a candidate, I want one reliable scan of my chosen companies' official career sources so that I can discover relevant openings without manually revisiting every site.
+- **Current State**: Gig Scout launches a durable full scan from private, versioned company and source configuration and retains run, company, position, and reconciliation outcomes.
+- **Why Now**: Career sites vary widely and change often; discovery must distinguish verified results from incomplete, duplicated, or unsupported sourcing.
+
+## 🛠️ Functional Specifications
+
+- **Trigger**: The user launches a full scan from the Gig Scout workspace and later opens its progress or results.
+- **Input Data**: Private target-company configuration, one authoritative official listing source per company, reusable generic source adapters, and candidate-specific search and exclusion criteria.
+- **Happy Path**:
+  1. The system accepts one durable run and processes each configured company independently with bounded retries and concurrency.
+  2. The user can follow durable progress and inspect accepted positions plus clear company and source outcomes after completion.
+- **Alternative Paths**:
+  - A source is verified empty -> Record success only when the source's explicit semantics and reconciliation support that conclusion.
+  - A page fails, repeats prior results, or cannot be parsed reliably -> Preserve diagnostics and report a non-success outcome rather than silently omitting jobs.
+  - The browser or application restarts -> Reconcile unfinished work without duplicating the logical run or its results.
+
+## 🛡️ Acceptance Criteria & Guardrails
+
+- **Scenarios**:
+  - **Given** a configured full scan, **When** the initiating request ends, **Then** accepted work continues durably and remains observable.
+  - **Given** a completed source attempt, **When** its outcome is marked successful, **Then** source-reported, received, parsed, evaluated, accepted, rejected, page-validation, and distinct-identity evidence reconciles.
+  - **Given** repeated delivery or recovery, **When** a company job runs again, **Then** logical outcomes and stored descriptions are not duplicated.
+- **Error Boundaries**: One company's exhaustion or unsupported source becomes an explicit company outcome and does not erase other companies' completed results.
+- **Data Validation**: Only official configured sources are scanned; private targeting stays outside tracked adapters; accepted postings have real posting identity and application semantics.
+
+## 🛑 Out of Scope
+
+- Browser automation as a production sourcing method.
+- Crawling arbitrary web search results or automatically adding discovered positions to the opportunity pipeline.
+
+## 📈 Consequences & Impact
+
+- **UX/UI Impact**: Gig Scout provides one launch point, durable run status, paged results, and actionable diagnostics rather than a synchronous scrape response.
+- **Data Model Changes**: None; this requirement describes existing run, company, position, artifact, configuration-version, and reconciliation records.
+- **Performance Targets**: Scans run outside request lifetime with bounded per-source work and host-safe concurrency; interactive progress reads remain responsive.

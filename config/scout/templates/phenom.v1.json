@@ -1,0 +1,80 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "phenom",
+  "recordsPaths": [
+    "eagerLoadRefineSearch.data.jobs"
+  ],
+  "totalPaths": [
+    "eagerLoadRefineSearch.totalHits"
+  ],
+  "pageSize": 10,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "payload": {
+    "assignment": "phApp.ddo ="
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {
+      "keywords": "{term}",
+      "from": "{offset}"
+    },
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "jobSeqNo",
+        "jobId",
+        "reqId"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "applyUrl"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location",
+        "cityStateCountry"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "descriptionTeaser"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

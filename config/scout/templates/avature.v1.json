@@ -1,0 +1,60 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "avature",
+  "recordsPaths": [
+    "results"
+  ],
+  "totalPaths": [
+    "total"
+  ],
+  "pageSize": 12,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "fields.name.stringValue"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "$payload.links.$index.detailPage"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "fields"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": [],
+      "find": {
+        "path": "fields.*",
+        "wherePath": "fieldType",
+        "equals": "ParagraphWithFormat",
+        "valuePath": "stringValue"
+      }
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  },
+  "requestHook": "avature-session"
+}

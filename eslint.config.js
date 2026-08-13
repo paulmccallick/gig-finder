@@ -8,6 +8,7 @@ export default tseslint.config(
       ".research/**",
       "dist/**",
       "node_modules/**",
+      "output/**",
       "context/**",
       "tmp/**",
     ],

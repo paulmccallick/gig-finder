@@ -15,7 +15,8 @@ Before looking at the code changes, look at
 
 
 FORMAT:
- - which files took major changes and why.  how many lines were added/removed?
+ - which files took major changes.  how many lines were added/removed?
+ - for the files that changed, how did they change and how does that support the feature changes
  - additional third party packages added
  - what interactions between architectural components changed and why
  - the test approach in 100 words or less

@@ -1,0 +1,110 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "successfactors-rmk",
+  "recordsPaths": [
+    "jobSearchResult",
+    "searchResults",
+    "results"
+  ],
+  "totalPaths": [
+    "totalResults",
+    "total"
+  ],
+  "pageSize": 20,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "record": {
+    "unwrapPaths": [
+      "response"
+    ]
+  },
+  "request": {
+    "method": "POST",
+    "endpoint": {
+      "mode": "configured",
+      "clearQuery": true,
+      "removeQuery": []
+    },
+    "query": {},
+    "headers": {
+      "referer": "{origin}/search/?q={term}&locationsearch={query.location}&locale={query.locale|en_US}"
+    },
+    "body": {
+      "keywords": "{term}",
+      "locale": "{query.locale|en_US}",
+      "location": "{query.location}",
+      "pageNumber": "{pageZero}",
+      "sortBy": "recent"
+    }
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id",
+        "jobId"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "unifiedStandardTitle",
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "url",
+        "jobUrl"
+      ],
+      "fallbackPaths": [
+        "id",
+        "jobId"
+      ],
+      "fallbackTemplate": "{source.origin}/job/{record.unifiedUrlTitle|record.urlTitle}/{value}",
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "jobLocationShort",
+        "jobLocationCountry",
+        "location"
+      ],
+      "separator": "; ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "descriptionUrl": {
+      "paths": [
+        "url",
+        "jobUrl"
+      ],
+      "fallbackPaths": [
+        "id",
+        "jobId"
+      ],
+      "fallbackTemplate": "{source.origin}/job/{record.unifiedUrlTitle|record.urlTitle}/{value}",
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": [
+      {
+        "name": "locale"
+      },
+      {
+        "name": "location"
+      }
+    ]
+  }
+}

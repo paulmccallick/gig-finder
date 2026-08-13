@@ -328,14 +328,21 @@ async function deterministicScenarios(baseURL: string, revision: string) {
 }
 
 interface LocalResources {
-  processes: Array<{ kill(): void; exited: Promise<number> }>;
+  processes: Array<{ kill(signal?: number): void; exited: Promise<number> }>;
   stateRoot?: string;
 }
 
 async function cleanupLocal(resources: LocalResources) {
   for (const process of resources.processes.reverse()) {
     process.kill();
-    await Promise.race([process.exited, Bun.sleep(3_000)]);
+    const exited = await Promise.race([
+      process.exited.then(() => true),
+      Bun.sleep(3_000).then(() => false),
+    ]);
+    if (!exited) {
+      process.kill(9);
+      await process.exited;
+    }
   }
   if (resources.stateRoot) await rm(resources.stateRoot, { recursive: true, force: true });
 }
@@ -577,6 +584,7 @@ try {
   const head = await revision();
   const result = mode === "deterministic" ? await runDeterministic(head) : await runLive(head);
   console.log(JSON.stringify({ status: "passed", ...result }));
+  process.exit(0);
 } catch (error) {
   if (error instanceof SmokeFailure) {
     console.error(JSON.stringify({

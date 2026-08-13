@@ -1,0 +1,72 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "greenhouse",
+  "recordsPaths": [
+    "jobs"
+  ],
+  "totalPaths": [],
+  "pageSize": 100,
+  "exhaustion": {
+    "mode": "single-response"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "canonicalHost": "boards-api.greenhouse.io",
+      "publicUrlTemplate": "https://boards-api.greenhouse.io/v1/boards/{path.0}/jobs?content=true",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {},
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "absolute_url",
+        "url"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location.name"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "content"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

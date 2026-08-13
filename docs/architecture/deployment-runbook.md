@@ -1,21 +1,9 @@
 # Deployment runbook
 
-Production runs the Docker image published for a merged commit. The release
-model and rollback guarantees are defined by [ADR 0007](decisions/0007-immutable-production-deployment.md).
-
-## Layout
-
-| Purpose | Host path |
-| --- | --- |
-| Database, profile, and documents | `/var/lib/gig-finder` |
-| Configuration | `/etc/gig-finder/config.json` |
-| Logs | `/var/log/gig-finder` |
-| Backups | `/var/backups/gig-finder` |
-| Codex credentials | Operator-selected directory, mounted read-only at `/run/codex` |
-
-The container listens on port `3001`, published only as
-`127.0.0.1:3001`. Local development uses dashboard port `5173` and API port
-`3101` by default.
+Environment layout is documented in
+[Infrastructure environments](infrastructure.md). The release model and rollback
+guarantees are defined by
+[ADR 0007](decisions/0007-immutable-production-deployment.md).
 
 ## Pre-release smoke verification
 
@@ -82,8 +70,3 @@ The script synchronizes private inputs, pulls the Docker image, creates and
 verifies a backup, migrates and validates SQLite, replaces the container, and
 checks `/healthz` for the requested revision. On failure it restores the backup
 and prior container.
-
-## Inspect
-
-Application logs are written to `/var/log/gig-finder/server.log`. The health
-endpoint is `http://127.0.0.1:3001/healthz`.

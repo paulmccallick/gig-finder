@@ -1,0 +1,80 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "smartrecruiters",
+  "recordsPaths": [
+    "content"
+  ],
+  "totalPaths": [
+    "totalFound"
+  ],
+  "pageSize": 100,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "canonicalHost": "api.smartrecruiters.com",
+      "publicUrlTemplate": "https://api.smartrecruiters.com/v1/companies/{path.0}/postings",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {
+      "limit": "100",
+      "offset": "{offset}"
+    },
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "name"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "postingUrl",
+        "applyUrl",
+        "ref"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location.fullLocation",
+        "location.name"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "jobAd.sections.*.text"
+      ],
+      "separator": "\n\n",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

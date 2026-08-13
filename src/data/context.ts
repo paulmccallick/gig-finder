@@ -17,6 +17,8 @@ export interface GigFinderContextPaths {
   logs: string;
   backups: string;
   meetingParticipantMigration: string;
+  scoutQueue: string;
+  scoutDescriptions: string;
   actor: string;
 }
 
@@ -123,6 +125,10 @@ export function resolveGigFinderContext(
     ) ?? optionalAbsolute(
       environment.JOB_SEARCH_MEETING_PARTICIPANT_MIGRATION,
     ) ?? path.join(root, "data", "migration", "0010-meeting-participants.json"),
+    scoutQueue: optionalAbsolute(environment.GIG_FINDER_SCOUT_QUEUE)
+      ?? path.join(root, "data", "gig-scout-queue.sqlite"),
+    scoutDescriptions: optionalAbsolute(environment.GIG_FINDER_SCOUT_DESCRIPTIONS)
+      ?? path.join(root, "artifacts", "gig-scout", "descriptions"),
     actor: environment.GIG_FINDER_ACTOR?.trim()
       || environment.JOB_SEARCH_ACTOR?.trim()
       || config.actor,

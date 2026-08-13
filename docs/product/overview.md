@@ -40,6 +40,12 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - Development uses `context/`; production uses isolated Unix state,
   configuration, log, and backup paths mounted into a local container built
   from the exact revision merged to GitHub.
+- Gig Scout launches one durable full scan across the user's privately
+  configured official career sources. Historical runs retain positions and a
+  per-source reconciliation funnel: source-reported, received, parsed,
+  evaluable, evaluated, accepted, rejected, page-validation, and distinct-page
+  identity counts. A source cannot report verified success when those counts do
+  not reconcile or a later page merely replays an earlier page.
 
 ## Entities
 
@@ -78,6 +84,25 @@ copy or move records into separate storage.
 Application source is generic. By default, a user's profile, operational
 records, documents, logs, database, and backups live in the ignored `context/`
 workspace.
+
+Scout source URLs and tenant mechanics are private versioned company
+configuration. Search terms, locations, exclusions, and other targeting inputs
+belong to the private run-owned search profile. Tracked reusable JSON
+configuration templates implement only public source mechanics and generic posting validation; they contain no
+candidate-specific title, seniority, location, or remote-work assumptions.
+Each current company configuration has exactly one active authoritative
+official listing source. Reusable template definitions own pagination mechanics;
+search variants do not create duplicate or fallback source rows.
+A reusable template is accepted only when every privately configured company using it
+passes live reconciliation, real-posting semantics, and applicable pagination
+checks. Custom DOM HTML and unique JSON sources are reported separately for an
+explicit repair, configuration, or exclusion decision.
+Custom server-rendered HTML is extracted from privately configured DOM
+selectors without browser execution. A listing surface is verified empty only
+when an explicit empty-state selector matches; empty containers and
+JavaScript-only shells remain suspicious or unsupported.
+Structured JSON embedded in a server-returned script block uses the generic
+JSON source adapter; HTML regular-expression sourcing is unsupported.
 
 Gig and person records include document IDs, types, optional titles, and
 friendly display names; person detail also includes related gig IDs and

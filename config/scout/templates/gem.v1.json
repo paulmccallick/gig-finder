@@ -1,0 +1,90 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "gem",
+  "recordsPaths": [
+    "data.oatsExternalJobPostings.jobPostings"
+  ],
+  "totalPaths": [],
+  "pageSize": 100,
+  "exhaustion": {
+    "mode": "single-response"
+  },
+  "request": {
+    "method": "POST",
+    "endpoint": {
+      "mode": "origin",
+      "path": "/api/public/graphql",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {},
+    "headers": {
+      "origin": "{origin}",
+      "referer": "{origin}/{hashQuery.gem-board-id}"
+    },
+    "body": {
+      "operationName": "JobBoardList",
+      "variables": {
+        "boardId": "{hashQuery.gem-board-id}"
+      },
+      "query": "query JobBoardList($boardId:String!){oatsExternalJobPostings(boardId:$boardId){jobPostings{id extId title locations{id name city isoCountry isRemote extId} job{id department{id name extId} locationType employmentType}}} oatsExternalJobPostingsFilters(boardId:$boardId){type displayName rawValue value count} jobBoardExternal(vanityUrlPath:$boardId){id teamDisplayName descriptionHtml pageTitle}}"
+    }
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "extId",
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "url"
+      ],
+      "fallbackPaths": [
+        "extId",
+        "id"
+      ],
+      "fallbackTemplate": "https://jobs.gem.com/{source.hashQuery.gem-board-id|source.path.0}/{value}",
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "locations.*.name",
+        "locations.*.city"
+      ],
+      "separator": "; ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "descriptionUrl": {
+      "paths": [
+        "extId"
+      ],
+      "template": "{source.origin}/api/public/graphql?operationName=ExternalJobPosting&variables=%7B%22boardId%22%3A%22{source.hashQuery.gem-board-id}%22%2C%22extId%22%3A%22{value}%22%7D&query=query%20ExternalJobPosting(%24boardId%3AString!%2C%24extId%3AString!)%7BoatsExternalJobPosting(boardId%3A%24boardId%2CextId%3A%24extId)%7Btitle%20descriptionHtml%7D%7D",
+      "fallbackPaths": [],
+      "transforms": [
+        "url-encode"
+      ],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

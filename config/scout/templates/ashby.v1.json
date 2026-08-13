@@ -1,0 +1,73 @@
+{
+  "kind": "hr-system",
+  "version": 1,
+  "id": "ashby",
+  "recordsPaths": [
+    "jobs"
+  ],
+  "totalPaths": [],
+  "pageSize": 100,
+  "exhaustion": {
+    "mode": "single-response"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "canonicalHost": "api.ashbyhq.com",
+      "publicUrlTemplate": "https://api.ashbyhq.com/posting-api/job-board/{path.0}",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {},
+    "headers": {}
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "jobUrl"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "location",
+        "secondaryLocations.*.location"
+      ],
+      "separator": "; ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "descriptionHtml"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

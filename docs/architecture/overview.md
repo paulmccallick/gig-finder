@@ -11,34 +11,24 @@ flowchart LR
   Web --> Uploads[Upload conversion and staging]
   Core --> Agent[Agent runtime]
   Core --> Data
+  Core --> ScoutEngine[Scout engine]
+  ScoutEngine -->|Durable company work| Queue[BunQueue]
+  Queue --> ScoutSourcing[Scout sourcing]
+  ScoutSourcing --> |Bounded HTTP| CareerSites[Official career sites]
   Agent <-->|AI SDK Core| Model[Codex provider]
   Agent -->|Validated tool calls| Core
   Data --> SQLite[(SQLite)]
-  Data --> Files[versioned files and context files]
+  Data --> Files[versioned files, context files, and Scout artifacts]
 ```
-
-Pre-release verification exercises this same built web composition root from a
-clean exact commit with isolated synthetic state. Deterministic smoke uses a
-smoke-only scripted Responses server that validates the complete runtime tool
-registry against known provider rules before scripting tool calls. Local live
-smoke uses the operator's existing Codex authentication and a small bounded
-request. Mock implementation and validation code remain in a dedicated smoke
-entry point; the production server bundle contains only the guarded endpoint
-seam and defaults to the subscription provider.
 
 ## Package boundaries
 
 - `src/core/` owns domain models, client-neutral contracts, validation, ports,
   conversation orchestration, framework-neutral sanitization of assistant text
-  and reasoning, and application services. User-authored identifiers and
-  structured tool and attachment data remain available for follow-up operations
-  while web presentation omits system-added capabilities. Core has no dependency
-  on client or persistence packages.
+  and reasoning, and application services.
 - `src/data/` implements core persistence ports, SQLite transactions, auditing,
   private context resolution, managed filesystem projections, and guarded
-  legacy migrations. Interaction rollout migrates Meetings and historical
-  Person contact state while leaving legacy Business Events and Event Sources
-  intact for separately approved follow-up work.
+  legacy migrations.
 - `src/agent/` adapts core capabilities to model-facing tools and AI SDK Core.
   Agent policy is separate from the configured candidate profile.
 - `src/web/` owns HTTP, AI SDK UI adaptation, uploads and conversion, static
@@ -47,23 +37,9 @@ seam and defaults to the subscription provider.
 - `src/cli/` translates commands and flags into the same core contracts used by
   other clients.
 - `src/operations/` contains operator-facing database and deployment programs.
+- `src/core/scout` is the persistence-neutral official-source scanner. Uses bunqueue for offline processing
 - `src/web/app.ts` and `src/cli/app.ts` are composition roots; only composition
   roots construct concrete data adapters.
-- Cross-client filtering, traversal, ordering, validation, lifecycle rules,
-  auditing, and idempotency belong in core rather than client adapters.
-- Person create and update clients share the Person-owned input contract.
-  Top-level latest-contact fields are composed deterministically from the most
-  recent completed Interaction for reads and are excluded from Person input and
-  persistence. Its contact date uses the Interaction's declared timezone; when
-  none is declared, it preserves the calendar date encoded by `startsAt`.
-  Person-related follow-up work is represented by Tasks. Migration archives
-  legacy current and historical Person snapshots that contain a follow-up value
-  before removing the old columns, while only active People receive live
-  follow-up Tasks. A database that ran the superseded 0022 migration without
-  that archive must be restored from its pre-0022 backup before proceeding;
-  missing historical values are never inferred from current Tasks.
-- Private context and credentials never belong in source control or build
-  artifacts.
 
 ## Architecture decisions
 
@@ -76,6 +52,11 @@ seam and defaults to the subscription provider.
 - [ADR 0007: Deploy Docker images with external state and verified rollback](decisions/0007-immutable-production-deployment.md) defines the production release and recovery model.
 - [ADR 0008: Adapt domain capabilities to strict agent tools](decisions/0008-agent-tool-contracts.md) defines tool patches, schema strictness, and generated contract documentation.
 - [ADR 0009: Keep personal data out of source control](decisions/0009-keep-personal-data-out-of-source-control.md) prohibits private job-search records in tracked files and requires synthetic fixtures.
+- [ADR 0010: Use BunQueue for durable background work](decisions/0010-use-bunqueue-for-background-work.md) runs long-lived Gig Scout scans outside request and browser lifetimes while keeping GigFinder state authoritative.
+- [ADR 0011: Use uniform source adapters for Scout](decisions/0011-use-uniform-source-adapters-for-scout.md) gives every source acquisition method one adapter lifecycle with consistent reconciliation, pagination evidence, and private configuration boundaries.
+- [ADR 0012: Use templates for reusable JSON sources](decisions/0012-use-templates-for-reusable-json-sources.md) replaces repeated platform adapters with validated shared configuration and narrowly scoped procedural hooks.
+- [ADR 0013: Allow private application data in local logs](decisions/0013-allow-private-data-in-local-logs.md) permits diagnostic profile and company data in private local logs while excluding authentication secrets and tracked artifacts.
 
-Runtime settings are documented in [Configuration](configuration.md). Production
-layout and procedures are documented in the [Deployment runbook](deployment-runbook.md).
+Runtime settings are documented in [Configuration](configuration.md), environment
+roles in [Infrastructure environments](infrastructure.md), and production layout
+and procedures in the [Deployment runbook](deployment-runbook.md).
