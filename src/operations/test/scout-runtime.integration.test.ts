@@ -7,6 +7,7 @@ import { migrateDatabase, openDatabase } from "../../data/database";
 import { SqliteScoutCompanyImportStore } from "../../data/scout-company-import-store";
 import { SqliteScoutRunStore } from "../../data/scout-run-store";
 import type { GigScoutHttpPort } from "../../core/scout/engine";
+import type { ScoutCompanyJob } from "../../core/scout/engine/runs";
 import { ScoutRuntime } from "../scout-runtime";
 
 const root = mkdtempSync(path.join("tmp/", "scout-runtime-"));
@@ -118,6 +119,227 @@ test("real embedded queue heartbeats beyond its configured ownership boundary", 
     database.close();
   }
 }, 20_000);
+
+test("restart reconciliation reuses a durably dispatched embedded job", async () => {
+  const database = openDatabase(path.join(root, "recovery-app.sqlite"));
+  migrateDatabase(database);
+  importScoutCompany(
+    {
+      id: "recovery-company",
+      name: "Recovery Company",
+      active: true,
+      sources: [
+        {
+          key: "official",
+          type: "json",
+          url: "https://careers.example.test/recovery",
+          active: true,
+          method: "GET",
+          recordsPath: "jobs",
+          fields: { id: "id", title: "title", url: "url" },
+        },
+      ],
+    },
+    new SqliteScoutCompanyImportStore(database),
+  );
+  const store = new SqliteScoutRunStore(database);
+  const run = store.startOrReuse(20, 1, new Date().toISOString()).run;
+  const recoveryQueuePath = path.join(root, "recovery-queue.sqlite");
+  const dispatcher = new ScoutRuntime(store, {
+    dataPath: recoveryQueuePath,
+    batchSize: 20,
+    concurrency: 1,
+  });
+  await dispatcher.dispatch();
+  await dispatcher.close();
+
+  let calls = 0;
+  const runtime = new ScoutRuntime(store, {
+    dataPath: recoveryQueuePath,
+    batchSize: 20,
+    concurrency: 1,
+    http: {
+      async request(input) {
+        calls++;
+        return {
+          status: 200,
+          url: input.url,
+          headers: {},
+          body: JSON.stringify({
+            jobs: [
+              {
+                id: "recovered-role",
+                title: "Recovery Gardener",
+                url: "https://careers.example.test/recovery/role",
+              },
+            ],
+          }),
+        };
+      },
+    },
+  });
+  try {
+    runtime.start();
+    const deadline = Date.now() + 5_000;
+    while (
+      ["queued", "running"].includes(store.get(run.id)?.status ?? "") &&
+      Date.now() < deadline
+    )
+      await Bun.sleep(25);
+    expect(store.get(run.id)).toMatchObject({
+      status: "completed",
+      succeededCount: 1,
+    });
+    expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    database.close();
+  }
+});
+
+test("restart reconciliation rebuilds missing queue state from authoritative work", async () => {
+  const database = openDatabase(path.join(root, "rebuild-app.sqlite"));
+  migrateDatabase(database);
+  importScoutCompany(
+    {
+      id: "rebuild-company",
+      name: "Rebuild Company",
+      active: true,
+      sources: [
+        {
+          key: "official",
+          type: "json",
+          url: "https://careers.example.test/rebuild",
+          active: true,
+          method: "GET",
+          recordsPath: "jobs",
+          fields: { id: "id", title: "title", url: "url" },
+        },
+      ],
+    },
+    new SqliteScoutCompanyImportStore(database),
+  );
+  const store = new SqliteScoutRunStore(database);
+  const run = store.startOrReuse(20, 1, new Date().toISOString()).run;
+  const dispatcher = new ScoutRuntime(store, {
+    dataPath: path.join(root, "discarded-queue.sqlite"),
+    batchSize: 20,
+    concurrency: 1,
+  });
+  await dispatcher.dispatch();
+  await dispatcher.close();
+
+  let calls = 0;
+  const runtime = new ScoutRuntime(store, {
+    dataPath: path.join(root, "replacement-queue.sqlite"),
+    batchSize: 20,
+    concurrency: 1,
+    http: {
+      async request(input) {
+        calls++;
+        return {
+          status: 200,
+          url: input.url,
+          headers: {},
+          body: JSON.stringify({
+            jobs: [
+              {
+                id: "rebuilt-role",
+                title: "Rebuild Gardener",
+                url: "https://careers.example.test/rebuild/role",
+              },
+            ],
+          }),
+        };
+      },
+    },
+  });
+  try {
+    runtime.start();
+    const deadline = Date.now() + 5_000;
+    while (
+      ["queued", "running"].includes(store.get(run.id)?.status ?? "") &&
+      Date.now() < deadline
+    )
+      await Bun.sleep(25);
+    expect(store.get(run.id)).toMatchObject({
+      status: "completed",
+      succeededCount: 1,
+    });
+    expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    database.close();
+  }
+});
+
+test("restart reconciliation projects an exhausted queue job terminally", async () => {
+  const database = openDatabase(path.join(root, "exhausted-app.sqlite"));
+  migrateDatabase(database);
+  importScoutCompany(
+    {
+      id: "exhausted-company",
+      name: "Exhausted Company",
+      active: true,
+      sources: [
+        {
+          key: "official",
+          type: "json",
+          url: "https://careers.example.test/exhausted",
+          active: true,
+          method: "GET",
+          recordsPath: "jobs",
+          fields: { id: "id", title: "title", url: "url" },
+        },
+      ],
+    },
+    new SqliteScoutCompanyImportStore(database),
+  );
+  const store = new SqliteScoutRunStore(database);
+  const run = store.startOrReuse(20, 1, new Date().toISOString()).run;
+  const job = store.nonterminalJobs(1)[0]!;
+  const exhaustedQueuePath = path.join(root, "exhausted-queue.sqlite");
+  const queue = new Queue<ScoutCompanyJob>("gig-scout-companies", {
+    embedded: true,
+    dataPath: exhaustedQueuePath,
+  });
+  const worker = new Worker<ScoutCompanyJob>(
+    "gig-scout-companies",
+    async () => {
+      throw new Error("synthetic_exhaustion");
+    },
+    { embedded: true, dataPath: exhaustedQueuePath },
+  );
+  await queue.add("scan-company", job, {
+    jobId: `scout:${job.runCompanyId}`,
+    attempts: 1,
+    durable: true,
+  });
+  const deadline = Date.now() + 5_000;
+  while (
+    (await queue.getJobState(`scout:${job.runCompanyId}`)) !== "failed" &&
+    Date.now() < deadline
+  )
+    await Bun.sleep(25);
+  await worker.close();
+  await queue.close();
+
+  const runtime = new ScoutRuntime(store, {
+    dataPath: exhaustedQueuePath,
+    batchSize: 20,
+    concurrency: 1,
+  });
+  try {
+    await runtime.dispatch();
+    expect(store.get(run.id)).toMatchObject({
+      status: "failed",
+      failedCount: 1,
+    });
+  } finally {
+    await runtime.close();
+    database.close();
+  }
+});
 
 test("real embedded queue stalls the same long job when heartbeats are disabled", async () => {
   const queue = new Queue<{ marker: string }>("heartbeat-control", {

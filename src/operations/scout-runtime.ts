@@ -24,6 +24,7 @@ export class ScoutRuntime {
     { runId: string; runCompanyId: string; status: string }
   >;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private starting = false;
   private readonly logger?: ScoutLogger;
   constructor(
     private readonly store: ScoutRunStore,
@@ -276,34 +277,68 @@ export class ScoutRuntime {
     );
   }
   async dispatch() {
-    const jobs = this.store.pendingJobs(1000);
+    await this.queue.waitUntilReady();
+    const jobs = this.store.nonterminalJobs(1000);
     if (!jobs.length) return;
     const runIds = [...new Set(jobs.map((job) => job.runId))];
+    const existing = await Promise.all(
+      jobs.map(async (job) => ({
+        job,
+        queued: await this.queue.getJob(`scout:${job.runCompanyId}`),
+        state: await this.queue.getJobState(`scout:${job.runCompanyId}`),
+      })),
+    );
+    const exhausted = existing.filter(
+      ({ queued, state }) => queued !== null && state === "failed",
+    );
+    for (const { job, queued } of exhausted)
+      this.store.commitInfrastructureFailure(
+        job,
+        "worker_retry_exhausted",
+        queued?.failedReason ?? "Worker retry budget was exhausted.",
+        new Date().toISOString(),
+      );
+    const actionable = existing.filter(
+      ({ queued, state }) =>
+        !(queued !== null && state === "failed"),
+    );
+    const missingJobs = existing
+      .filter(({ queued, state }) => queued === null || state === "unknown")
+      .map(({ job }) => job);
     safeScoutLog(
       this.logger,
       "info",
-      { event: "scout.queue.dispatch_started", jobCount: jobs.length, runIds },
+      {
+        event: "scout.queue.dispatch_started",
+        jobCount: jobs.length,
+        existingJobCount: actionable.length - missingJobs.length,
+        newJobCount: missingJobs.length,
+        exhaustedJobCount: exhausted.length,
+        runIds,
+      },
       "Scout queue dispatch started",
     );
     try {
-      await this.queue.addBulk(
-        jobs.map((data) => ({
-          name: "scan-company",
-          data,
-          opts: {
-            jobId: `scout:${data.runCompanyId}`,
-            attempts: 3,
-            durable: true,
-          },
-        })),
-      );
+      if (missingJobs.length)
+        await this.queue.addBulk(
+          missingJobs.map((data) => ({
+            name: "scan-company",
+            data,
+            opts: {
+              jobId: `scout:${data.runCompanyId}`,
+              attempts: 3,
+              durable: true,
+            },
+          })),
+        );
+      await this.waitForQueuedJobs(missingJobs);
     } catch (error) {
       safeScoutLog(
         this.logger,
         "error",
         {
           event: "scout.queue.dispatch_failed",
-          jobCount: jobs.length,
+          jobCount: missingJobs.length,
           runIds,
           errorCode:
             error instanceof Error
@@ -321,63 +356,82 @@ export class ScoutRuntime {
     safeScoutLog(
       this.logger,
       "info",
-      { event: "scout.queue.dispatch_completed", jobCount: jobs.length, runIds },
+      {
+        event: "scout.queue.dispatch_completed",
+        jobCount: jobs.length,
+        existingJobCount: actionable.length - missingJobs.length,
+        newJobCount: missingJobs.length,
+        exhaustedJobCount: exhausted.length,
+        runIds,
+      },
       "Scout queue dispatch completed",
     );
   }
+  private async waitForQueuedJobs(jobs: ScoutCompanyJob[]) {
+    if (!jobs.length) return;
+    const deadline = Date.now() + 5_000;
+    let missing = jobs;
+    while (missing.length && Date.now() < deadline) {
+      missing = (
+        await Promise.all(
+          missing.map(async (job) => ({
+            job,
+            queued: await this.queue.getJob(`scout:${job.runCompanyId}`),
+          })),
+        )
+      )
+        .filter(({ queued }) => queued === null)
+        .map(({ job }) => job);
+      if (missing.length) await Bun.sleep(10);
+    }
+    if (missing.length) throw new Error("queue_dispatch_not_durable");
+  }
   start() {
-    if (this.timer) return;
+    if (this.timer || this.starting) return;
+    this.starting = true;
     safeScoutLog(
       this.logger,
       "info",
       { event: "scout.queue.startup_reconciliation_started" },
       "Scout queue startup reconciliation started",
     );
-    try {
-      this.store.recoverDispatch();
-    } catch (error) {
-      safeScoutLog(
-        this.logger,
-        "error",
-        {
-          event: "scout.queue.startup_reconciliation_failed",
-          errorCode:
-            error instanceof Error
-              ? sanitizedLogText(error.message).slice(0, 200)
-              : "unknown",
-        },
-        "Scout queue startup reconciliation failed",
-      );
-      throw error;
+    void this.bootstrap();
+  }
+  private async bootstrap() {
+    while (this.starting && !this.timer) {
+      try {
+        await this.dispatch();
+        safeScoutLog(
+          this.logger,
+          "info",
+          {
+            event: "scout.queue.startup_reconciliation_completed",
+            nonterminalJobCount: this.store.nonterminalJobs(1_000).length,
+          },
+          "Scout queue startup reconciliation completed",
+        );
+        this.worker.run();
+        this.starting = false;
+        this.timer = setInterval(
+          () => void this.dispatch().catch(() => undefined),
+          1000,
+        );
+      } catch (error) {
+        safeScoutLog(
+          this.logger,
+          "error",
+          {
+            event: "scout.queue.startup_reconciliation_failed",
+            errorCode:
+              error instanceof Error
+                ? sanitizedLogText(error.message).slice(0, 200)
+                : "unknown",
+          },
+          "Scout queue startup reconciliation failed",
+        );
+        await Bun.sleep(1_000);
+      }
     }
-    safeScoutLog(
-      this.logger,
-      "info",
-      { event: "scout.queue.startup_reconciliation_completed" },
-      "Scout queue startup reconciliation completed",
-    );
-    try {
-      this.worker.run();
-    } catch (error) {
-      safeScoutLog(
-        this.logger,
-        "error",
-        {
-          event: "scout.queue.worker_start_failed",
-          errorCode:
-            error instanceof Error
-              ? sanitizedLogText(error.message).slice(0, 200)
-              : "unknown",
-        },
-        "Scout queue worker failed to start",
-      );
-      throw error;
-    }
-    void this.dispatch().catch(() => undefined);
-    this.timer = setInterval(
-      () => void this.dispatch().catch(() => undefined),
-      1000,
-    );
   }
   async close() {
     safeScoutLog(
@@ -388,6 +442,7 @@ export class ScoutRuntime {
     );
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.starting = false;
     const closed = await Promise.allSettled([
       this.worker.close(),
       this.queue.close(),

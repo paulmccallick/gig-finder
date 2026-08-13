@@ -97,8 +97,8 @@ export interface ScoutRunStore {
   list(): ScoutRunSummary[];
   get(runId: string): ScoutRunDetail | null;
   pendingJobs(limit: number): ScoutCompanyJob[];
+  nonterminalJobs(limit: number): ScoutCompanyJob[];
   markDispatched(runCompanyIds: string[], now: string): void;
-  recoverDispatch(): void;
   commitResult(
     job: ScoutCompanyJob,
     result: CompanyScanResult,

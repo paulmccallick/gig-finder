@@ -159,9 +159,18 @@ export class SqliteScoutRunStore implements ScoutRunStore {
     };
   }
   pendingJobs(limit: number) {
+    return this.jobs(
+      `o.dispatch_status='pending' AND rc.status='queued'`,
+      limit,
+    );
+  }
+  nonterminalJobs(limit: number) {
+    return this.jobs(`rc.status='queued'`, limit);
+  }
+  private jobs(where: string, limit: number) {
     const rows = this.db
       .query(
-        `SELECT rc.run_id,rc.id run_company_id,rc.company_id,rc.company_configuration_id,r.search_profile_json,group_concat(s.settings_json,char(30)) settings FROM scout_run_companies rc JOIN scout_runs r ON r.id=rc.run_id JOIN scout_run_outbox o ON o.run_company_id=rc.id JOIN scout_company_configuration_sources s ON s.company_configuration_id=rc.company_configuration_id AND s.active=1 WHERE o.dispatch_status='pending' AND rc.status='queued' GROUP BY rc.id ORDER BY o.created_at,o.id LIMIT ?`,
+        `SELECT rc.run_id,rc.id run_company_id,rc.company_id,rc.company_configuration_id,r.search_profile_json,group_concat(s.settings_json,char(30)) settings FROM scout_run_companies rc JOIN scout_runs r ON r.id=rc.run_id JOIN scout_run_outbox o ON o.run_company_id=rc.id JOIN scout_company_configuration_sources s ON s.company_configuration_id=rc.company_configuration_id AND s.active=1 WHERE ${where} GROUP BY rc.id ORDER BY o.created_at,o.id LIMIT ?`,
       )
       .all(limit) as Array<{
       run_id: string;
@@ -187,13 +196,6 @@ export class SqliteScoutRunStore implements ScoutRunStore {
       `UPDATE scout_run_outbox SET dispatch_status='dispatched',dispatched_at=? WHERE run_company_id=? AND dispatch_status='pending'`,
     );
     this.db.transaction(() => ids.forEach((item) => update.run(now, item)))();
-  }
-  recoverDispatch() {
-    this.db
-      .query(
-        `UPDATE scout_run_outbox SET dispatch_status='pending',dispatched_at=NULL WHERE run_company_id IN (SELECT id FROM scout_run_companies WHERE status='queued')`,
-      )
-      .run();
   }
   private finalize(runId: string, now: string) {
     const counts = this.db
