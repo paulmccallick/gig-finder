@@ -159,6 +159,41 @@ export const scoutSearchProfileSchema = z
   .strict()
   .default({ terms: [], locations: [] });
 
+export const defaultScoutSearchProfile = Object.freeze({
+  terms: Object.freeze([
+    "Director",
+    "Senior Director",
+    "Sr. Director",
+    "Senior Vice President",
+    "SVP",
+    "Vice President",
+    "VP Engineering",
+    "Head of Engineering",
+    "Head of Technology",
+  ]),
+  locations: Object.freeze([
+    "Seattle",
+    "Bellevue",
+    "Redmond",
+    "Remote",
+    "Washington",
+  ]),
+});
+
+export function resolveScoutSearchProfile(
+  profile?: Partial<ScoutSearchProfile>,
+): ScoutSearchProfile {
+  const parsed = scoutSearchProfileSchema.parse(profile ?? {});
+  return {
+    terms: parsed.terms.length
+      ? [...parsed.terms]
+      : [...defaultScoutSearchProfile.terms],
+    locations: parsed.locations.length
+      ? [...parsed.locations]
+      : [...defaultScoutSearchProfile.locations],
+  };
+}
+
 export const companyScanRequestSchema = z
   .object({
     companyId: z.string().trim().min(1).max(100),

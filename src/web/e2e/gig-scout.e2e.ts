@@ -18,8 +18,18 @@ test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   await expect(
     page.getByRole("heading", { name: "Gig Scout", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Search terms").fill("synthetic systems, orchard");
-  await page.getByLabel("Search locations").fill("Synthetic Region");
+  await expect(page.getByLabel("Search terms", { exact: true })).toHaveValue(
+    /Director/,
+  );
+  await expect(
+    page.getByLabel("Search locations", { exact: true }),
+  ).toHaveValue(/Seattle/);
+  await page
+    .getByLabel("Search terms", { exact: true })
+    .fill("synthetic systems, orchard");
+  await page
+    .getByLabel("Search locations", { exact: true })
+    .fill("Synthetic Region");
   await page.getByRole("button", { name: "Start full scan" }).click();
   expect(submittedProfile).toEqual({
     searchProfile: {
@@ -28,6 +38,12 @@ test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
     },
   });
   await expect(page.getByRole("status")).toContainText("completed");
+  await expect(page.getByLabel("Run search profile")).toContainText(
+    "synthetic systems",
+  );
+  await expect(page.getByLabel("Run search profile")).toContainText(
+    "Synthetic Region",
+  );
   await page.getByRole("button", { name: /Opportunities/ }).click();
   await page.getByRole("button", { name: /Gig Scout/ }).click();
   await expect(

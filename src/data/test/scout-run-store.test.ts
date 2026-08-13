@@ -49,6 +49,8 @@ test("a run-owned search profile is dispatched uniformly without changing compan
     terms: ["synthetic specialty"],
     locations: ["Synthetic Region"],
   });
+  expect(store.list()[0]?.searchProfile).toEqual(job.searchProfile);
+  expect(store.get(job.runId)?.searchProfile).toEqual(job.searchProfile);
   expect(job.sources[0]).not.toHaveProperty("searchTerms");
   expect(job.sources[0]).not.toHaveProperty("maxPages");
 });

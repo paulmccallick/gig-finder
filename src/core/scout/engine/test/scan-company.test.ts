@@ -6,6 +6,84 @@ import {
 } from "..";
 
 describe("scanCompany", () => {
+  test("applies one title-and-location profile after JSON and DOM normalization", async () => {
+    const profile = { terms: ["DIRECTOR", "Head of Technology"], locations: ["remote", "Seattle"] };
+    const result = await scanCompany(
+      {
+        companyId: "synthetic-company",
+        configurationVersionId: "synthetic-config",
+        searchProfile: profile,
+        sources: [
+          {
+            key: "structured",
+            type: "json",
+            url: "https://careers.example.test/api/jobs",
+            active: true,
+            method: "GET",
+            recordsPath: "jobs",
+            fields: { id: "id", title: "title", url: "url", location: "location" },
+          },
+          {
+            key: "markup",
+            type: "html",
+            url: "https://careers.example.test/jobs",
+            active: true,
+            listingSelector: ".posting",
+            titleField: { selector: ".title" },
+            urlField: { selector: "a", attribute: "href" },
+            locationField: { selector: ".location" },
+            listingSurfaceSelector: "main",
+          },
+        ],
+      },
+      {
+        http: {
+          async request(input) {
+            if (input.url.includes("/api/"))
+              return {
+                status: 200,
+                url: input.url,
+                headers: {},
+                body: JSON.stringify({ jobs: [
+                  { id: "json-match", title: "Senior Director, Platforms", location: "Fully Remote", url: "/jobs/json-match" },
+                  { id: "json-title-miss", title: "Staff Engineer", location: "Seattle, WA", url: "/jobs/json-title-miss" },
+                  { id: "json-location-miss", title: "Director of Engineering", location: "Synthetic Region", url: "/jobs/json-location-miss" },
+                  { id: "json-null-location", title: "Director of Technology", location: null, url: "/jobs/json-null-location" },
+                ] }),
+              };
+            return {
+              status: 200,
+              url: input.url,
+              headers: {},
+              body: `<main>
+                <article class="posting"><span class="title">Head of   Technology</span><span class="location">SEATTLE, Washington</span><a href="/jobs/dom-match">Open</a></article>
+                <article class="posting"><span class="title">Product Manager</span><span class="location">Remote</span><a href="/jobs/dom-title-miss">Open</a></article>
+                <article class="posting"><span class="title">Vice President</span><span class="location">Synthetic Region</span><a href="/jobs/dom-location-miss">Open</a></article>
+              </main>`,
+            };
+          },
+        },
+      },
+    );
+
+    expect(result.positions.map((position) => position.externalId)).toEqual([
+      "json-match",
+      null,
+    ]);
+    for (const source of result.sources) {
+      const attempt = source.attempts[0]!;
+      expect(attempt.recordsEvaluated).toBe(attempt.recordsReceived);
+      expect(attempt.acceptedCount + attempt.rejectedCount).toBe(
+        attempt.recordsReceived ?? 0,
+      );
+      expect(attempt.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "profile_title_mismatch" }),
+          expect.objectContaining({ code: "profile_location_mismatch" }),
+        ]),
+      );
+    }
+  });
   test("generic JSON can acquire a root-array listing surface", async () => {
     const result = await scanCompany(
       {

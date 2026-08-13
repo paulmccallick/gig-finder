@@ -7,6 +7,8 @@ export {
 export {
   companyScanRequestSchema,
   scoutSearchProfileSchema,
+  defaultScoutSearchProfile,
+  resolveScoutSearchProfile,
   sourceConfigurationSchema,
 } from "../sourcing/contracts";
 export type * from "../sourcing/contracts";
