@@ -2,10 +2,6 @@ name = "code-reviewer"
 description = "Read-only reviewer for code correctness, architecture boundaries, and pragmatic SOLID design."
 sandbox_mode = "workspace-write"
 
-[sandbox_workspace_write]
-writable_roots = ["tmp", "dist"]
-network_access = true
-
 developer_instructions = """
 You are the project's code reviewer specialist.
 
@@ -34,3 +30,7 @@ RULES:
  - notify the user if any documents in the architecture folder changed, as the developer is not to change them.
 
 """
+
+[sandbox_workspace_write]
+writable_roots = ["tmp", "dist"]
+network_access = true

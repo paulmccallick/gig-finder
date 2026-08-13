@@ -26,3 +26,30 @@ Environment variables override file configuration:
 
 Paths supplied as environment overrides may be absolute. `profileDocuments` in
 `config.json` must remain beneath the context root. Invalid values fail startup.
+
+Gig Scout company/source settings are private immutable database versions, not
+application defaults. They own one authoritative source URL, reusable JSON template selection,
+and narrowly validated tenant mechanics. The direct `bun run scout:source` troubleshooting
+harness reads a private import-format config, requires an ignored output path,
+and can select one company/source or an adapter canary set without opening the
+application database, web API, or BunQueue.
+Scout has two top-level source methods: JSON and DOM HTML. Reusable JSON
+configuration templates own public vendor mechanics such as Workday or Greenhouse; unique
+JSON configuration supplies paths for a single endpoint schema.
+Server-rendered HTML sources use private CSS selectors for the listing surface,
+listing nodes, title and detail URL fields, optional metadata, explicit empty
+state, and next-page link. Generic JSON sources can select JSON from a
+server-returned HTML script envelope before applying the same record paths.
+JavaScript-only shells without an official structured feed are unsupported,
+not verified empty.
+Imports require exactly one active authoritative listing source per company.
+Changing that selection appends an immutable configuration version, preserving
+historical run references while removing duplicate search, fallback, stale, or
+detail-page sources from future runs.
+
+Search terms and locations belong to the private search profile captured with
+each run and are passed uniformly to every source. Reusable template definitions
+own page size and exhaustion semantics. Runtime policy owns hard request, page,
+record, response-size, retry, and duration ceilings. A scan continues until the
+source proves exhaustion; reaching a ceiling first produces an explicit
+`source_limit_reached` incomplete outcome.

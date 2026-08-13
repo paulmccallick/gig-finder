@@ -54,6 +54,9 @@ flowchart LR
 - [ADR 0009: Keep personal data out of source control](decisions/0009-keep-personal-data-out-of-source-control.md) prohibits private job-search records in tracked files and requires synthetic fixtures.
 - [ADR 0010: Use BunQueue for durable background work](decisions/0010-use-bunqueue-for-background-work.md) runs long-lived Gig Scout scans outside request and browser lifetimes while keeping GigFinder state authoritative.
 - [ADR 0011: Use uniform source adapters for Scout](decisions/0011-use-uniform-source-adapters-for-scout.md) gives every source acquisition method one adapter lifecycle with consistent reconciliation, pagination evidence, and private configuration boundaries.
+- [ADR 0012: Use templates for reusable JSON sources](decisions/0012-use-templates-for-reusable-json-sources.md) replaces repeated platform adapters with validated shared configuration and narrowly scoped procedural hooks.
+- [ADR 0013: Allow private application data in local logs](decisions/0013-allow-private-data-in-local-logs.md) permits diagnostic profile and company data in private local logs while excluding authentication secrets and tracked artifacts.
 
-Runtime settings are documented in [Configuration](configuration.md). Production
-layout and procedures are documented in the [Deployment runbook](deployment-runbook.md).
+Runtime settings are documented in [Configuration](configuration.md), environment
+roles in [Infrastructure environments](infrastructure.md), and production layout
+and procedures in the [Deployment runbook](deployment-runbook.md).

@@ -40,10 +40,19 @@ restart behavior against GigFinder's Bun version before release.
   `running` state to the GigFinder database. Retry exhaustion is projected into
   a terminal, operator-visible company and run outcome before queue state may
   be discarded, so reconstruction cannot silently reset the retry budget.
+- Embedded workers use BunQueue's heartbeat-backed stall detection without
+  token locks. BunQueue's embedded pull path does not honor a configured lock
+  duration, so its short default token can expire during a valid bounded
+  company scan and crash the acknowledgement path.
 - GigFinder's database remains authoritative for run identity, configuration
   versions, durable progress, diagnostics, and terminal outcomes. Description
   content is written to its private artifact store and referenced by database
   metadata.
+- Every source attempt persists a reconciliation funnel covering the source's
+  reported total when available, received and parsed records, evaluable and
+  evaluated records, accepted and reason-grouped rejected records, validated
+  pages, and distinct identities contributed by each page. Non-reconciling
+  counts and replayed pagination are failures, never verified empty results.
 - A durable database outbox and deterministic job identifiers bridge run
   creation to queue submission. The run, run-company records, immutable
   configuration references, and outbox rows are committed in one transaction.
