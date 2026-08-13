@@ -449,7 +449,7 @@ export class ScoutRuntime {
     await this.bootstrapPromise;
     this.bootstrapPromise = null;
     const closed = await Promise.allSettled([
-      this.worker.close(),
+      this.worker.close(true),
       this.queue.close(),
     ]);
     const failures = closed.filter(
