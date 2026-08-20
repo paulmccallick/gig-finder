@@ -70,17 +70,10 @@ CREATE INDEX scout_position_outbox_pending_idx ON scout_position_processing_outb
 CREATE TABLE scout_position_backfill (
   name text PRIMARY KEY,
   last_position_id text,
+  gig_identity_signature text,
   completed_at text,
   updated_at text NOT NULL
 );
---> statement-breakpoint
-CREATE TRIGGER scout_position_backfill_gig_insert AFTER INSERT ON gigs BEGIN
-  UPDATE scout_position_backfill SET last_position_id=NULL,completed_at=NULL,updated_at=NEW.updated_at WHERE name='reconcile_gig';
-END;
---> statement-breakpoint
-CREATE TRIGGER scout_position_backfill_gig_identity_update AFTER UPDATE OF company,external_job_id,source_url,is_deleted ON gigs BEGIN
-  UPDATE scout_position_backfill SET last_position_id=NULL,completed_at=NULL,updated_at=NEW.updated_at WHERE name='reconcile_gig';
-END;
 --> statement-breakpoint
 CREATE TABLE scout_gig_availability_history (
   history_id integer PRIMARY KEY AUTOINCREMENT,
