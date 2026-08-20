@@ -198,3 +198,15 @@ test("partial source outcomes roll up explicitly", () => {
   expect(store.get(run.id)?.status).toBe("partial");
   expect(store.get(run.id)?.companies[0]?.status).toBe("partial");
 });
+
+test("Gig identity changes restart an incomplete bounded position backfill",()=>{
+  const store=setup(),database=databases.at(-1)!;
+  const insert=database.query(`INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,external_id,canonical_url,title,first_seen_at,last_seen_at) VALUES(?,'company-1','official','external_id',?,?,?,'Synthetic Role','2026-01-01','2026-01-01')`);
+  insert.run("position-a","external-a","external-a","https://careers.example.test/a");
+  insert.run("position-b","external-b","external-b","https://careers.example.test/b");
+  expect(store.backfillPositions(1,"2026-01-01T00:00:00Z")).toEqual({created:1,complete:false});
+  database.query(`INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-a','Example Company','Synthetic Role','external-a','identified','pending','Tracked','2026-01-01','good','[]',0,0,1,0,'2026-01-01','2026-01-01')`).run();
+  expect(store.backfillPositions(1,"2026-01-01T00:00:01Z")).toEqual({created:1,complete:false});
+  const current=store.pendingPositionJobs(10).filter(job=>job.positionId==="position-a");
+  expect(current).toHaveLength(1);
+});
