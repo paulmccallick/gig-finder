@@ -6,6 +6,7 @@ import { WebRequestError, type AgentApi } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";
 import type { ReadableDocument } from "../core/document-reader";
 import type { ScoutRunService } from "../core/scout/engine/runs";
+import type {ScoutPositionService} from "../core/scout/engine/positions";
 
 const agentIdleTimeoutSeconds = 120;
 const documentUploadTimeoutSeconds = 60;
@@ -25,6 +26,7 @@ export interface WebHandlerDependencies {
   };
   staticFiles?: StaticFileHandler;
   scout?: ScoutRunService;
+  scoutPositions?:ScoutPositionService;
   importScoutCompany?(value:unknown):{created:number;unchanged:number;versioned:number;rejected:number};
 }
 
@@ -120,7 +122,7 @@ async function updateAgentModel(
   return gigFinder.settings.setAgentModel(modelId);
 }
 
-export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStagedDocument,requestLogger,healthCheck,staticFiles,scout,importScoutCompany}:WebHandlerDependencies) {
+export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStagedDocument,requestLogger,healthCheck,staticFiles,scout,scoutPositions,importScoutCompany}:WebHandlerDependencies) {
   return async function fetch(request:Request,server:RequestTimeoutController) {
     const startedAt = performance.now();
     const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
@@ -214,6 +216,12 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
             : json({ error: "Method not allowed" }, 405);
       } else if (url.pathname === "/api/gig-scout/companies") {
         if(request.method!=="POST")response=json({error:"Method not allowed"},405);else if(!importScoutCompany)response=json({error:"Gig Scout unavailable"},503);else{let body:unknown;try{body=await request.json();}catch{throw new WebRequestError("Request body must be valid JSON.",400);}const report=importScoutCompany(body);response=report.rejected?json(report,400):json(report,report.created||report.versioned?201:200);}
+      } else if(url.pathname==="/api/gig-scout/positions"){
+        response=!scoutPositions?json({error:"Gig Scout unavailable"},503):request.method!=="GET"?json({error:"Method not allowed"},405):json(scoutPositions.list({text:url.searchParams.get("text")??undefined,company:url.searchParams.get("company")??undefined,state:url.searchParams.get("state")??undefined,sort:url.searchParams.get("sort")??undefined,direction:(url.searchParams.get("direction")??undefined) as "asc"|"desc"|undefined,offset:Number(url.searchParams.get("offset")??0),limit:Number(url.searchParams.get("limit")??20)}));
+      } else if(url.pathname==="/api/gig-scout/positions/backfill"){
+        response=!scoutPositions?json({error:"Gig Scout unavailable"},503):request.method!=="POST"?json({error:"Method not allowed"},405):json(scoutPositions.backfill(Number(url.searchParams.get("limit")??100)),202);
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+$/)){
+        const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const position=scoutPositions?.get(positionId);response=request.method!=="GET"?json({error:"Method not allowed"},405):position?json(position):json({error:"Scout position not found"},404);
       } else if (url.pathname === "/api/gig-scout/runs") {
         if (!scout) {
           response = json({ error: "Gig Scout unavailable" }, 503);

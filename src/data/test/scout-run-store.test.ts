@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { openDatabase, migrateDatabase } from "../database";
 import { SqliteScoutCompanyImportStore } from "../scout-company-import-store";
 import { SqliteScoutRunStore } from "../scout-run-store";
+import {DataStore} from "../store";
 import { importScoutCompany } from "../../core/scout/engine/company-import";
 const databases: ReturnType<typeof openDatabase>[] = [];
 afterEach(() => databases.splice(0).forEach((db) => db.close()));
@@ -139,6 +140,21 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
   expect(store.positions(run.id, { offset: 0, limit: 20 }).items).toHaveLength(
     1,
   );
+  expect(store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20})).toMatchObject({total:1,counts:{actionable:1,processing:1}});
+  const processing=store.pendingPositionJobs(20);
+  expect(processing).toHaveLength(1);
+  store.reconcileGig(processing[0]!,"2026-01-01T00:00:03Z");
+  expect(store.pendingPositionJobs(20)).toHaveLength(0);
+  expect(store.backfillPositions(20,"2026-01-01T00:00:04Z")).toEqual({created:0,complete:true});
+  expect(store.backfillPositions(20,"2026-01-01T00:00:04.500Z")).toEqual({created:0,complete:true});
+  const position=store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).items[0]!;
+  expect(store.positionDetail(position.id)?.observations).toHaveLength(1);
+  expect(store.workspace({text:"does not match",state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).counts).toEqual({actionable:0,processing:0,needs_user_review:0,irrelevant:0,deferred:0});
+  new DataStore(databases.at(-1)!).change({actor:"Synthetic test",source:"test",summary:"Create exact Gig"},transaction=>transaction.gigs.create({id:"gig-exact",company:"Example Company",title:"Systems Gardener",externalJobId:"role-1",stage:"identified",outcome:"pending",statusSummary:"Tracked",lastActivity:"2026-01-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false}));
+  expect(store.backfillPositions(20,"2026-01-01T00:00:05Z")).toEqual({created:1,complete:true});
+  store.reconcileGig(store.pendingPositionJobs(20)[0]!,"2026-01-01T00:00:06Z");
+  expect(store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).total).toBe(0);
+  expect(databases.at(-1)!.query("SELECT state,linked_gig_id linkedGigId,revision FROM scout_position_states WHERE position_id=?").get(position.id)).toEqual({state:"promoted",linkedGigId:"gig-exact",revision:2});
 });
 test("partial source outcomes roll up explicitly", () => {
   const store = setup();
@@ -181,4 +197,16 @@ test("partial source outcomes roll up explicitly", () => {
   );
   expect(store.get(run.id)?.status).toBe("partial");
   expect(store.get(run.id)?.companies[0]?.status).toBe("partial");
+});
+
+test("Gig identity changes restart an incomplete bounded position backfill",()=>{
+  const store=setup(),database=databases.at(-1)!;
+  const insert=database.query(`INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,external_id,canonical_url,title,first_seen_at,last_seen_at) VALUES(?,'company-1','official','external_id',?,?,?,'Synthetic Role','2026-01-01','2026-01-01')`);
+  insert.run("position-a","external-a","external-a","https://careers.example.test/a");
+  insert.run("position-b","external-b","external-b","https://careers.example.test/b");
+  expect(store.backfillPositions(1,"2026-01-01T00:00:00Z")).toEqual({created:1,complete:false});
+  database.query(`INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-a','Example Company','Synthetic Role','external-a','identified','pending','Tracked','2026-01-01','good','[]',0,0,1,0,'2026-01-01','2026-01-01')`).run();
+  expect(store.backfillPositions(1,"2026-01-01T00:00:01Z")).toEqual({created:1,complete:false});
+  const current=store.pendingPositionJobs(10).filter(job=>job.positionId==="position-a");
+  expect(current).toHaveLength(1);
 });

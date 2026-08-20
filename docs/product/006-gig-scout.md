@@ -43,3 +43,13 @@
 - **UX/UI Impact**: Gig Scout provides one launch point, durable run status, paged results, and actionable diagnostics rather than a synchronous scrape response.
 - **Data Model Changes**: None; this requirement describes existing run, company, position, artifact, configuration-version, and reconciliation records.
 - **Performance Targets**: Scans run outside request lifetime with bounded per-source work and host-safe concurrency; interactive progress reads remain responsive.
+
+## 🔭 Planned position-processing extension
+
+Issue #120 extends Scout without changing its existing logical-position
+identity or observation deduplication. Company jobs will continue to discover
+and persist official-source results. Durable processing of each logical
+position will run independently so later Gig reconciliation, description
+retrieval, and agent screening do not repeat per observation or delay company
+completion. [ADR 0014](../architecture/decisions/0014-separate-scout-discovery-from-position-processing.md)
+defines the proposed execution and state boundary.

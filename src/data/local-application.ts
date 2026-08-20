@@ -12,6 +12,7 @@ import { validateDatabase } from "./maintenance";
 import { SqliteConversationRepository } from "./conversation-store";
 import { SqliteScoutRunStore } from "./scout-run-store";
 import { ScoutRunService } from "../core/scout/engine/runs";
+import { ScoutPositionService } from "../core/scout/engine/positions";
 import { SqliteScoutCompanyImportStore } from "./scout-company-import-store";
 
 export interface LocalApplicationPaths { database: string; artifacts: string; profileDocuments?: string; scoutDescriptions?:string }
@@ -31,11 +32,13 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
     options.onProfileDocumentMaterializationFailure,
   );
   store.synchronizeProfileDocuments();
+  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions);
   return {
     application:new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId),
     conversations:new SqliteConversationRepository(database),
-    scout:new ScoutRunService(new SqliteScoutRunStore(database,paths.scoutDescriptions),options.scoutDefaults),
-    scoutStore:new SqliteScoutRunStore(database,paths.scoutDescriptions),
+    scout:new ScoutRunService(scoutStore,options.scoutDefaults),
+    scoutPositions:new ScoutPositionService(scoutStore),
+    scoutStore,
     scoutCompanyImportStore:new SqliteScoutCompanyImportStore(database),
     validate:()=>validateDatabase(database),
     close:()=>database.close(),

@@ -13,3 +13,4 @@ export {
 } from "../sourcing/contracts";
 export type * from "../sourcing/contracts";
 export type * from "../sourcing/ports";
+export * from "./positions";
