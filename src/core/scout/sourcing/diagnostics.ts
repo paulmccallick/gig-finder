@@ -2,16 +2,44 @@ import type {
   NormalizedPosition,
   SourceDiagnostic,
   SourceOutcomeStatus,
+  ScoutSearchProfile,
 } from "./contracts";
+
+const normalizeMatchText = (value: string) =>
+  value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+
+export function positionMatchesSearchProfile(
+  position: Pick<NormalizedPosition, "title" | "location">,
+  profile: ScoutSearchProfile,
+) {
+  const title = normalizeMatchText(position.title);
+  const location = position.location
+    ? normalizeMatchText(position.location)
+    : null;
+  return {
+    title: profile.terms.length
+      ? profile.terms.some((term) => title.includes(normalizeMatchText(term)))
+      : true,
+    location: profile.locations.length
+      ? location !== null &&
+        profile.locations.some((item) =>
+          location.includes(normalizeMatchText(item)),
+        )
+      : true,
+  };
+}
 export function validatePositions(
   positions: NormalizedPosition[],
   surfaceVerified: boolean,
+  searchProfile: ScoutSearchProfile = { terms: [], locations: [] },
 ) {
   const accepted: NormalizedPosition[] = [];
   const seen = new Set<string>();
   let duplicateIdentities = 0;
   let invalidTitles = 0;
   let invalidUrls = 0;
+  let titleMismatches = 0;
+  let locationMismatches = 0;
   const rejectedPositions: Array<{
     position: NormalizedPosition;
     code: string;
@@ -46,6 +74,24 @@ export function validatePositions(
       });
       continue;
     }
+    const profileMatch = positionMatchesSearchProfile(position, searchProfile);
+    if (!profileMatch.title) {
+      titleMismatches++;
+      rejectedPositions.push({
+        position,
+        code: "profile_title_mismatch",
+        message: "Candidate title did not match the run search profile.",
+      });
+    }
+    if (!profileMatch.location) {
+      locationMismatches++;
+      rejectedPositions.push({
+        position,
+        code: "profile_location_mismatch",
+        message: "Candidate location did not match the run search profile.",
+      });
+    }
+    if (!profileMatch.title || !profileMatch.location) continue;
     seen.add(identity);
     accepted.push(position);
   }
@@ -71,7 +117,22 @@ export function validatePositions(
       count: invalidUrls,
       message: "Candidates did not provide an HTTPS official detail URL.",
     });
-  const rejected = duplicateIdentities + invalidTitles + invalidUrls;
+  if (titleMismatches)
+    diagnostics.push({
+      code: "profile_title_mismatch",
+      category: "validation",
+      count: titleMismatches,
+      message: "Candidate titles did not match the run search profile.",
+    });
+  if (locationMismatches)
+    diagnostics.push({
+      code: "profile_location_mismatch",
+      category: "validation",
+      count: locationMismatches,
+      message: "Candidate locations did not match the run search profile.",
+    });
+  const rejected = new Set(rejectedPositions.map(({ position }) => position))
+    .size;
   let status: SourceOutcomeStatus = accepted.length
     ? invalidTitles + invalidUrls
       ? "partial"

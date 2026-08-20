@@ -135,6 +135,18 @@ export class ScoutRuntime {
                   (sum, attempt) => sum + attempt.rejectedCount,
                   0,
                 ),
+                profileRejections: source.attempts.reduce(
+                  (counts, attempt) => {
+                    for (const diagnostic of attempt.diagnostics) {
+                      if (diagnostic.code === "profile_title_mismatch")
+                        counts.title += diagnostic.count;
+                      if (diagnostic.code === "profile_location_mismatch")
+                        counts.location += diagnostic.count;
+                    }
+                    return counts;
+                  },
+                  { title: 0, location: 0 },
+                ),
                 diagnosticCodes: [
                   ...new Set(
                     source.attempts.flatMap((attempt) =>

@@ -53,3 +53,20 @@ own page size and exhaustion semantics. Runtime policy owns hard request, page,
 record, response-size, retry, and duration ceilings. A scan continues until the
 source proves exhaustion; reaching a ceiling first produces an explicit
 `source_limit_reached` incomplete outcome.
+
+As a temporary application-level exception, a full Scout run resolves an
+omitted or empty title-term dimension to Director, Senior Director, Sr.
+Director, Senior Vice President, SVP, Vice President, VP Engineering, Head of
+Engineering, and Head of Technology. It resolves an omitted or empty location
+dimension to Seattle, Bellevue, Redmond, Remote, and Washington. A non-empty
+explicit dimension replaces its defaults. Scout persists the resolved profile
+as the run's immutable snapshot and dispatches it uniformly; these values do
+not enter company configurations or reusable templates.
+
+After JSON or DOM normalization, the common sourcing validation path applies
+the captured profile case-insensitively. Terms are ORed within the title
+dimension, locations are ORed within the location dimension, and both
+dimensions must match. Nonmatching candidates remain evaluated rejections with
+profile-title or profile-location diagnostics so reconciliation stays
+balanced. Template-side search parameters remain acquisition optimizations,
+not the enforcement boundary.

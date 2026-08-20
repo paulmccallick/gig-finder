@@ -28,6 +28,7 @@ const summary = (row: Record<string, unknown>): ScoutRunSummary => ({
   companyCount: Number(row.company_count),
   succeededCount: Number(row.succeeded_count),
   failedCount: Number(row.failed_count),
+  searchProfile: JSON.parse(String(row.search_profile_json)),
 });
 export class SqliteScoutRunStore implements ScoutRunStore {
   constructor(
