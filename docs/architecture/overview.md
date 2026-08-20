@@ -56,7 +56,7 @@ flowchart LR
 - [ADR 0011: Use uniform source adapters for Scout](decisions/0011-use-uniform-source-adapters-for-scout.md) gives every source acquisition method one adapter lifecycle with consistent reconciliation, pagination evidence, and private configuration boundaries.
 - [ADR 0012: Use templates for reusable JSON sources](decisions/0012-use-templates-for-reusable-json-sources.md) replaces repeated platform adapters with validated shared configuration and narrowly scoped procedural hooks.
 - [ADR 0013: Allow private application data in local logs](decisions/0013-allow-private-data-in-local-logs.md) permits diagnostic profile and company data in private local logs while excluding authentication secrets and tracked artifacts.
-- [ADR 0014: Separate Scout discovery from position processing](decisions/0014-separate-scout-discovery-from-position-processing.md) proposes retaining company scans as the discovery boundary while durable logical-position stages run independently with database-authoritative progress.
+- [ADR 0014: Separate Scout discovery from position processing](decisions/0014-separate-scout-discovery-from-position-processing.md) retains company scans as the discovery boundary while durable logical-position stages run independently with database-authoritative progress.
 
 Runtime settings are documented in [Configuration](configuration.md), environment
 roles in [Infrastructure environments](infrastructure.md), and production layout

@@ -1,6 +1,6 @@
 # ADR 0014: Separate Scout discovery from position processing
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-20
 
 ## Context
