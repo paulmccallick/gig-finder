@@ -23,6 +23,7 @@ import { createDocumentUploadHandler } from "./document-upload-handler";
 import { createWebHandler } from "./request-handler";
 import { createStaticFileHandler } from "./static-files";
 import { ScoutRuntime } from "../operations/scout-runtime";
+import {ScoutPositionRuntime} from "../operations/scout-position-runtime";
 import { importScoutCompany } from "../core/scout/engine/company-import";
 import { scoutTemplateCatalog } from "../operations/scout-template-catalog";
 
@@ -194,6 +195,8 @@ export async function createWebApplication(configuration: WebConfiguration) {
     logger: logging.logger,
   });
   scoutRuntime.start();
+  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
+  scoutPositionRuntime.start();
   const stagedDocuments = new StagedDocumentService(configuration.staging);
   const uploadHandler = createDocumentUploadHandler(
     new LocalDocumentConverter(configuration.uploads),
@@ -257,6 +260,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
       ? createStaticFileHandler(configuration.server.staticRoot)
       : undefined,
     scout: local.scout,
+    scoutPositions:local.scoutPositions,
     importScoutCompany: value => importScoutCompany(
       value,
       local.scoutCompanyImportStore,
@@ -273,6 +277,6 @@ export async function createWebApplication(configuration: WebConfiguration) {
       aiSdkDevTools,
     },
     maxRequestBodySize: configuration.uploads.maxBytes + 1_000_000,
-    close: async()=>{await scoutRuntime.close();local.close();},
+    close: async()=>{await scoutRuntime.close();await scoutPositionRuntime.close();local.close();},
   };
 }

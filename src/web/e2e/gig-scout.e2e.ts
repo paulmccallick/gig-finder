@@ -18,6 +18,9 @@ test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   await expect(
     page.getByRole("heading", { name: "Gig Scout", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Positions",exact:true})).toBeVisible();
+  await expect(page.getByText("No positions match the active filters.")).toBeVisible();
+  await page.getByRole("button",{name:"Run history"}).click();
   await expect(page.getByLabel("Search terms", { exact: true })).toHaveValue(
     /Director/,
   );
@@ -46,6 +49,7 @@ test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   );
   await page.getByRole("button", { name: /Opportunities/ }).click();
   await page.getByRole("button", { name: /Gig Scout/ }).click();
+  await page.getByRole("button",{name:"Run history"}).click();
   await expect(
     page.getByText("No positions were observed for this run."),
   ).toBeVisible();
