@@ -36,7 +36,8 @@ flowchart LR
   adapters.
 - `src/cli/` translates commands and flags into the same core contracts used by
   other clients.
-- `src/operations/` contains operator-facing database and deployment programs.
+- `src/operations/` coordinates queue runtimes, recovery, maintenance, and
+  deployment without owning business logic.
 - `src/core/scout` is the persistence-neutral official-source scanner. Uses bunqueue for offline processing
 - `src/web/app.ts` and `src/cli/app.ts` are composition roots; only composition
   roots construct concrete data adapters.
@@ -57,6 +58,7 @@ flowchart LR
 - [ADR 0012: Use templates for reusable JSON sources](decisions/0012-use-templates-for-reusable-json-sources.md) replaces repeated platform adapters with validated shared configuration and narrowly scoped procedural hooks.
 - [ADR 0013: Allow private application data in local logs](decisions/0013-allow-private-data-in-local-logs.md) permits diagnostic profile and company data in private local logs while excluding authentication secrets and tracked artifacts.
 - [ADR 0014: Separate Scout discovery from position processing](decisions/0014-separate-scout-discovery-from-position-processing.md) retains company scans as the discovery boundary while durable logical-position stages run independently with database-authoritative progress.
+- [ADR 0015: Keep business logic out of operations](decisions/0015-keep-business-logic-out-of-operations.md) keeps queue and process coordination separate from domain decisions.
 
 Runtime settings are documented in [Configuration](configuration.md), environment
 roles in [Infrastructure environments](infrastructure.md), and production layout
