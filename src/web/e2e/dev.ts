@@ -8,13 +8,36 @@ import type {
   TaskData,
 } from "../../core/models";
 import type { ManagedDocumentData } from "../../core/documents";
-import { DataStore, migrateDatabase, openDatabase } from "../../data";
+import { importScoutCompany } from "../../core/scout/engine/company-import";
+import {
+  DataStore,
+  migrateDatabase,
+  openDatabase,
+  SqliteScoutCompanyImportStore,
+} from "../../data";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 const contextRoot = path.join(repoRoot, "tmp", "e2e-context");
 const databasePath = path.join(contextRoot, "data", "gig-finder.sqlite");
 const apiPort = "3002";
 const clientPort = "5174";
+const scoutSourcePort = 3003;
+const scoutSourceKey = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg8WFHpiCviUJgtqZB
+WT8mWSYBgemULzdbj6KacLkOXnKhRANCAASZyVRLZ5AXijf6UjaAhEpCsI/5mS9e
+KMzvzFmFKdOicPofPBaf3erOxYGOfnpqMNFl392/YRel0++Qgh48rGoR
+-----END PRIVATE KEY-----`;
+const scoutSourceCertificate = `-----BEGIN CERTIFICATE-----
+MIIBjTCCATSgAwIBAgIUI4+SHwu+Ve4Wm2I8y4JR/8SgINgwCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJMTI3LjAuMC4xMB4XDTI2MDgyMDE4NTQzNVoXDTM2MDgxNzE4
+NTQzNVowFDESMBAGA1UEAwwJMTI3LjAuMC4xMFkwEwYHKoZIzj0CAQYIKoZIzj0D
+AQcDQgAEmclUS2eQF4o3+lI2gIRKQrCP+ZkvXijM78xZhSnTonD6HzwWn93qzsWB
+jn56ajDRZd/dv2EXpdPvkIIePKxqEaNkMGIwHQYDVR0OBBYEFH9Hb30MQTwAzSHg
+9csb5VJjYcn8MB8GA1UdIwQYMBaAFH9Hb30MQTwAzSHg9csb5VJjYcn8MA8GA1Ud
+EwEB/wQFMAMBAf8wDwYDVR0RBAgwBocEfwAAATAKBggqhkjOPQQDAgNHADBEAiAt
+Q+XOIJfuKXy4aQjNhUcgQB5U7zfD0Vp/lDh7TDftUgIgJVjWQgaIldCR+bRgD5yq
+lD5mGIMVApUtjr2V5GQojtg=
+-----END CERTIFICATE-----`;
 
 rmSync(contextRoot, { recursive: true, force: true });
 mkdirSync(path.join(contextRoot, "data"), { recursive: true });
@@ -134,7 +157,62 @@ store.change(change, transaction => {
     contentHash: createHash("sha256").update(documentContent).digest("hex"),
   });
 });
+const scoutImport = importScoutCompany(
+  {
+    id: "company-e2e-scout",
+    name: "Example Labs",
+    active: true,
+    sources: [
+      {
+        key: "official",
+        type: "json",
+        url: `https://127.0.0.1:${scoutSourcePort}/jobs`,
+        active: true,
+        method: "GET",
+        recordsPath: "jobs",
+        fields: {
+          id: "id",
+          title: "title",
+          url: "url",
+          location: "workplace",
+          description: "description",
+        },
+      },
+    ],
+  },
+  new SqliteScoutCompanyImportStore(database),
+);
+if (scoutImport.rejected)
+  throw new Error("Could not create the synthetic Scout company fixture.");
 database.close();
+
+const scoutSource = Bun.serve({
+  hostname: "127.0.0.1",
+  port: scoutSourcePort,
+  tls: { key: scoutSourceKey, cert: scoutSourceCertificate },
+  fetch(request) {
+    if (new URL(request.url).pathname !== "/jobs")
+      return new Response("Not found", { status: 404 });
+    return Response.json({
+      jobs: [
+        {
+          id: "example-1",
+          title: "Director of Synthetic Systems",
+          url: `https://127.0.0.1:${scoutSourcePort}/jobs/example-1`,
+          workplace: "Synthetic Region",
+          description: "Lead the synthetic systems organization.",
+        },
+        {
+          id: "untracked-1",
+          title: "Head of Orchard Technology",
+          url: `https://127.0.0.1:${scoutSourcePort}/jobs/untracked-1`,
+          workplace: "Synthetic Region",
+          description: "Build and lead the orchard technology team.",
+        },
+      ],
+    });
+  },
+});
 
 const environment = {
   ...process.env,
@@ -142,6 +220,7 @@ const environment = {
   GIG_FINDER_CONTEXT_ROOT: contextRoot,
   AI_SDK_DEVTOOLS: "false",
   LOG_LEVEL: "error",
+  NODE_TLS_REJECT_UNAUTHORIZED: "0",
 };
 const api = Bun.spawn(["bun", "src/web/server.ts"], {
   cwd: repoRoot,
@@ -162,6 +241,7 @@ const client = Bun.spawn([
 const stop = () => {
   api.kill();
   client.kill();
+  void scoutSource.stop(true);
 };
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
