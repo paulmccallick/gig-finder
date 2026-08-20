@@ -74,6 +74,14 @@ CREATE TABLE scout_position_backfill (
   updated_at text NOT NULL
 );
 --> statement-breakpoint
+CREATE TRIGGER scout_position_backfill_gig_insert AFTER INSERT ON gigs BEGIN
+  UPDATE scout_position_backfill SET last_position_id=NULL,completed_at=NULL,updated_at=NEW.updated_at WHERE name='reconcile_gig';
+END;
+--> statement-breakpoint
+CREATE TRIGGER scout_position_backfill_gig_identity_update AFTER UPDATE OF company,external_job_id,source_url,is_deleted ON gigs BEGIN
+  UPDATE scout_position_backfill SET last_position_id=NULL,completed_at=NULL,updated_at=NEW.updated_at WHERE name='reconcile_gig';
+END;
+--> statement-breakpoint
 CREATE TABLE scout_gig_availability_history (
   history_id integer PRIMARY KEY AUTOINCREMENT,
   change_id text NOT NULL REFERENCES changes(id),

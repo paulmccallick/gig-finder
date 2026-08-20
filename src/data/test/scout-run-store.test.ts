@@ -146,8 +146,10 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
   store.reconcileGig(processing[0]!,"2026-01-01T00:00:03Z");
   expect(store.pendingPositionJobs(20)).toHaveLength(0);
   expect(store.backfillPositions(20,"2026-01-01T00:00:04Z")).toEqual({created:0,complete:true});
+  expect(store.backfillPositions(20,"2026-01-01T00:00:04.500Z")).toEqual({created:0,complete:true});
   const position=store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).items[0]!;
   expect(store.positionDetail(position.id)?.observations).toHaveLength(1);
+  expect(store.workspace({text:"does not match",state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).counts).toEqual({actionable:0,processing:0,needs_user_review:0,irrelevant:0,deferred:0});
   new DataStore(databases.at(-1)!).change({actor:"Synthetic test",source:"test",summary:"Create exact Gig"},transaction=>transaction.gigs.create({id:"gig-exact",company:"Example Company",title:"Systems Gardener",externalJobId:"role-1",stage:"identified",outcome:"pending",statusSummary:"Tracked",lastActivity:"2026-01-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false}));
   expect(store.backfillPositions(20,"2026-01-01T00:00:05Z")).toEqual({created:1,complete:true});
   store.reconcileGig(store.pendingPositionJobs(20)[0]!,"2026-01-01T00:00:06Z");
