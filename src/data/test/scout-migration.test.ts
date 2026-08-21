@@ -149,3 +149,13 @@ test("0029 adds durable bounded Scout screening comments",async()=>{
   expect(backfillColumns.map(column=>column.name)).toContain("source_run_id");
   database.close();
 });
+
+test("0030 adds a source-bound backfill run without copied profile content",()=>{
+  const database=new Database(":memory:");
+  migrateDatabase(database);
+  database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,created_at,company_count) VALUES('source','completed','full',20,5,'2026-01-01',0)`).run();
+  database.query(`INSERT INTO scout_runs(id,status,run_type,source_run_id,batch_size,concurrency,screening_cache_key,created_at,company_count) VALUES('backfill','running','legacy_backfill','source',20,5,'cache-key','2026-01-02',0)`).run();
+  expect(database.query(`SELECT source_run_id sourceRunId,screening_cache_key cacheKey,candidate_profile_json profileJson FROM scout_runs WHERE id='backfill'`).get()).toEqual({sourceRunId:"source",cacheKey:"cache-key",profileJson:null});
+  expect(()=>database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,created_at,company_count) VALUES('invalid','running','legacy_backfill',20,5,'2026-01-03',0)`).run()).toThrow();
+  database.close();
+});

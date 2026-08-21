@@ -21,7 +21,8 @@ export interface ScoutPositionProcessingRepository {
  completeDescription(processingId:string,value:{markdown:string;sourceContentHash:string;sourceUrl:string;retrievedAt:string;converterVersion:string},now:string):void;
  relevanceInput(processingId:string):RelevanceRequest&{confidenceThreshold:number};
  completeRelevance(processingId:string,result:ModelResult<RelevanceResult>,irrelevant:boolean,now:string):void;
- candidateMatchInput(processingId:string):CandidateMatchRequest;
+  candidateMatchInput(processingId:string):CandidateMatchRequest;
+ refreshCandidateMatch(processingId:string,now:string):boolean;
  completeCandidateMatch(processingId:string,result:ModelResult<CandidateMatchResult>,now:string):void;
  failPositionProcessing(processingId:string,code:string,message:string,now:string):void;
 }
@@ -33,6 +34,7 @@ export class ScoutPositionProcessor {
   if(stage==="reconcile_gig"){this.repository.reconcileGig(processingId,this.now());return;}
   if(stage==="acquire_description"){const input=this.repository.descriptionInput(processingId);const result=await this.repository.acquireDescription(input);this.repository.completeDescription(processingId,result,this.now());return;}
   if(stage==="screen_relevance"){const input=this.repository.relevanceInput(processingId);const result=await this.model.screenRelevance(input);const value=relevanceResultSchema.parse(result.value);const irrelevant=value.decision==="fails_relevance"&&value.confidence>=input.confidenceThreshold;this.repository.completeRelevance(processingId,{...result,value},irrelevant,this.now());return;}
+  if(this.repository.refreshCandidateMatch(processingId,this.now()))return;
   const input=this.repository.candidateMatchInput(processingId);const result=await this.model.scoreCandidateMatch(input);this.repository.completeCandidateMatch(processingId,{...result,value:candidateMatchResultSchema.parse(result.value)},this.now());
  }
 }

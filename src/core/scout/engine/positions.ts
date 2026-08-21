@@ -3,6 +3,13 @@ export type ScoutPositionState = typeof scoutPositionStates[number];
 export type ScoutPositionProcessingStage = "reconcile_gig"|"acquire_description"|"screen_relevance"|"score_candidate_match";
 export type ScoutPositionProcessingStatus = "pending"|"completed"|"failed"|"superseded";
 export interface ScoutPositionProcessingJob {processingId?:string;id:string;positionId:string;stage:ScoutPositionProcessingStage;inputIdentity:string;attemptCount:number}
+export interface ScoutBackfillStageStatus {pending:number;completed:number;failed:number;superseded:number}
+export interface ScoutBackfillStatus {
+ backfillRunId:string;
+ sourceRunId:string;
+ selection:{selected:number;complete:boolean};
+ downstream:{pending:number;completed:number;failed:number;superseded:number;stages:Record<ScoutPositionProcessingStage,ScoutBackfillStageStatus>};
+}
 export interface ScoutPositionEvaluationSummary {score:number|null;scoreExplanation:string|null;criteriaVersion:number|null;rubricVersion:number|null;profileVersion:string|null;model:string|null;provider:string|null}
 export interface ScoutWorkspacePosition extends ScoutPositionEvaluationSummary {id:string;title:string;company:string;location:string|null;canonicalUrl:string;state:ScoutPositionState;processingStage:ScoutPositionProcessingStage|null;processingStatus:ScoutPositionProcessingStatus|null;processingFailureCode:string|null;processingFailureMessage:string|null;descriptionAvailable:boolean;firstSeenAt:string;lastSeenAt:string;observationCount:number}
 export interface ScoutWorkspacePage {items:ScoutWorkspacePosition[];offset:number;limit:number;total:number;counts:Record<"actionable"|"processing"|"needs_user_review"|"irrelevant"|"deferred",number>}
@@ -12,7 +19,7 @@ export interface ScoutPositionStore {
  markPositionJobsDispatched(processingIds:string[],now:string):void;
  reconcileGig(processing:string|ScoutPositionProcessingJob,now:string):void;
  failPositionProcessing(processing:string|ScoutPositionProcessingJob,code:string,message:string,now:string):void;
- backfillPositions(sourceRunId:string,limit:number,now:string):{created:number;complete:boolean};
+ backfillPositions(sourceRunId:string,limit:number,now:string):ScoutBackfillStatus;
  workspace(input:{text?:string;company?:string;state?:string;sort:string;direction:"asc"|"desc";offset:number;limit:number}):ScoutWorkspacePage;
  positionDetail(id:string):ScoutPositionDetail|null;
  relevanceCriteria():{version:number;criteria:string;confidenceThreshold:number};
