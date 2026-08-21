@@ -147,10 +147,6 @@ function textResponse(id: string, text: string) {
   ]);
 }
 
-function generatedTextResponse(id:string,text:string){
-  return Response.json({id:`resp_${id}`,object:"response",created_at:1,status:"completed",error:null,incomplete_details:null,model:"smoke-codex",output:[{type:"message",id:`msg_${id}`,status:"completed",role:"assistant",content:[{type:"output_text",text,annotations:[]}]}],usage});
-}
-
 function toolResponse(id: string, toolName: string, input: unknown) {
   const callId = `call_${id}`;
   const itemId = `fc_${id}`;
@@ -214,7 +210,7 @@ export function smokeProviderHandler(state: SmokeProviderState) {
     } else {
       const serialized = JSON.stringify(body);
       if (serialized.includes("GigFinder Scout's narrow relevance screener")) {
-        return generatedTextResponse(`scout_relevance_${state.requests}`, JSON.stringify({
+        return textResponse(`scout_relevance_${state.requests}`, JSON.stringify({
           decision: "passes_relevance",
           reason: "The description explicitly describes technology leadership.",
           confidence: 0.97,
@@ -223,7 +219,7 @@ export function smokeProviderHandler(state: SmokeProviderState) {
         }));
       }
       if (serialized.includes("GigFinder Scout's candidate-match scorer")) {
-        return generatedTextResponse(`scout_match_${state.requests}`, JSON.stringify({
+        return textResponse(`scout_match_${state.requests}`, JSON.stringify({
           score: 8,
           scoreExplanation: "The synthetic profile aligns with the leadership scope.",
         }));
