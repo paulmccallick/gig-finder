@@ -84,6 +84,7 @@ test("discovers and processes positions from a full Scout run", async ({
           state: string;
           processingStatus: string | null;
           descriptionAvailable: boolean;
+          score: number | null;
         }>;
       };
       return body.items;
@@ -91,9 +92,10 @@ test("discovers and processes positions from a full Scout run", async ({
     .toEqual([
       expect.objectContaining({
         title: "Head of Orchard Technology",
-        state: "processing",
+        state: "needs_user_review",
         processingStatus: "completed",
         descriptionAvailable: true,
+        score: 8,
       }),
     ]);
 
@@ -102,7 +104,8 @@ test("discovers and processes positions from a full Scout run", async ({
     page.getByRole("button", { name: "Head of Orchard Technology" }),
   ).toBeVisible();
   await expect(page.getByText("Director of Synthetic Systems")).toHaveCount(0);
-  await expect(page.getByText("reconcile gig · completed")).toBeVisible();
+  await expect(page.getByText("score candidate match · completed")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "8", exact: true })).toBeVisible();
   await expect(page.getByText("Available", { exact: true })).toBeVisible();
 
   await page
@@ -111,5 +114,7 @@ test("discovers and processes positions from a full Scout run", async ({
   await expect(
     page.getByRole("heading", { name: "Observation history" }),
   ).toBeVisible();
+  await expect(page.getByText("Candidate-match score:")).toBeVisible();
+  await expect(page.getByText(/synthetic profile aligns/)).toBeVisible();
   await expect(page.getByText(/run srun_/)).toBeVisible();
 });

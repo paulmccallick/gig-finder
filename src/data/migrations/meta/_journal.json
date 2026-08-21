@@ -204,6 +204,13 @@
       "when": 1787227200000,
       "tag": "0028_scout_position_processing",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1787266885686,
+      "tag": "0029_scout_position_screening",
+      "breakpoints": true
     }
   ]
 }

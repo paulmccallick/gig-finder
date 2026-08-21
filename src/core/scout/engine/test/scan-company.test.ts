@@ -396,7 +396,7 @@ describe("scanCompany", () => {
         },
       },
     );
-    expect(description).toBe("Exact official description.");
+    expect(description.markdown).toBe("Exact official description.");
     expect(request).toMatchObject({
       timeoutMs: 15_000,
       maxResponseBytes: 1_000_000,
@@ -442,7 +442,7 @@ describe("scanCompany", () => {
       },
     );
     expect(result.positions[0]?.description).toBe(
-      "Build & grow.\n\n- Kind\n- Reliable",
+      "Build & grow.\n\n-   Kind\n-   Reliable",
     );
   });
   test("generic JSON follows a source-provided next link until exhaustion", async () => {
