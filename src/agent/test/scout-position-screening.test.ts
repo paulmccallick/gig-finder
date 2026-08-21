@@ -36,6 +36,7 @@ test("dedicated structured calls traverse the provider adapter without tools",as
   expect(score.value).toMatchObject({score:8});
   const scoringRequest=state.requestBodies[1]!,serialized=JSON.stringify(scoringRequest);
   expect(scoringRequest.tools).toBeUndefined();
+  expect(scoringRequest.max_output_tokens).toBeUndefined();
   expect(typeof scoringRequest.prompt_cache_key).toBe("string");
   expect(serialized.indexOf("Synthetic leader")).toBeLessThan(serialized.indexOf("Lead software engineering"));
   for(const internal of ["profile-artifact","profile-hash","match-v1","relevance"]){expect(serialized).not.toContain(internal);}
