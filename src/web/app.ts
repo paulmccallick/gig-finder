@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { loadCandidateProfile } from "../agent/profile-loader";
 import {
   defaultAgentModelId,
@@ -26,6 +27,8 @@ import { ScoutRuntime } from "../operations/scout-runtime";
 import {ScoutPositionRuntime} from "../operations/scout-position-runtime";
 import { importScoutCompany } from "../core/scout/engine/company-import";
 import { scoutTemplateCatalog } from "../operations/scout-template-catalog";
+import { AiSdkScoutScreeningModel } from "../agent/scout-position-screening";
+import { ScoutPositionProcessor } from "../core/scout/engine/screening";
 
 type ProcessEnvironment = Record<string, string | undefined>;
 
@@ -172,6 +175,10 @@ export async function createWebApplication(configuration: WebConfiguration) {
   const aiSdkDevTools = await registerAiSdkDevTools(
     configuration.aiSdkDevTools,
   );
+  const candidateProfile=loadCandidateProfile(configuration.context.profile);
+  const profileHash=createHash("sha256").update(JSON.stringify(candidateProfile)).digest("hex");
+  const screeningModel=configuration.defaultAgentModel;
+  const screeningModelConfiguration="structured-v1:maxRetries=1";
   const local = openLocalApplication({
     database: configuration.context.database,
     artifacts: configuration.context.artifacts,
@@ -180,6 +187,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
   }, {
     defaultAgentModel: configuration.defaultAgentModel,
     scoutDefaults: configuration.scout,
+    scoutScreening:{profile:candidateProfile,profileVersion:candidateProfile.version,profileArtifactId:`candidate-profile:${profileHash}`,profileHash,model:screeningModel,provider:"openai-codex",modelConfiguration:screeningModelConfiguration},
     onProfileDocumentMaterializationFailure: (error, document) => logging.logger.error({
       event: "profile_document.materialization_failed",
       documentId: document.id,
@@ -195,7 +203,8 @@ export async function createWebApplication(configuration: WebConfiguration) {
     logger: logging.logger,
   });
   scoutRuntime.start();
-  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
+  const screening=new AiSdkScoutScreeningModel(()=>createCodexLanguageModel(screeningModel,{...(configuration.smoke.providerBaseURL?{smokeBaseURL:configuration.smoke.providerBaseURL}:{}),surfaceLiveSmokeErrors:configuration.smoke.mode==="live"}),{provider:"openai-codex",model:screeningModel,configuration:screeningModelConfiguration});
+  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,new ScoutPositionProcessor(local.scoutStore,screening),{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
   scoutPositionRuntime.start();
   const stagedDocuments = new StagedDocumentService(configuration.staging);
   const uploadHandler = createDocumentUploadHandler(
@@ -204,7 +213,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
     configuration.uploads.maxBytes,
   );
   const agentRuntime = new GigFinderConversationRuntime({
-    profile: loadCandidateProfile(configuration.context.profile),
+    profile: candidateProfile,
     profileDocuments: () => gigFinder.documents.profileContext(),
     logger: logging.logger,
     reads: {

@@ -14,6 +14,7 @@ import { SqliteScoutRunStore } from "./scout-run-store";
 import { ScoutRunService } from "../core/scout/engine/runs";
 import { ScoutPositionService } from "../core/scout/engine/positions";
 import { SqliteScoutCompanyImportStore } from "./scout-company-import-store";
+import type { ScoutScreeningInputs } from "./scout-run-store";
 
 export interface LocalApplicationPaths { database: string; artifacts: string; profileDocuments?: string; scoutDescriptions?:string }
 export interface LocalApplicationOptions {
@@ -23,6 +24,7 @@ export interface LocalApplicationOptions {
     document: { id: string; currentVersion: number },
   ) => void;
   scoutDefaults?: { batchSize:number; concurrency:number };
+  scoutScreening?:ScoutScreeningInputs;
 }
 export function openLocalApplication(paths:LocalApplicationPaths,options:LocalApplicationOptions={}){
   const database=openDatabase(paths.database,{create:false});
@@ -32,7 +34,7 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
     options.onProfileDocumentMaterializationFailure,
   );
   store.synchronizeProfileDocuments();
-  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions);
+  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions,options.scoutScreening);
   return {
     application:new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId),
     conversations:new SqliteConversationRepository(database),

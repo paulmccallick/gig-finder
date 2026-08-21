@@ -15,6 +15,7 @@ import {
   openDatabase,
   SqliteScoutCompanyImportStore,
 } from "../../data";
+import { createSmokeProviderState, smokeProviderHandler } from "../../../scripts/smoke-support/scripted-provider";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 const contextRoot = path.join(repoRoot, "tmp", "e2e-context");
@@ -22,6 +23,7 @@ const databasePath = path.join(contextRoot, "data", "gig-finder.sqlite");
 const apiPort = "3002";
 const clientPort = "5174";
 const scoutSourcePort = 3003;
+const screeningProviderPort = 3004;
 const scoutSourceKey = `-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg8WFHpiCviUJgtqZB
 WT8mWSYBgemULzdbj6KacLkOXnKhRANCAASZyVRLZ5AXijf6UjaAhEpCsI/5mS9e
@@ -213,6 +215,11 @@ const scoutSource = Bun.serve({
     });
   },
 });
+const screeningProvider = Bun.serve({
+  hostname: "127.0.0.1",
+  port: screeningProviderPort,
+  fetch: smokeProviderHandler(createSmokeProviderState()),
+});
 
 const environment = {
   ...process.env,
@@ -221,6 +228,8 @@ const environment = {
   AI_SDK_DEVTOOLS: "false",
   LOG_LEVEL: "error",
   NODE_TLS_REJECT_UNAUTHORIZED: "0",
+  GIG_FINDER_SMOKE_MODE: "deterministic",
+  GIG_FINDER_SMOKE_PROVIDER_URL: `http://127.0.0.1:${screeningProviderPort}`,
 };
 const api = Bun.spawn(["bun", "src/web/server.ts"], {
   cwd: repoRoot,
@@ -242,6 +251,7 @@ const stop = () => {
   api.kill();
   client.kill();
   void scoutSource.stop(true);
+  void screeningProvider.stop(true);
 };
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);

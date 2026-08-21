@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { migrateDatabase } from "../database";
 
 const applyStatements = async (database: Database, migrationUrl: URL) => {
   const sql = await Bun.file(migrationUrl).text();
@@ -131,5 +132,20 @@ test("0027 preserves attempts while naming their source method", async () => {
   expect(() =>
     database.query("SELECT adapter FROM scout_source_attempts").get(),
   ).toThrow();
+  database.close();
+});
+
+test("0029 adds durable bounded Scout screening comments",async()=>{
+  const database=new Database(":memory:");
+  migrateDatabase(database);
+  const relevanceColumns=database.query("PRAGMA table_info(scout_relevance_evaluations)").all() as Array<{name:string}>;
+  const matchColumns=database.query("PRAGMA table_info(scout_candidate_match_evaluations)").all() as Array<{name:string}>;
+  const processingColumns=database.query("PRAGMA table_info(scout_position_processing)").all() as Array<{name:string}>;
+  const backfillColumns=database.query("PRAGMA table_info(scout_position_backfill)").all() as Array<{name:string}>;
+  expect(relevanceColumns.map(column=>column.name)).toContain("reason");
+  expect(matchColumns.map(column=>column.name)).toContain("score_explanation");
+  expect(matchColumns.map(column=>column.name)).not.toContain("strengths_json");
+  expect(processingColumns.map(column=>column.name)).toEqual(expect.arrayContaining(["run_id","observation_id","description_id","criteria_id","relevance_evaluation_id","rubric_id"]));
+  expect(backfillColumns.map(column=>column.name)).toContain("source_run_id");
   database.close();
 });

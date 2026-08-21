@@ -16,6 +16,7 @@ export interface SmokeProviderState {
   registryValidations: number;
   hydrationValidations: number;
   seenTools: Set<string>;
+  requestBodies: JsonRecord[];
 }
 
 export const createSmokeProviderState = (): SmokeProviderState => ({
@@ -23,6 +24,7 @@ export const createSmokeProviderState = (): SmokeProviderState => ({
   registryValidations: 0,
   hydrationValidations: 0,
   seenTools: new Set(),
+  requestBodies: [],
 });
 
 class RegistryValidationError extends Error {
@@ -191,6 +193,7 @@ export function smokeProviderHandler(state: SmokeProviderState) {
       const parsed: unknown = await request.json();
       if (!record(parsed)) throw new Error("Request body must be an object.");
       body = parsed;
+      state.requestBodies.push(body);
     } catch {
       return providerFailure("Request body must be valid JSON.");
     }
@@ -205,6 +208,22 @@ export function smokeProviderHandler(state: SmokeProviderState) {
         return providerFailure(caught instanceof Error ? caught.message : "Tool registry validation failed.");
       }
     } else {
+      const serialized = JSON.stringify(body);
+      if (serialized.includes("GigFinder Scout's narrow relevance screener")) {
+        return textResponse(`scout_relevance_${state.requests}`, JSON.stringify({
+          decision: "passes_relevance",
+          reason: "The description explicitly describes technology leadership.",
+          confidence: 0.97,
+          evidence: ["The description explicitly leads a technology team."],
+          ambiguities: [],
+        }));
+      }
+      if (serialized.includes("GigFinder Scout's candidate-match scorer")) {
+        return textResponse(`scout_match_${state.requests}`, JSON.stringify({
+          score: 8,
+          scoreExplanation: "The synthetic profile aligns with the leadership scope.",
+        }));
+      }
       return textResponse(`title_${state.requests}`, "Synthetic smoke conversation");
     }
     let scripted: Scenario | null;
