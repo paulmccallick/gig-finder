@@ -36,12 +36,6 @@ failures. BunQueue owns transient execution state, retries, backoff, and
 leases. User-facing position state is stored separately and changes only when
 a processing result or audited user action requires it.
 
-Historical backfill uses an explicit source run only to select eligible
-observations. A separate durable backfill execution owns recovery progress and
-its prompt-cache namespace. Candidate scoring loads the current candidate
-profile rather than copying profile content into either run, and records the
-exact profile identity used by the evaluation.
-
 ## Alternatives considered
 
 - **Process everything in the company job:** rejected because downstream work
@@ -57,7 +51,5 @@ exact profile identity used by the evaluation.
 - Existing position identity and observation deduplication remain unchanged.
 - Company scans finish independently of position-processing failures.
 - Position stages are idempotent, recoverable, and extensible for #121.
-- Backfill selection, downstream progress, and failures remain independently
-  observable without rewriting the historical source run.
 - Operations must configure, monitor, drain, and recover two embedded queue job
   types under ADR 0010's single-owner constraint.

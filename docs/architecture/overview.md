@@ -38,9 +38,7 @@ flowchart LR
   other clients.
 - `src/operations/` coordinates queue runtimes, recovery, maintenance, and
   deployment without owning business logic.
-- `src/core/scout` is the persistence-neutral official-source scanner and
-  position processor. Historical backfills keep their execution context
-  separate from the source run whose observations define eligibility.
+- `src/core/scout` is the persistence-neutral official-source scanner. Uses bunqueue for offline processing
 - `src/web/app.ts` and `src/cli/app.ts` are composition roots; only composition
   roots construct concrete data adapters.
 

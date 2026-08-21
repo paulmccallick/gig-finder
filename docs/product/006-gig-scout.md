@@ -44,15 +44,12 @@
 - **Data Model Changes**: None; this requirement describes existing run, company, position, artifact, configuration-version, and reconciliation records.
 - **Performance Targets**: Scans run outside request lifetime with bounded per-source work and host-safe concurrency; interactive progress reads remain responsive.
 
-## Position processing and historical backfill
+## 🔭 Planned position-processing extension
 
-Company discovery and logical-position processing run independently. Position
-processing reconciles Gigs, preserves complete descriptions, screens
-relevance, and scores relevant roles without delaying company completion.
-
-A historical backfill explicitly selects positions observed in one source run.
-Its separate execution owns the prompt-cache namespace and reports selection,
-stage progress, and failures independently. Candidate scoring loads the current
-candidate profile; profile content is not copied into historical or backfill
-runs, while the exact profile identity used remains part of the evaluation
-record.
+Issue #120 extends Scout without changing its existing logical-position
+identity or observation deduplication. Company jobs will continue to discover
+and persist official-source results. Durable processing of each logical
+position will run independently so later Gig reconciliation, description
+retrieval, and agent screening do not repeat per observation or delay company
+completion. [ADR 0014](../architecture/decisions/0014-separate-scout-discovery-from-position-processing.md)
+defines the proposed execution and state boundary.
