@@ -67,6 +67,16 @@ export async function copyContext(
     backupRoot,
   );
   const database = await createVerifiedBackup(source.database, targetDatabase);
+  try {
+    await stat(source.artifacts);
+    await cp(source.artifacts, path.join(targetRoot, "artifacts"), {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
   const inputs = await syncProductionInputs(
     sourceRoot,
     targetRoot,

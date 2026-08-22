@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../../..");
@@ -54,16 +54,28 @@ exit 0
 const fakeSync = `#!/bin/sh
 set -eu
 printf '%s\n' "$*" >> "$FAKE_SYNC_LOG"
+case "\${1:-}" in
+  --rollback|--finalize) echo '{"ok":true}' ;;
+  *) echo '{"plan":{"transactionManifest":"/var/lib/gig-finder/data/deployment-inputs-test.json"}}' ;;
+esac
 `;
 
 async function runDeployment(options: {
   failure?: "migrate" | "health";
   oldContainer?: boolean;
+  artifactCount?: number;
+  backupInsideArtifacts?: boolean;
+  backupAtFilesystemRoot?: boolean;
 } = {}) {
   const sourceRoot = path.join(directory, "repository", "context");
   const productionRoot = path.join(directory, "var", "lib", "gig-finder");
+  const artifactRoot = path.join(productionRoot, "artifacts");
   const logRoot = path.join(directory, "var", "log", "gig-finder");
-  const backupRoot = path.join(directory, "var", "backups", "gig-finder");
+  const backupRoot = options.backupAtFilesystemRoot
+    ? "/"
+    : options.backupInsideArtifacts
+      ? path.join(artifactRoot, "backups")
+      : path.join(directory, "var", "backups", "gig-finder");
   const configFile = path.join(directory, "etc", "gig-finder", "config.json");
   const actualConfigRoot = path.join(directory, "private", "etc");
   const codexHome = path.join(directory, "codex");
@@ -75,6 +87,7 @@ async function runDeployment(options: {
   const logPath = path.join(directory, "docker.log");
   const syncLogPath = path.join(directory, "sync.log");
   await mkdir(path.join(productionRoot, "data"), { recursive: true });
+  await mkdir(artifactRoot, { recursive: true });
   await mkdir(sourceRoot, { recursive: true });
   await mkdir(logRoot, { recursive: true });
   await mkdir(backupRoot, { recursive: true });
@@ -84,6 +97,8 @@ async function runDeployment(options: {
   await mkdir(path.dirname(deployScript), { recursive: true });
   await writeFile(path.join(productionRoot, "data", "gig-finder.sqlite"), "fixture");
   await writeFile(configFile, '{}\n');
+  await Promise.all(Array.from({ length: options.artifactCount ?? 0 }, (_, index) =>
+    writeFile(path.join(artifactRoot, `artifact-${index}.md`), `artifact ${index}\n`)));
   const canonicalConfigFile = await realpath(configFile);
   await Promise.all([
     writeFile(deployScript, await readFile(deployScriptSource)),
@@ -91,6 +106,8 @@ async function runDeployment(options: {
     writeFile(curlPath, fakeCurl),
     writeFile(sleepPath, fakeSleep),
     writeFile(syncPath, fakeSync),
+    writeFile(logPath, ""),
+    writeFile(syncLogPath, ""),
   ]);
   await Promise.all([
     chmod(deployScript, 0o755),
@@ -139,6 +156,7 @@ async function runDeployment(options: {
     log,
     syncLog,
     productionRoot,
+    artifactRoot,
     logRoot,
     backupRoot,
     configFile,
@@ -162,18 +180,24 @@ describe("local production deployment", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Deployment complete");
     const pull = result.log.indexOf(`pull ghcr.io/paulmccallick/gig-finder:sha-${revision}`);
+    const preflightValidate = result.log.indexOf("maintenance.js validate");
     const backup = result.log.indexOf("maintenance.js backup");
     const migrate = result.log.indexOf("maintenance.js migrate");
-    const validate = result.log.indexOf("maintenance.js validate");
+    const migrationValidate = result.log.indexOf("maintenance.js validate", migrate);
     const start = result.log.indexOf("run --detach");
-    expect([pull, backup, migrate, validate, start].every((position) => position >= 0)).toBe(true);
+    expect([pull, preflightValidate, backup, migrate, migrationValidate, start].every((position) => position >= 0)).toBe(true);
     expect(pull).toBeLessThan(backup);
+    expect(preflightValidate).toBeLessThan(backup);
     expect(backup).toBeLessThan(migrate);
-    expect(migrate).toBeLessThan(validate);
-    expect(validate).toBeLessThan(start);
+    expect(migrate).toBeLessThan(migrationValidate);
+    expect(migrationValidate).toBeLessThan(start);
     expect(result.log).toContain(
-      "-v " + result.productionRoot + ":/var/lib/gig-finder",
+      "-v " + path.join(result.productionRoot, "data") + ":/var/lib/gig-finder/data",
     );
+    expect(result.log).toContain(
+      "--mount type=bind,source=" + result.artifactRoot + ",target=/var/lib/gig-finder/artifacts",
+    );
+    expect(result.log).not.toContain("maintenance.js artifacts");
     expect(result.log).toContain("-v " + result.logRoot + ":/var/log/gig-finder");
     expect(result.log).toContain("-v " + result.backupRoot + ":/var/backups/gig-finder");
     expect(result.log).toContain(
@@ -181,8 +205,41 @@ describe("local production deployment", () => {
     );
     expect(result.log).not.toContain("-v " + result.configFile + ":/etc/gig-finder/config.json:ro");
     expect(result.syncLog).toContain(result.productionRoot);
+    expect(result.syncLog).toMatch(/--finalize .*\/data\/deployment-inputs-a{40}-\d+\.json/);
     expect(result.log).toContain("-v " + path.join(directory, "codex") + ":/run/codex:ro");
     expect(result.stdout + result.stderr).not.toContain(path.join(directory, "codex"));
+  });
+
+  test("does not inspect, copy, or mutate the persistent artifact mount", async () => {
+    const result = await runDeployment({ artifactCount: 1_663 });
+
+    expect(result.exitCode).toBe(0);
+    expect(await readdir(result.artifactRoot)).toHaveLength(1_663);
+    const maintenanceLines = result.log.split("\n")
+      .filter((line) => line.includes("maintenance.js"));
+    expect(maintenanceLines.length).toBeGreaterThan(0);
+    expect(maintenanceLines.every((line) =>
+      line.includes(`${path.join(result.productionRoot, "data")}:/var/lib/gig-finder/data`)
+      && !line.includes(result.artifactRoot)
+      && !line.includes(" artifacts"))).toBe(true);
+  });
+
+  test("rejects deploy-owned paths that overlap the artifact mount", async () => {
+    const result = await runDeployment({ backupInsideArtifacts: true });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("production backup root must not be inside the runtime artifact root");
+    expect(result.log).toBe("");
+    expect(result.syncLog).toBe("");
+  });
+
+  test("rejects a deploy-owned filesystem root that contains artifacts", async () => {
+    const result = await runDeployment({ backupAtFilesystemRoot: true });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("production backup root must not contain the runtime artifact root");
+    expect(result.log).toBe("");
+    expect(result.syncLog).toBe("");
   });
 
   test("restarts the prior container when migration fails", async () => {
@@ -194,15 +251,18 @@ describe("local production deployment", () => {
     expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("start gig-finder");
     expect(result.log).not.toContain("run --detach");
+    expect(result.syncLog).toMatch(/--rollback .*\/data\/deployment-inputs-a{40}-\d+\.json/);
   });
 
   test("restores the backup and prior container when health verification fails", async () => {
-    const result = await runDeployment({ failure: "health", oldContainer: true });
+    const result = await runDeployment({ failure: "health", oldContainer: true, artifactCount: 3 });
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("restoring /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("rename gig-finder-previous-");
     expect(result.log).toContain("start gig-finder");
+    expect(result.syncLog).toMatch(/--rollback .*\/data\/deployment-inputs-a{40}-\d+\.json/);
+    expect(await readdir(result.artifactRoot)).toHaveLength(3);
   });
 });

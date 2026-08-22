@@ -57,6 +57,13 @@ private context without changing the development database.
 
 ## Deploy
 
+The host deployment script is part of the safety boundary. After a deployment
+script change, merge it first and update the local operator checkout to that
+exact merge. Inspect that the checkout contains the corrected
+`bin/deploy-local.sh` and `bin/sync-production-inputs` before running either
+script. Never use an older checkout to deploy the image containing its own
+deployment fix; the host script runs before the new container exists.
+
 Set `GIG_FINDER_CODEX_HOME` to the host credential directory and deploy the
 exact published merge tag. The script mounts it read-only and sets container
 `CODEX_HOME` to `/run/codex`.
@@ -66,7 +73,22 @@ GIG_FINDER_CODEX_HOME=/absolute/codex/home \
   bin/deploy-local.sh sha-<40-character-commit-sha>
 ```
 
-The script synchronizes private inputs, pulls the Docker image, creates and
-verifies a backup, migrates and validates SQLite, replaces the container, and
-checks `/healthz` for the requested revision. On failure it restores the backup
-and prior container.
+The script pulls the immutable image, stops runtime writes, backs up SQLite,
+synchronizes only explicitly source-managed inputs, migrates and validates the
+database, replaces the container, and checks `/healthz` for the requested
+revision. On failure it restores SQLite with the prior container.
+
+Runtime artifacts remain at
+`/var/lib/gig-finder/artifacts`. Only the
+application container mounts that directory, at
+`/var/lib/gig-finder/artifacts`; deployment maintenance containers mount only
+`/var/lib/gig-finder/data`. Normal deployment therefore does not enumerate,
+copy, replace, back up, restore, or validate artifacts, and its validation cost
+does not grow with the artifact count. The prior and replacement application
+containers reuse the same persistent artifact mount. Deployment rejects any
+configured source, log, backup, configuration, or credential path that contains
+or is contained by the canonical artifact path before contacting Docker.
+
+Run the explicit artifact integrity command and artifact backups as separate
+operational maintenance. They are intentionally outside the deployment
+critical path.
