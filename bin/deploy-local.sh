@@ -62,10 +62,6 @@ codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
   || fail "production database does not exist; run bin/bootstrap-production.sh first"
 [ -x "${sync_bin}" ] || fail "production input synchronizer is unavailable: ${sync_bin}"
 
-echo "Synchronizing production profile, configuration, and artifacts..."
-"${sync_bin}" "${source_root}" "${state_root}" "${config_file}"
-[ -f "${config_file}" ] || fail "production configuration was not created"
-
 "${docker_bin}" info >/dev/null 2>&1 || fail "Docker is unavailable; start OrbStack"
 
 image="${image_name}:${tag}"
@@ -98,18 +94,44 @@ maintenance() {
     "${image}" bun dist/server/maintenance.js "$@"
 }
 
+if [ "${old_running}" = true ]; then
+  "${docker_bin}" stop "${container_name}" >/dev/null
+fi
+
 echo "Creating verified production backup..."
-backup_output=$(maintenance backup)
+if ! maintenance validate; then
+  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
+  fail "pre-deployment database or runtime-artifact validation failed"
+fi
+if ! artifact_baseline=$(maintenance artifacts); then
+  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
+  fail "pre-deployment runtime-artifact inventory failed"
+fi
+echo "${artifact_baseline}"
+if ! backup_output=$(maintenance backup); then
+  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
+  fail "consistent database and runtime-artifact backup failed"
+fi
 echo "${backup_output}"
 backup_path=$(printf '%s\n' "${backup_output}" \
   | sed -n 's/.*"path":"\([^"]*\)".*/\1/p' | head -n 1)
 [ -n "${backup_path}" ] || fail "maintenance backup did not report a backup path"
 
-if [ "${old_running}" = true ]; then
-  "${docker_bin}" stop "${container_name}" >/dev/null
+echo "Synchronizing source-managed production inputs..."
+if ! "${sync_bin}" "${source_root}" "${state_root}" "${config_file}"; then
+  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
+  fail "source-managed input synchronization failed"
+fi
+if [ ! -f "${config_file}" ]; then
+  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
+  fail "production configuration was not created"
+fi
+if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
+  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
+  fail "source synchronization introduced an integrity regression"
 fi
 
-if ! maintenance migrate || ! maintenance validate; then
+if ! maintenance migrate || ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
   echo "Migration or validation failed; restoring ${backup_path}..." >&2
   if maintenance restore "${backup_path}"; then
     if [ "${old_running}" = true ]; then
@@ -177,6 +199,11 @@ if [ "${healthy}" != true ]; then
   "${docker_bin}" logs "${container_name}" >&2 || true
   rollback || true
   fail "new container did not become healthy"
+fi
+
+if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
+  rollback || true
+  fail "post-cutover database or runtime-artifact validation failed"
 fi
 
 if [ "${old_exists}" = true ]; then

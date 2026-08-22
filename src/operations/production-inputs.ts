@@ -27,35 +27,6 @@ async function copyFileAtomically(source: string, target: string) {
   }
 }
 
-async function replaceDirectory(source: string, target: string) {
-  await mkdir(path.dirname(target), { recursive: true });
-  const suffix = `${process.pid}-${Date.now()}`;
-  const staging = `${target}.deploy-${suffix}`;
-  const previous = `${target}.previous-${suffix}`;
-  let displaced = false;
-  try {
-    await cp(source, staging, { recursive: true, errorOnExist: true, force: false });
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-    await mkdir(staging, { recursive: true });
-  }
-  try {
-    try {
-      await rename(target, previous);
-      displaced = true;
-    } catch (error) {
-      if (!isMissing(error)) throw error;
-    }
-    await rename(staging, target);
-    if (displaced) await rm(previous, { recursive: true, force: true });
-  } catch (error) {
-    if (displaced) await rename(previous, target).catch(() => undefined);
-    throw error;
-  } finally {
-    await rm(staging, { recursive: true, force: true });
-  }
-}
-
 export async function syncProductionInputs(
   sourceRootArgument: string,
   stateRootArgument: string,
@@ -90,7 +61,6 @@ export async function syncProductionInputs(
   }
 
   await copyFileAtomically(source.profile, path.join(stateRoot, profileRelative));
-  await replaceDirectory(source.artifacts, path.join(stateRoot, "artifacts"));
 
   const migrationRelative = path.join("data", "migration", "0010-meeting-participants.json");
   const migrationSource = path.join(sourceRoot, migrationRelative);
@@ -103,7 +73,11 @@ export async function syncProductionInputs(
 
   return {
     profile: path.join(stateRoot, profileRelative),
-    artifacts: path.join(stateRoot, "artifacts"),
     config: configTarget,
+    plan: {
+      createsOrReplaces: [configTarget, path.join(stateRoot, profileRelative)],
+      runtimeOwnedRoots: [path.join(stateRoot, "artifacts")],
+      prohibitedDeletes: 0,
+    },
   };
 }

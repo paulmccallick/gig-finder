@@ -162,15 +162,17 @@ describe("local production deployment", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Deployment complete");
     const pull = result.log.indexOf(`pull ghcr.io/paulmccallick/gig-finder:sha-${revision}`);
+    const preflightValidate = result.log.indexOf("maintenance.js validate");
     const backup = result.log.indexOf("maintenance.js backup");
     const migrate = result.log.indexOf("maintenance.js migrate");
-    const validate = result.log.indexOf("maintenance.js validate");
+    const migrationValidate = result.log.indexOf("maintenance.js validate", migrate);
     const start = result.log.indexOf("run --detach");
-    expect([pull, backup, migrate, validate, start].every((position) => position >= 0)).toBe(true);
+    expect([pull, preflightValidate, backup, migrate, migrationValidate, start].every((position) => position >= 0)).toBe(true);
     expect(pull).toBeLessThan(backup);
+    expect(preflightValidate).toBeLessThan(backup);
     expect(backup).toBeLessThan(migrate);
-    expect(migrate).toBeLessThan(validate);
-    expect(validate).toBeLessThan(start);
+    expect(migrate).toBeLessThan(migrationValidate);
+    expect(migrationValidate).toBeLessThan(start);
     expect(result.log).toContain(
       "-v " + result.productionRoot + ":/var/lib/gig-finder",
     );

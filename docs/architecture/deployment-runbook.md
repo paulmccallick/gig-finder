@@ -57,6 +57,13 @@ private context without changing the development database.
 
 ## Deploy
 
+The host deployment script is part of the safety boundary. After a deployment
+script change, merge it first and update the local operator checkout to that
+exact merge. Inspect that the checkout contains the corrected
+`bin/deploy-local.sh` and `bin/sync-production-inputs` before running either
+script. Never use an older checkout to deploy the image containing its own
+deployment fix; the host script runs before the new container exists.
+
 Set `GIG_FINDER_CODEX_HOME` to the host credential directory and deploy the
 exact published merge tag. The script mounts it read-only and sets container
 `CODEX_HOME` to `/run/codex`.
@@ -66,7 +73,16 @@ GIG_FINDER_CODEX_HOME=/absolute/codex/home \
   bin/deploy-local.sh sha-<40-character-commit-sha>
 ```
 
-The script synchronizes private inputs, pulls the Docker image, creates and
-verifies a backup, migrates and validates SQLite, replaces the container, and
-checks `/healthz` for the requested revision. On failure it restores the backup
-and prior container.
+The script pulls the immutable image, stops runtime writes, verifies registered
+artifacts, and creates a matching SQLite-plus-artifact snapshot. It then
+synchronizes only explicitly source-managed inputs, migrates and validates the
+state, replaces the container, checks `/healthz` for the requested revision,
+and validates the state again. On failure it restores the matching database and
+artifact snapshot with the prior container. The previous container and recovery
+snapshot remain until post-cutover validation succeeds.
+
+The artifact report contains counts only; it does not log document content.
+Known missing files are captured as the pre-deployment baseline so the safety
+fix can be released while recovery is incomplete. Every later phase must be no
+worse than that baseline. New missing, mismatched, unsafe, or unregistered Scout
+description paths abort deployment and retain recovery material.
