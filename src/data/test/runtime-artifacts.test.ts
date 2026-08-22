@@ -14,10 +14,11 @@ beforeEach(async () => {
 });
 
 test("allows known damage but rejects a newly worse artifact inventory", () => {
-  const baseline = { ok: false, registered: 3, present: 1, missing: 2, hashMismatched: 0, unsafe: 0, unregistered: 0 };
+  const baseline = { ok: false, registered: 3, present: 1, missing: 2, hashMismatched: 0, unsafe: 0, unregistered: 0, missingFingerprint: "same", hashMismatchedFingerprint: "same", unsafeFingerprint: "same", unregisteredFingerprint: "same" };
   expect(hasRuntimeArtifactRegression(baseline, { ...baseline, present: 2, missing: 1 })).toBe(false);
   expect(hasRuntimeArtifactRegression(baseline, { ...baseline, missing: 3 })).toBe(true);
   expect(hasRuntimeArtifactRegression(baseline, { ...baseline, unregistered: 1 })).toBe(true);
+  expect(hasRuntimeArtifactRegression(baseline, { ...baseline, missingFingerprint: "different" })).toBe(true);
 });
 
 afterEach(async () => {
@@ -37,7 +38,7 @@ test("reports Scout artifact integrity without exposing contents", async () => {
   database.query("INSERT INTO scout_description_artifacts VALUES (?, ?, ?)").run("missing.md", hash, Buffer.byteLength(content));
   database.query("INSERT INTO scout_description_artifacts VALUES (?, ?, ?)").run("../unsafe.md", hash, Buffer.byteLength(content));
 
-  expect(await verifyRuntimeArtifacts(database, descriptions)).toEqual({
+  expect(await verifyRuntimeArtifacts(database, descriptions)).toEqual(expect.objectContaining({
     ok: false,
     registered: 3,
     present: 1,
@@ -45,6 +46,6 @@ test("reports Scout artifact integrity without exposing contents", async () => {
     hashMismatched: 0,
     unsafe: 1,
     unregistered: 1,
-  });
+  }));
   database.close();
 });

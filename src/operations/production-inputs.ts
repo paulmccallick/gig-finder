@@ -1,5 +1,5 @@
 import path from "node:path";
-import { cp, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolveGigFinderContext } from "../data";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
@@ -21,9 +21,44 @@ async function copyFileAtomically(source: string, target: string) {
   const temporary = `${target}.deploy-${process.pid}-${Date.now()}`;
   try {
     await cp(source, temporary, { errorOnExist: true, force: false });
+    const existing = await stat(target).catch((error) => {
+      if (isMissing(error)) return null;
+      throw error;
+    });
+    if (existing) await chmod(temporary, existing.mode);
     await rename(temporary, target);
   } finally {
     await rm(temporary, { force: true });
+  }
+}
+
+interface InputBackup { target: string; backup: string; existed: boolean }
+
+async function snapshotInputs(targets: string[]) {
+  const suffix = `${process.pid}-${Date.now()}`;
+  const backups: InputBackup[] = [];
+  try {
+    for (const target of targets) {
+      const backup = `${target}.deploy-backup-${suffix}`;
+      const info = await stat(target).catch((error) => {
+        if (isMissing(error)) return null;
+        throw error;
+      });
+      if (info && !info.isFile()) throw new Error(`Production input target must be a regular file: ${target}`);
+      if (info) await cp(target, backup, { errorOnExist: true, force: false });
+      backups.push({ target, backup, existed: Boolean(info) });
+    }
+    return backups;
+  } catch (error) {
+    await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
+    throw error;
+  }
+}
+
+async function restoreInputs(backups: InputBackup[]) {
+  for (const { target, backup, existed } of [...backups].reverse()) {
+    if (existed) await rename(backup, target);
+    else await rm(target, { force: true });
   }
 }
 
@@ -47,28 +82,36 @@ export async function syncProductionInputs(
   const configSource = path.join(sourceRoot, "config.json");
   const configTarget = path.resolve(configFileArgument);
 
-  try {
-    await stat(configSource);
-    await copyFileAtomically(configSource, configTarget);
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-    await mkdir(path.dirname(configTarget), { recursive: true });
-    await writeFile(configTarget, `${JSON.stringify({
-      version: 1,
-      actor: source.actor,
-      profile: profileRelative,
-    }, null, 2)}\n`);
-  }
-
-  await copyFileAtomically(source.profile, path.join(stateRoot, profileRelative));
-
   const migrationRelative = path.join("data", "migration", "0010-meeting-participants.json");
   const migrationSource = path.join(sourceRoot, migrationRelative);
+  const profileTarget = path.join(stateRoot, profileRelative);
+  const migrationTarget = path.join(stateRoot, migrationRelative);
+  const backups = await snapshotInputs([configTarget, profileTarget, migrationTarget]);
   try {
-    await stat(migrationSource);
-    await copyFileAtomically(migrationSource, path.join(stateRoot, migrationRelative));
+    try {
+      await stat(configSource);
+      await copyFileAtomically(configSource, configTarget);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+      await mkdir(path.dirname(configTarget), { recursive: true });
+      await writeFile(configTarget, `${JSON.stringify({
+        version: 1,
+        actor: source.actor,
+        profile: profileRelative,
+      }, null, 2)}\n`);
+    }
+    await copyFileAtomically(source.profile, profileTarget);
+    try {
+      await stat(migrationSource);
+      await copyFileAtomically(migrationSource, migrationTarget);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
   } catch (error) {
-    if (!isMissing(error)) throw error;
+    await restoreInputs(backups);
+    throw error;
+  } finally {
+    await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
   }
 
   return {

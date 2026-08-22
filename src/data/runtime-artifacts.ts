@@ -11,7 +11,15 @@ export interface RuntimeArtifactIntegrity {
   hashMismatched: number;
   unsafe: number;
   unregistered: number;
+  missingFingerprint: string;
+  hashMismatchedFingerprint: string;
+  unsafeFingerprint: string;
+  unregisteredFingerprint: string;
 }
+
+const fingerprint = (values: string[]) => createHash("sha256")
+  .update(values.sort().join("\n"))
+  .digest("hex");
 
 export function hasRuntimeArtifactRegression(
   baseline: RuntimeArtifactIntegrity,
@@ -20,7 +28,11 @@ export function hasRuntimeArtifactRegression(
   return current.missing > baseline.missing
     || current.hashMismatched > baseline.hashMismatched
     || current.unsafe > baseline.unsafe
-    || current.unregistered > baseline.unregistered;
+    || current.unregistered > baseline.unregistered
+    || (current.missing === baseline.missing && current.missingFingerprint !== baseline.missingFingerprint)
+    || (current.hashMismatched === baseline.hashMismatched && current.hashMismatchedFingerprint !== baseline.hashMismatchedFingerprint)
+    || (current.unsafe === baseline.unsafe && current.unsafeFingerprint !== baseline.unsafeFingerprint)
+    || (current.unregistered === baseline.unregistered && current.unregisteredFingerprint !== baseline.unregisteredFingerprint);
 }
 
 interface RegisteredArtifact {
@@ -67,10 +79,14 @@ export async function verifyRuntimeArtifacts(
   let missing = 0;
   let hashMismatched = 0;
   let unsafe = 0;
+  const missingPaths: string[] = [];
+  const mismatchedPaths: string[] = [];
+  const unsafePaths: string[] = [];
 
   for (const artifact of registered) {
     if (!safeRelativePath(artifact.filePath)) {
       unsafe += 1;
+      unsafePaths.push(artifact.filePath);
       continue;
     }
     registeredPaths.add(path.normalize(artifact.filePath));
@@ -81,19 +97,22 @@ export async function verifyRuntimeArtifacts(
     });
     if (!info || !info.isFile()) {
       missing += 1;
+      missingPaths.push(artifact.filePath);
       continue;
     }
     const contents = await readFile(filename);
     const hash = createHash("sha256").update(contents).digest("hex");
     if (contents.byteLength !== artifact.byteCount || hash !== artifact.contentHash) {
       hashMismatched += 1;
+      mismatchedPaths.push(artifact.filePath);
       continue;
     }
     present += 1;
   }
 
   const diskFiles = await filesBelow(scoutDescriptionsRoot);
-  const unregistered = diskFiles.filter((filename) => !registeredPaths.has(path.normalize(filename))).length;
+  const unregisteredPaths = diskFiles.filter((filename) => !registeredPaths.has(path.normalize(filename)));
+  const unregistered = unregisteredPaths.length;
   return {
     ok: missing === 0 && hashMismatched === 0 && unsafe === 0,
     registered: registered.length,
@@ -102,5 +121,9 @@ export async function verifyRuntimeArtifacts(
     hashMismatched,
     unsafe,
     unregistered,
+    missingFingerprint: fingerprint(missingPaths),
+    hashMismatchedFingerprint: fingerprint(mismatchedPaths),
+    unsafeFingerprint: fingerprint(unsafePaths),
+    unregisteredFingerprint: fingerprint(unregisteredPaths),
   };
 }

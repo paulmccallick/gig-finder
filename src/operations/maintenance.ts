@@ -60,11 +60,12 @@ async function createArtifactSnapshot(databaseBackupPath: string) {
   return { path: target, integrity: snapshotIntegrity };
 }
 
-async function restoreArtifactSnapshot(databaseBackupPath: string) {
+async function activateArtifactSnapshot(databaseBackupPath: string) {
   const source = artifactSnapshotPath(databaseBackupPath);
   const manifest = JSON.parse(await readFile(stateManifestPath(databaseBackupPath), "utf8")) as {
     version: number;
     artifactSnapshotPath: string;
+    integrity: unknown;
   };
   if (manifest.version !== 1 || manifest.artifactSnapshotPath !== source) {
     throw new Error("Backup state manifest does not match the requested database backup.");
@@ -72,17 +73,34 @@ async function restoreArtifactSnapshot(databaseBackupPath: string) {
   const temporary = `${context.artifacts}.restore-${process.pid}-${Date.now()}`;
   const displaced = `${context.artifacts}.pre-restore-${process.pid}-${Date.now()}`;
   await cp(source, temporary, { recursive: true, errorOnExist: true, force: false });
+  const backupDatabase = openDatabase(databaseBackupPath, { create: false });
+  try {
+    const staged = await verifyRuntimeArtifacts(
+      backupDatabase,
+      path.join(temporary, "gig-scout", "descriptions"),
+    );
+    if (JSON.stringify(staged) !== JSON.stringify(manifest.integrity)) {
+      throw new Error("Staged runtime artifacts do not match the backup state manifest.");
+    }
+  } finally {
+    backupDatabase.close();
+  }
   await rename(context.artifacts, displaced);
   try {
     await rename(temporary, context.artifacts);
-    await rm(displaced, { recursive: true, force: true });
   } catch (error) {
-    await rm(context.artifacts, { recursive: true, force: true });
     await rename(displaced, context.artifacts);
     throw error;
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+  return {
+    finalize: () => rm(displaced, { recursive: true, force: true }),
+    rollback: async () => {
+      await rm(context.artifacts, { recursive: true, force: true });
+      await rename(displaced, context.artifacts);
+    },
+  };
 }
 
 if (command === "backup") {
@@ -121,20 +139,31 @@ if (command === "backup") {
   if (!argument || !path.isAbsolute(argument)) {
     throw new Error("restore requires an absolute managed-backup path.");
   }
-  const restored = await restoreVerifiedBackup(
-    context.database,
-    argument,
-    context.backups,
-  );
-  await restoreArtifactSnapshot(argument);
-  const artifacts = await artifactIntegrity();
-  const manifest = JSON.parse(await readFile(stateManifestPath(argument), "utf8")) as {
-    integrity: unknown;
-  };
-  if (JSON.stringify(artifacts) !== JSON.stringify(manifest.integrity)) {
-    throw new Error("Restored runtime artifact inventory does not match its backup manifest.");
+  const activatedArtifacts = await activateArtifactSnapshot(argument);
+  let preRestoreDatabase: string | null = null;
+  try {
+    const restored = await restoreVerifiedBackup(
+      context.database,
+      argument,
+      context.backups,
+    );
+    preRestoreDatabase = restored.preRestore.path;
+    const artifacts = await artifactIntegrity();
+    const manifest = JSON.parse(await readFile(stateManifestPath(argument), "utf8")) as {
+      integrity: unknown;
+    };
+    if (JSON.stringify(artifacts) !== JSON.stringify(manifest.integrity)) {
+      throw new Error("Restored runtime artifact inventory does not match its backup manifest.");
+    }
+    await activatedArtifacts.finalize();
+    output({ command, ok: true, ...restored, artifacts });
+  } catch (error) {
+    if (preRestoreDatabase) {
+      await restoreVerifiedBackup(context.database, preRestoreDatabase, context.backups);
+    }
+    await activatedArtifacts.rollback();
+    throw error;
   }
-  output({ command, ok: true, ...restored, artifacts });
 } else if (command === "artifacts") {
   const artifacts = await artifactIntegrity();
   if (argument) {
