@@ -29,13 +29,14 @@ flowchart LR
 - Production deploys that exact Docker image without rebuilding it locally.
 - Databases, documents, configuration, logs, backups, and credentials remain
   outside the Docker image in operator-managed locations.
-- Before cutover, deployment creates and verifies a database backup, runs
-  migrations with the new Docker image, and requires integrity and foreign-key
-  validation.
+- Before cutover, deployment stops runtime writes; creates and verifies a
+  coupled SQLite-and-runtime-artifact snapshot; runs migrations with the new
+  Docker image; and requires database and registered-artifact validation.
 - The replacement must report healthy at the requested revision before the
   previous container is removed.
-- Migration, startup, or health failure restores the backup and prior
-  container. Bypassing this verified deployment path is unsupported.
+- Migration, startup, health, or post-cutover integrity failure restores the
+  matching database and artifact snapshot with the prior container. Bypassing
+  this verified deployment path is unsupported.
 
 ## Consequences
 
@@ -43,6 +44,6 @@ flowchart LR
   image.
 - Pull-request validation and release publication share the same build path.
 - Private state cannot enter source or build artifacts.
-- Database and application rollback remain coupled.
+- Database, runtime-artifact, and application rollback remain coupled.
 - Deployment depends on Docker registry availability and maintained external
   state, backup, and credential directories.

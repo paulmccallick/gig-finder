@@ -70,3 +70,17 @@
 
 Production deployment and recovery procedures are documented in the
 [Deployment runbook](deployment-runbook.md).
+
+## Production state ownership
+
+| Path | Owner | Deployment behavior |
+| --- | --- | --- |
+| `/etc/gig-finder/config.json` | Source-managed private input | Atomically synchronized |
+| configured candidate profile | Source-managed private input | Atomically synchronized |
+| `data/migration/0010-meeting-participants.json` | Source-managed migration input | Atomically synchronized when present |
+| `data/*.sqlite` and queue databases | Runtime | Never synchronized from the repository |
+| `artifacts/**`, including `artifacts/gig-scout/**` | Runtime | Never synchronized from the repository; backed up and restored with SQLite |
+| logs and temporary materializations | Generated | Kept outside source synchronization |
+
+An unclassified path is not a deployable source input. Deployment code uses an
+explicit source-input list and must not replace a shared production directory.

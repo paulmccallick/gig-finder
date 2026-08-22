@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { openDatabase } from "./database";
@@ -158,6 +158,8 @@ export async function pruneManagedBackups(backupRoot:string,retain=30){
   for(const filename of valid.slice(retain)){
     await unlink(filename);
     await unlink(manifestPath(filename));
+    await rm(`${filename}.artifacts`,{recursive:true,force:true});
+    await rm(`${filename}.state.json`,{force:true});
     pruned.push(filename);
   }
   return pruned;

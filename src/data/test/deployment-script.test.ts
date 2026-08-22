@@ -54,6 +54,10 @@ exit 0
 const fakeSync = `#!/bin/sh
 set -eu
 printf '%s\n' "$*" >> "$FAKE_SYNC_LOG"
+case "\${1:-}" in
+  --rollback|--finalize) echo '{"ok":true}' ;;
+  *) echo '{"plan":{"transactionManifest":"/var/lib/gig-finder/data/deployment-inputs-test.json"}}' ;;
+esac
 `;
 
 async function runDeployment(options: {
@@ -162,15 +166,17 @@ describe("local production deployment", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Deployment complete");
     const pull = result.log.indexOf(`pull ghcr.io/paulmccallick/gig-finder:sha-${revision}`);
+    const preflightValidate = result.log.indexOf("maintenance.js validate");
     const backup = result.log.indexOf("maintenance.js backup");
     const migrate = result.log.indexOf("maintenance.js migrate");
-    const validate = result.log.indexOf("maintenance.js validate");
+    const migrationValidate = result.log.indexOf("maintenance.js validate", migrate);
     const start = result.log.indexOf("run --detach");
-    expect([pull, backup, migrate, validate, start].every((position) => position >= 0)).toBe(true);
+    expect([pull, preflightValidate, backup, migrate, migrationValidate, start].every((position) => position >= 0)).toBe(true);
     expect(pull).toBeLessThan(backup);
+    expect(preflightValidate).toBeLessThan(backup);
     expect(backup).toBeLessThan(migrate);
-    expect(migrate).toBeLessThan(validate);
-    expect(validate).toBeLessThan(start);
+    expect(migrate).toBeLessThan(migrationValidate);
+    expect(migrationValidate).toBeLessThan(start);
     expect(result.log).toContain(
       "-v " + result.productionRoot + ":/var/lib/gig-finder",
     );
@@ -181,6 +187,7 @@ describe("local production deployment", () => {
     );
     expect(result.log).not.toContain("-v " + result.configFile + ":/etc/gig-finder/config.json:ro");
     expect(result.syncLog).toContain(result.productionRoot);
+    expect(result.syncLog).toMatch(/--finalize .*\/data\/deployment-inputs-a{40}-\d+\.json/);
     expect(result.log).toContain("-v " + path.join(directory, "codex") + ":/run/codex:ro");
     expect(result.stdout + result.stderr).not.toContain(path.join(directory, "codex"));
   });
@@ -194,6 +201,7 @@ describe("local production deployment", () => {
     expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("start gig-finder");
     expect(result.log).not.toContain("run --detach");
+    expect(result.syncLog).toMatch(/--rollback .*\/data\/deployment-inputs-a{40}-\d+\.json/);
   });
 
   test("restores the backup and prior container when health verification fails", async () => {
@@ -204,5 +212,6 @@ describe("local production deployment", () => {
     expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("rename gig-finder-previous-");
     expect(result.log).toContain("start gig-finder");
+    expect(result.syncLog).toMatch(/--rollback .*\/data\/deployment-inputs-a{40}-\d+\.json/);
   });
 });

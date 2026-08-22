@@ -6,6 +6,7 @@ export * from "./database";
 export * from "./document-store";
 export * from "./errors";
 export * from "./maintenance";
+export * from "./runtime-artifacts";
 export * from "./meeting-migration";
 export * from "./legacy-artifact-migration";
 export * from "./profile-document-files";
