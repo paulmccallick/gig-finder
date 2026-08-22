@@ -1,0 +1,106 @@
+{
+  "kind": "hr-system",
+  "version": 2,
+  "id": "eightfold",
+  "recordsPaths": [
+    "data.positions",
+    "positions"
+  ],
+  "totalPaths": [
+    "data.total",
+    "total"
+  ],
+  "pageSize": 10,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "origin",
+      "path": "/api/pcsx/search",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {
+      "domain": "{query.domain}",
+      "query": "{term}",
+      "start": "{offset}",
+      "num": "10"
+    },
+    "headers": {}
+  },
+  "detailDescription": {
+    "response": "json",
+    "request": {
+      "method": "GET",
+      "endpoint": { "mode": "origin", "path": "/api/pcsx/position_details", "clearQuery": true, "removeQuery": [] },
+      "query": { "domain": "{query.domain}", "position_id": "{position.id}" },
+      "headers": {}
+    },
+    "descriptionPath": "data.jobDescription",
+    "identity": { "titlePath": "data.name", "idPath": "data.id" }
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "id"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "name"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "publicUrl",
+        "positionUrl"
+      ],
+      "fallbackPaths": [
+        "id"
+      ],
+      "fallbackTemplate": "{source.origin}/careers/job/{value}",
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "standardizedLocations",
+        "locations",
+        "location"
+      ],
+      "separator": "; ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "jobDescription"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "descriptionUrl": {
+      "paths": [
+        "id"
+      ],
+      "template": "{source.origin}/api/pcsx/position_details?domain={source.query.domain}&position_id={value}",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

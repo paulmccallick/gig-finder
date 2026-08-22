@@ -23,6 +23,28 @@ const commonSource = z
   })
   .strict();
 
+const detailDescriptionSchema = z.discriminatedUnion("response", [
+  z.object({
+    response: z.literal("json"),
+    request: z.object({
+      method: z.enum(["GET", "POST"]).default("GET"),
+      urlTemplate: z.string().trim().min(1).max(1_000),
+      headers: z.record(z.string(), z.string()).default({}),
+      body: z.record(z.string(), z.unknown()).optional(),
+    }).strict(),
+    descriptionPath: z.string().trim().min(1).max(200),
+    identity: z.object({ titlePath: z.string().trim().min(1).max(200).optional(), idPath: z.string().trim().min(1).max(200).optional() }).strict().optional(),
+  }).strict().superRefine((value,context)=>{if(!value.identity?.idPath&&!value.identity?.titlePath)context.addIssue({code:"custom",message:"JSON detail descriptions require an ID or title identity path."});}),
+  z.object({
+    response: z.literal("html"),
+    urlTemplate: z.string().trim().min(1).max(1_000),
+    extractor: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("dom"), selector: z.string().trim().min(1).max(300), titleSelector:z.string().trim().min(1).max(300).optional(), idSelector:z.string().trim().min(1).max(300).optional() }).strict().superRefine((value,context)=>{if(!value.titleSelector&&!value.idSelector)context.addIssue({code:"custom",message:"DOM detail extraction requires an ID or title selector."});}),
+      z.object({ type: z.literal("json-ld") }).strict(),
+    ]),
+  }).strict(),
+]);
+
 export const customJsonSourceSchema = commonSource
   .extend({
     type: z.literal("json"),
@@ -53,6 +75,7 @@ export const customJsonSourceSchema = commonSource
         location: z.string().trim().min(1).optional(),
       })
       .strict(),
+    detailDescription: detailDescriptionSchema.optional(),
   })
   .strict();
 
@@ -131,6 +154,7 @@ export const htmlSourceSchema = commonSource
       })
       .strict()
       .optional(),
+    detailDescription: detailDescriptionSchema.optional(),
   })
   .strict()
   .superRefine((source, context) => {
@@ -263,6 +287,7 @@ export interface NormalizedPosition {
   title: string;
   location: string | null;
   description: string | null;
+  descriptionSourceContent?: string | null;
   provenance: PositionProvenance;
 }
 export interface SourceOutcome {

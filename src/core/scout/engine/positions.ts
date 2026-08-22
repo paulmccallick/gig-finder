@@ -9,6 +9,7 @@ export interface ScoutBackfillStatus {
  sourceRunId:string;
  selection:{selected:number;complete:boolean};
  downstream:{pending:number;completed:number;failed:number;superseded:number;stages:Record<ScoutPositionProcessingStage,ScoutBackfillStageStatus>};
+ descriptionRecovery:Array<{company:string;template:string;extractionStrategy:string;failureCode:string|null;recovered:number;unresolved:number}>;
 }
 export interface ScoutPositionEvaluationSummary {score:number|null;scoreExplanation:string|null;criteriaVersion:number|null;rubricVersion:number|null;profileVersion:string|null;model:string|null;provider:string|null}
 export interface ScoutWorkspacePosition extends ScoutPositionEvaluationSummary {id:string;title:string;company:string;location:string|null;canonicalUrl:string;state:ScoutPositionState;processingStage:ScoutPositionProcessingStage|null;processingStatus:ScoutPositionProcessingStatus|null;processingFailureCode:string|null;processingFailureMessage:string|null;descriptionAvailable:boolean;firstSeenAt:string;lastSeenAt:string;observationCount:number}

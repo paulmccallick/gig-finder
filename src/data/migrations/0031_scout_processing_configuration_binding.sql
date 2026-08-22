@@ -1,0 +1,1 @@
+ALTER TABLE `scout_position_processing` ADD `configuration_source_id` text REFERENCES scout_company_configuration_sources(id);

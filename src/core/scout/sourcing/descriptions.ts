@@ -7,12 +7,13 @@ const sha256 = async (value: string) =>
  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,"0")).join("");
 
 export function descriptionToMarkdown(value:string,mediaType?:string|null):string|null {
- if(value.length>maxDescriptionCharacters)throw new Error("description_too_large");
  if(!value.trim())return null;
  const html=mediaType?.includes("html")??/<[a-z][\s\S]*>/i.test(value);
- if(!html)return value;
+ if(!html){if(value.length>maxDescriptionCharacters)throw new Error("description_too_large");return value;}
  const converter=new TurndownService({headingStyle:"atx",bulletListMarker:"-",emDelimiter:"*",strongDelimiter:"**",codeBlockStyle:"fenced"});
- return converter.turndown(value);
+ const markdown=converter.turndown(value);
+ if(markdown.length>maxDescriptionCharacters)throw new Error("description_too_large");
+ return markdown;
 }
 
 export function normalizeDescription(value:unknown):string|null {return typeof value==="string"?descriptionToMarkdown(value):null;}
