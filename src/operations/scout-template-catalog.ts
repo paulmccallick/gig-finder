@@ -13,6 +13,13 @@ import phenom from "../../config/scout/templates/phenom.v1.json";
 import smartRecruiters from "../../config/scout/templates/smartrecruiters.v1.json";
 import successFactorsRmk from "../../config/scout/templates/successfactors-rmk.v1.json";
 import workday from "../../config/scout/templates/workday.v1.json";
+import eightfoldV2 from "../../config/scout/templates/eightfold.v2.json";
+import gemV2 from "../../config/scout/templates/gem.v2.json";
+import greenhouseV2 from "../../config/scout/templates/greenhouse.v2.json";
+import oracleHcmV2 from "../../config/scout/templates/oracle-hcm.v2.json";
+import smartRecruitersV2 from "../../config/scout/templates/smartrecruiters.v2.json";
+import successFactorsRmkV2 from "../../config/scout/templates/successfactors-rmk.v2.json";
+import workdayV2 from "../../config/scout/templates/workday.v2.json";
 import { createTemplateCatalog } from "../core/scout/sourcing/adapters/templates/definitions";
 
 export const scoutTemplateCatalog = createTemplateCatalog([
@@ -31,4 +38,11 @@ export const scoutTemplateCatalog = createTemplateCatalog([
   smartRecruiters,
   successFactorsRmk,
   workday,
+  eightfoldV2,
+  gemV2,
+  greenhouseV2,
+  oracleHcmV2,
+  smartRecruitersV2,
+  successFactorsRmkV2,
+  workdayV2,
 ]);

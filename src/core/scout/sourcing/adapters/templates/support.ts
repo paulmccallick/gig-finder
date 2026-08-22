@@ -42,6 +42,7 @@ export function normalize(
     url = absolute(text(value.url), source.url);
   if (!title || !url) return null;
   const description = normalizeDescription(value.description);
+  const descriptionSourceContent=typeof value.description==="string"?value.description:null;
   const configuredDescriptionUrl = absolute(
     text(value.descriptionUrl),
     source.url,
@@ -54,6 +55,7 @@ export function normalize(
     title,
     location: text(value.location).trim() || null,
     description,
+    descriptionSourceContent,
     provenance: {
       sourceKey: source.key,
       sourceUrl: source.url,

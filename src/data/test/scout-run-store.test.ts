@@ -176,6 +176,26 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
   expect(store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).total).toBe(0);
   expect(databases.at(-1)!.query("SELECT state,linked_gig_id linkedGigId,revision FROM scout_position_states WHERE position_id=?").get(position.id)).toEqual({state:"promoted",linkedGigId:"gig-exact",revision:2});
 });
+test("backfill binds failed description recovery to a newly imported source configuration exactly once",()=>{
+  const store=setup(),database=databases.at(-1)!;
+  const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run,job=store.pendingJobs(1)[0]!;
+  const position={sourceKey:"official",externalId:"role-transition",canonicalUrl:"https://careers.example.test/jobs/role-transition",title:"Synthetic Transition Lead",location:"Remote",description:null,provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"none" as const,descriptionUrl:"https://careers.example.test/jobs/role-transition"}};
+  store.commitResult(job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]},"2026-01-01T00:00:01Z");
+  store.reconcileGig(store.pendingPositionJobs(1)[0]!,"2026-01-01T00:00:02Z");
+  const failed=store.pendingPositionJobs(1)[0]!;
+  store.failPositionProcessing(failed,"description_too_large","Synthetic historical failure","2026-01-01T00:00:03Z");
+  const original=database.query(`SELECT id,input_identity inputIdentity,configuration_source_id configurationSourceId FROM scout_position_processing WHERE id=?`).get(failed.id) as {id:string;inputIdentity:string;configurationSourceId:string|null};
+  importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{source.origin}/details/{position.id}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-01-01T00:00:04Z"));
+  store.backfillPositions(run.id,20,"2026-01-01T00:00:05Z");
+  const rows=database.query(`SELECT id,input_identity inputIdentity,status,configuration_source_id configurationSourceId FROM scout_position_processing WHERE stage='acquire_description' ORDER BY created_at,id`).all() as Array<{id:string;inputIdentity:string;status:string;configurationSourceId:string|null}>;
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatchObject({id:original.id,inputIdentity:original.inputIdentity,status:"superseded",configurationSourceId:null});
+  expect(rows[1]).toMatchObject({status:"pending"});
+  expect(rows[1]!.inputIdentity).not.toBe(original.inputIdentity);
+  expect(rows[1]!.configurationSourceId).not.toBeNull();
+  store.backfillPositions(run.id,20,"2026-01-01T00:00:06Z");
+  expect(database.query(`SELECT count(*) count FROM scout_position_processing WHERE stage='acquire_description'`).get()).toEqual({count:2});
+});
 test("partial source outcomes roll up explicitly", () => {
   const store = setup();
   const run = store.startOrReuse(20, 5, "2026-01-01T00:00:00Z").run;
@@ -231,6 +251,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const job=store.pendingJobs(1)[0]!;
   const position={sourceKey:"official",externalId:"screen-1",canonicalUrl:"https://careers.example.test/jobs/screen-1",title:"Director of Synthetic Technology",location:"Remote",description:"Lead the synthetic technology organization.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/screen-1"}};
   store.commitResult(job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[{sourceMethod:"json",stage:"listing",requestCount:1,responseCount:1,candidateCount:1,acceptedCount:1,rejectedCount:0,validationStatus:"verified",startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:00:01Z",diagnostics:[]}]}]},"2026-01-01T00:00:01Z");
+  expect(database.query(`SELECT count(*) count FROM scout_position_descriptions`).get()).toEqual({count:1});
   const laterStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Later Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
   const laterRun=laterStore.startOrReuse(20,5,"2026-01-01T00:00:01.100Z").run,laterJob=laterStore.pendingJobs(1)[0]!;
   const laterPosition={...position,title:"Later mutable title",location:"Later location",canonicalUrl:"https://careers.example.test/jobs/screen-1-later",provenance:{...position.provenance,descriptionUrl:"https://careers.example.test/jobs/screen-1-later"}};
@@ -263,8 +284,13 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(changedStore.candidateMatchInput(currentScoreJob.id)).toMatchObject({profileVersion:"profile-v2",profileHash:"profile-hash-v2",promptCacheKey:boundScore.promptCacheKey});
   await new ScoutPositionProcessor(changedStore,model,()=>"2026-01-01T00:00:04Z").process(currentScoreJob.id);
   expect({relevanceCalls,scoreCalls}).toEqual({relevanceCalls:1,scoreCalls:1});
+  const completedDescription=database.query(`SELECT id FROM scout_position_processing WHERE stage='acquire_description' AND status='completed' LIMIT 1`).get() as {id:string};
+  database.query(`UPDATE scout_position_processing SET status='failed',attempt_count=3,failure_code='description_too_large',failure_message='Synthetic prior failure',completed_at='2026-01-01T00:00:04Z' WHERE id=?`).run(completedDescription.id);
+  database.query(`UPDATE scout_position_processing_outbox SET dispatch_status='dispatched',dispatched_at='2026-01-01T00:00:04Z' WHERE processing_id=?`).run(completedDescription.id);
   const recoveredAgain=changedStore.backfillPositions(run.id,20,"2026-01-01T00:00:05Z");
   expect(recoveredAgain.backfillRunId).toBe(backfill.backfillRunId);
+  expect(database.query(`SELECT status,attempt_count attemptCount,failure_code failureCode FROM scout_position_processing WHERE id=?`).get(completedDescription.id)).toEqual({status:"pending",attemptCount:0,failureCode:null});
+  expect(database.query(`SELECT dispatch_status dispatchStatus,dispatched_at dispatchedAt FROM scout_position_processing_outbox WHERE processing_id=?`).get(completedDescription.id)).toEqual({dispatchStatus:"pending",dispatchedAt:null});
   expect(database.query(`SELECT count(*) relevanceCount FROM scout_relevance_evaluations`).get()).toEqual({relevanceCount:1});
   expect(database.query(`SELECT count(*) matchCount FROM scout_candidate_match_evaluations`).get()).toEqual({matchCount:1});
   const persisted=database.query(`SELECT r.reason,m.score,m.score_explanation scoreExplanation,s.state FROM scout_relevance_evaluations r JOIN scout_candidate_match_evaluations m ON m.relevance_evaluation_id=r.id JOIN scout_position_states s ON s.position_id=r.position_id`).get() as Record<string,unknown>;

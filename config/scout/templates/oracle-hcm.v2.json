@@ -1,0 +1,107 @@
+{
+  "kind": "hr-system",
+  "version": 2,
+  "id": "oracle-hcm",
+  "recordsPaths": [
+    "items.*.requisitionList"
+  ],
+  "totalPaths": [
+    "totalResults",
+    "totalCount"
+  ],
+  "pageSize": 25,
+  "exhaustion": {
+    "mode": "reported-total"
+  },
+  "request": {
+    "method": "GET",
+    "endpoint": {
+      "mode": "configured",
+      "configuredPathIncludes": "/hcmRestApi/resources/",
+      "publicPath": "/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+      "clearQuery": false,
+      "removeQuery": []
+    },
+    "query": {
+      "onlyData": "true",
+      "limit": "25",
+      "offset": "{offset}",
+      "expand": "all",
+      "finder": "findReqs;siteNumber={pathAfter.sites|CX_1},keyword={term}"
+    },
+    "headers": {}
+  },
+  "detailDescription": {
+    "response": "json",
+    "request": {
+      "method": "GET",
+      "endpoint": { "mode": "origin", "path": "/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{position.id}", "clearQuery": true, "removeQuery": [] },
+      "query": { "onlyData": "true", "expand": "all" },
+      "headers": {}
+    },
+    "descriptionPath": "ExternalDescriptionStr",
+    "identity": { "idPath": "Id" }
+  },
+  "fields": {
+    "id": {
+      "paths": [
+        "Id",
+        "RequisitionNumber"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "Title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "Id"
+      ],
+      "template": "{source.origin}/hcmUI/CandidateExperience/{source.pathAfter.CandidateExperience|en}/sites/{source.pathAfter.sites|CX_1}/job/{value}",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "PrimaryLocation",
+        "WorkplaceType"
+      ],
+      "separator": " - ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "description": {
+      "paths": [
+        "ShortDescriptionStr",
+        "ExternalQualificationsStr",
+        "ExternalResponsibilitiesStr"
+      ],
+      "separator": "\n\n",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "descriptionUrl": {
+      "paths": [
+        "Id"
+      ],
+      "template": "{source.origin}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{value}?onlyData=true&expand=all",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
+  },
+  "inputs": {
+    "variables": [],
+    "overrides": []
+  }
+}

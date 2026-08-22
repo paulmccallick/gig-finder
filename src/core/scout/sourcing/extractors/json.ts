@@ -84,7 +84,8 @@ export function extractJson(
     }
     const id = read(source.fields.id);
     const location = read(source.fields.location);
-    const description = normalizeDescription(read(source.fields.description));
+    const rawDescription=read(source.fields.description);
+    const description = normalizeDescription(rawDescription);
     return [
       {
         sourceKey: source.key,
@@ -94,6 +95,7 @@ export function extractJson(
         title: title.trim(),
         location: typeof location === "string" ? location.trim() || null : null,
         description,
+        descriptionSourceContent:typeof rawDescription==="string"?rawDescription:null,
         provenance: {
           sourceKey: source.key,
           sourceUrl: source.url,

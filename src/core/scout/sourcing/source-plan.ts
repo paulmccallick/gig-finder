@@ -5,6 +5,14 @@ export interface PlannedRequest {
   body?: string;
   headers?: Record<string, string>;
 }
+export function planInlineDetailRequest(input:{sourceUrl:string;urlTemplate:string;method:"GET"|"POST";headers:Record<string,string>;body?:Record<string,unknown>},position:{id:string|null;title:string;url:string}):PlannedRequest{
+  const values={"source.origin":new URL(input.sourceUrl).origin,"position.id":position.id??"","position.title":position.title,"position.url":position.url};
+  const replace=(value:string,encode:boolean)=>value.replace(/\{(source\.origin|position\.(?:id|title|url))\}/g,(_match,key:keyof typeof values)=>encode&&key!=="source.origin"&&key!=="position.url"?encodeURIComponent(values[key]):values[key]);
+  const url=new URL(replace(input.urlTemplate,true));
+  if(url.protocol!=="https:")throw new Error("Official description URLs must use HTTPS.");
+  const resolveBody=(value:unknown):unknown=>typeof value==="string"?replace(value,false):Array.isArray(value)?value.map(resolveBody):value&&typeof value==="object"?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,resolveBody(item)])):value;
+  return{url:url.toString(),method:input.method,headers:Object.fromEntries(Object.entries(input.headers).map(([key,value])=>[key,replace(value,false)])),...(input.body?{body:JSON.stringify(resolveBody(input.body))}:{})};
+}
 export function planSourceRequest(
   source: SourceConfiguration,
   page = 1,

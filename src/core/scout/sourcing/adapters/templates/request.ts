@@ -8,6 +8,7 @@ type TemplateContext = {
   page: number;
   pageSize: number;
   term: string;
+  position?: { id: string | null; title: string; url: string };
 };
 
 function templateValue(token: string, context: TemplateContext): string | null {
@@ -17,6 +18,9 @@ function templateValue(token: string, context: TemplateContext): string | null {
   if (key === "page") return String(context.page);
   if (key === "pageZero") return String(context.page - 1);
   if (key === "offset") return String((context.page - 1) * context.pageSize);
+  if (key === "position.id") return context.position?.id ?? fallback;
+  if (key === "position.title") return context.position?.title ?? fallback;
+  if (key === "position.url") return context.position?.url ?? fallback;
   if (key.startsWith("path.")) {
     const index = Number(key.slice("path.".length));
     return context.configured.pathname.split("/").filter(Boolean)[index] ?? fallback;
@@ -86,6 +90,7 @@ export function planReusableJsonRequest(
   page: number,
   term: string,
   definition: ReusableJsonDefinition,
+  position?: { id: string | null; title: string; url: string },
 ): PlannedRequest | null {
   if (!definition.request) return null;
   const configured = new URL(source.url);
@@ -95,6 +100,7 @@ export function planReusableJsonRequest(
     page,
     pageSize: definition.pageSize,
     term,
+    position,
   };
   const endpoint = definition.request.endpoint;
   let url: URL;
@@ -104,6 +110,9 @@ export function planReusableJsonRequest(
     endpoint.publicUrlTemplate
   ) {
     url = new URL(resolveTemplate(endpoint.publicUrlTemplate, context));
+  } else if (endpoint.mode === "position") {
+    if (!context.position?.url) throw new Error("position_url_required");
+    url = new URL(context.position.url);
   } else if (endpoint.mode === "origin") {
     url = new URL(
       resolveTemplate(endpoint.path ?? "/", context),
@@ -139,4 +148,14 @@ export function planReusableJsonRequest(
     ...(body ? { body } : {}),
     headers,
   };
+}
+
+export function planReusableDetailRequest(
+  source: ReusableJsonTemplateSource,
+  definition: ReusableJsonDefinition,
+  position: { id: string | null; title: string; url: string },
+): PlannedRequest | null {
+  if (!definition.detailDescription) return null;
+  const listingDefinition = { ...definition, request: definition.detailDescription.request };
+  return planReusableJsonRequest(source, 1, "", listingDefinition, position);
 }

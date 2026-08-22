@@ -34,7 +34,8 @@
     "test:core": "bun test src/core/test",
     "test:data": "bun test src/data/test",
     "cli": "bin/gig-finder",
-    "scout:source": "bun run scripts/scout-source.ts"
+    "scout:source": "bun run scripts/scout-source.ts",
+    "scout:verify-descriptions:live": "bun run src/operations/scout-description-live-verification.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.18",

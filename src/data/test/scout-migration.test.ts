@@ -159,3 +159,32 @@ test("0030 adds a source-bound backfill run without copied profile content",()=>
   expect(()=>database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,created_at,company_count) VALUES('invalid','running','legacy_backfill',20,5,'2026-01-03',0)`).run()).toThrow();
   database.close();
 });
+
+test("0031 preserves queued processing while adding an optional configuration-source binding",async()=>{
+  const database=new Database(":memory:");
+  database.exec("CREATE TABLE gigs(id text PRIMARY KEY,source_url text,company text,external_job_id text,is_deleted integer NOT NULL DEFAULT 0); CREATE TABLE gig_history(id text PRIMARY KEY); CREATE TABLE changes(id text PRIMARY KEY);");
+  for(let index=24;index<=30;index++){
+    const prefix=String(index).padStart(4,"0")+"_";
+    const migration=[...new Bun.Glob(prefix+"*.sql").scanSync(new URL("../migrations",import.meta.url).pathname)][0]!;
+    await applyStatements(database,new URL("../migrations/"+migration,import.meta.url));
+  }
+  database.exec(`
+    INSERT INTO scout_companies(id,name,created_at,updated_at) VALUES('company','Synthetic Company','2026-01-01','2026-01-01');
+    INSERT INTO scout_company_configurations(id,company_id,version,fingerprint,created_at) VALUES('config','company',1,'fingerprint','2026-01-01');
+    UPDATE scout_companies SET current_configuration_id='config' WHERE id='company';
+    INSERT INTO scout_company_configuration_sources(id,company_configuration_id,source_key,source_type,settings_json) VALUES('source','config','official','json','{}');
+    INSERT INTO scout_runs(id,status,batch_size,concurrency,created_at,company_count) VALUES('run','completed',20,5,'2026-01-01',1);
+    INSERT INTO scout_run_companies(id,run_id,company_id,company_configuration_id,status) VALUES('run-company','run','company','config','succeeded');
+    INSERT INTO scout_run_sources(id,run_company_id,configuration_source_id,status,candidate_count,accepted_count,rejected_count) VALUES('run-source','run-company','source','succeeded_with_results',1,1,0);
+    INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,canonical_url,title,first_seen_at,last_seen_at) VALUES('position','company','official','canonical_url','https://careers.example.test/1','https://careers.example.test/1','Synthetic Role','2026-01-01','2026-01-01');
+    INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES('observation','run-source','position','Synthetic Role','https://careers.example.test/1','{}','2026-01-01');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,stage,input_identity,status,created_at,updated_at) VALUES('processing','position','run','observation','acquire_description','identity','pending','2026-01-01','2026-01-01');
+    INSERT INTO scout_position_processing_outbox(id,processing_id,queue_job_id,created_at) VALUES('outbox','processing','position:processing','2026-01-01');
+  `);
+  await applyStatements(database,new URL("../migrations/0031_scout_processing_configuration_binding.sql",import.meta.url));
+  expect(database.query("PRAGMA table_info(scout_position_processing)").all()).toContainEqual(expect.objectContaining({name:"configuration_source_id",notnull:0}));
+  expect(database.query("SELECT p.id,p.configuration_source_id configurationSourceId,o.queue_job_id queueJobId FROM scout_position_processing p JOIN scout_position_processing_outbox o ON o.processing_id=p.id").get()).toEqual({id:"processing",configurationSourceId:null,queueJobId:"position:processing"});
+  expect(()=>database.query("UPDATE scout_position_processing SET configuration_source_id='missing' WHERE id='processing'").run()).toThrow();
+  database.query("UPDATE scout_position_processing SET configuration_source_id='source' WHERE id='processing'").run();
+  database.close();
+});

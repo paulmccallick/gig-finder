@@ -279,8 +279,10 @@ describe("reusable JSON templates", () => {
       variables: { tenant: "example", site: "External" },
     };
     expect(reusableJsonSourceSchema.safeParse(source).success).toBe(true);
+    expect(scoutTemplateCatalog.resolve({ id: "workday", version: 1 }).detailDescription).toBeUndefined();
+    expect(scoutTemplateCatalog.resolve({ id: "workday", version: 2 }).detailDescription).toBeDefined();
     expect(() =>
-      scoutTemplateCatalog.resolve({ id: "workday", version: 2 }),
+      scoutTemplateCatalog.resolve({ id: "workday", version: 3 }),
     ).toThrow("unknown_scout_template");
   });
   test("template configuration owns required variables and allowed overrides", () => {

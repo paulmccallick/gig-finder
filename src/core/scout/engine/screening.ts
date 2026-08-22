@@ -6,7 +6,8 @@ export type RelevanceResult=z.infer<typeof relevanceResultSchema>;
 export const candidateMatchResultSchema=z.object({score:z.number().int().min(1).max(10),scoreExplanation:z.string().trim().min(1).max(310)}).strict();
 export type CandidateMatchResult=z.infer<typeof candidateMatchResultSchema>;
 
-export interface ScoutDescriptionInput {positionId:string;title:string;company:string;location:string|null;officialUrl:string;listingContent:string|null;listingMediaType:string|null}
+import type { DetailDescriptionPlan } from "../sourcing/detail-descriptions";
+export interface ScoutDescriptionInput {positionId:string;externalId:string|null;title:string;company:string;location:string|null;officialUrl:string;existingDescriptionId:string|null;detailPlan:DetailDescriptionPlan|null}
 export interface ScoutEvaluationInput {positionId:string;title:string;company:string;location:string|null;officialUrl:string;descriptionMarkdown:string;descriptionArtifactId:string;descriptionHash:string}
 export interface RelevanceRequest extends ScoutEvaluationInput {criteria:string;criteriaVersion:number;promptVersion:string}
 export interface CandidateMatchRequest extends ScoutEvaluationInput {profile:unknown;profileVersion:string;profileArtifactId:string;profileHash:string;promptCacheKey:string;rubric:string;rubricVersion:number;promptVersion:string;relevanceEvaluationId:string}
