@@ -65,14 +65,17 @@ async function runDeployment(options: {
   oldContainer?: boolean;
   artifactCount?: number;
   backupInsideArtifacts?: boolean;
+  backupAtFilesystemRoot?: boolean;
 } = {}) {
   const sourceRoot = path.join(directory, "repository", "context");
   const productionRoot = path.join(directory, "var", "lib", "gig-finder");
   const artifactRoot = path.join(productionRoot, "artifacts");
   const logRoot = path.join(directory, "var", "log", "gig-finder");
-  const backupRoot = options.backupInsideArtifacts
-    ? path.join(artifactRoot, "backups")
-    : path.join(directory, "var", "backups", "gig-finder");
+  const backupRoot = options.backupAtFilesystemRoot
+    ? "/"
+    : options.backupInsideArtifacts
+      ? path.join(artifactRoot, "backups")
+      : path.join(directory, "var", "backups", "gig-finder");
   const configFile = path.join(directory, "etc", "gig-finder", "config.json");
   const actualConfigRoot = path.join(directory, "private", "etc");
   const codexHome = path.join(directory, "codex");
@@ -226,6 +229,15 @@ describe("local production deployment", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("production backup root must not be inside the runtime artifact root");
+    expect(result.log).toBe("");
+    expect(result.syncLog).toBe("");
+  });
+
+  test("rejects a deploy-owned filesystem root that contains artifacts", async () => {
+    const result = await runDeployment({ backupAtFilesystemRoot: true });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("production backup root must not contain the runtime artifact root");
     expect(result.log).toBe("");
     expect(result.syncLog).toBe("");
   });

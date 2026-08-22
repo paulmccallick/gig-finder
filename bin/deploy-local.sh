@@ -64,6 +64,7 @@ codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
 require_disjoint_from_artifacts() {
   candidate=$1
   label=$2
+  [ "${candidate}" != / ] || fail "${label} must not contain the runtime artifact root"
   case "${candidate}" in
     "${artifact_root}"|"${artifact_root}"/*)
       fail "${label} must not be inside the runtime artifact root"
