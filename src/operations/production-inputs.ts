@@ -69,21 +69,39 @@ async function restoreInputs(backups: InputBackup[]) {
   if (failures.length) throw new AggregateError(failures, "Production input rollback failed; recovery copies were retained.");
 }
 
-async function readInputManifest(manifestPath: string) {
+async function readInputManifest(manifestPath: string, sourceRoot: string, stateRoot: string, configTarget: string) {
   if (!path.isAbsolute(manifestPath)) throw new Error("Production input transaction manifest must be absolute.");
+  const manifestRelative = path.relative(path.join(stateRoot, "data"), manifestPath);
+  if (manifestRelative.startsWith("..") || !path.basename(manifestPath).startsWith("deployment-inputs-")) {
+    throw new Error("Production input transaction manifest is outside the production data root.");
+  }
   const parsed = JSON.parse(await readFile(manifestPath, "utf8")) as { version: number; backups: InputBackup[] };
   if (parsed.version !== 1 || !Array.isArray(parsed.backups)) throw new Error("Invalid production input transaction manifest.");
+  const source = resolveGigFinderContext(repositoryRoot, { GIG_FINDER_CONTEXT_ROOT: sourceRoot });
+  const profileRelative = requireDescendant(sourceRoot, source.profile, "Profile");
+  const allowedTargets = new Set([
+    configTarget,
+    path.join(stateRoot, profileRelative),
+    path.join(stateRoot, "data", "migration", "0010-meeting-participants.json"),
+  ]);
+  for (const entry of parsed.backups) {
+    if (!allowedTargets.has(entry.target)) throw new Error("Production input manifest contains an unsafe target.");
+    if (path.dirname(entry.backup) !== path.dirname(entry.target)
+      || !path.basename(entry.backup).startsWith(`${path.basename(entry.target)}.deploy-backup-`)) {
+      throw new Error("Production input manifest contains an unsafe recovery path.");
+    }
+  }
   return parsed.backups;
 }
 
-export async function finalizeProductionInputs(manifestPath: string) {
-  const backups = await readInputManifest(manifestPath);
+export async function finalizeProductionInputs(manifestPath: string, sourceRoot: string, stateRoot: string, configTarget: string) {
+  const backups = await readInputManifest(manifestPath, sourceRoot, stateRoot, configTarget);
   await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
   await rm(manifestPath);
 }
 
-export async function rollbackProductionInputs(manifestPath: string) {
-  const backups = await readInputManifest(manifestPath);
+export async function rollbackProductionInputs(manifestPath: string, sourceRoot: string, stateRoot: string, configTarget: string) {
+  const backups = await readInputManifest(manifestPath, sourceRoot, stateRoot, configTarget);
   await restoreInputs(backups);
   await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
   await rm(manifestPath);
@@ -94,6 +112,7 @@ export async function syncProductionInputs(
   stateRootArgument: string,
   configFileArgument: string,
   applicationRoot = repositoryRoot,
+  transactionManifestArgument?: string,
 ) {
   if (![sourceRootArgument, stateRootArgument, configFileArgument].every(path.isAbsolute)) {
     throw new Error("Production input paths must be absolute.");
@@ -114,6 +133,13 @@ export async function syncProductionInputs(
   const profileTarget = path.join(stateRoot, profileRelative);
   const migrationTarget = path.join(stateRoot, migrationRelative);
   const backups = await snapshotInputs([configTarget, profileTarget, migrationTarget]);
+  const transactionManifest = transactionManifestArgument
+    ? path.resolve(transactionManifestArgument)
+    : path.join(stateRoot, "data", `deployment-inputs-${randomUUID()}.json`);
+  const manifestRelative = path.relative(path.join(stateRoot, "data"), transactionManifest);
+  if (manifestRelative.startsWith("..")) throw new Error("Production input transaction manifest must be inside the production data root.");
+  await mkdir(path.dirname(transactionManifest), { recursive: true });
+  await writeFile(transactionManifest, `${JSON.stringify({ version: 1, backups }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   try {
     try {
       await stat(configSource);
@@ -138,6 +164,7 @@ export async function syncProductionInputs(
     try {
       await restoreInputs(backups);
       await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
+      await rm(transactionManifest, { force: true });
     } catch (rollbackError) {
       throw new AggregateError(
         [error, rollbackError],
@@ -147,9 +174,6 @@ export async function syncProductionInputs(
     }
     throw error;
   }
-  const transactionManifest = path.join(stateRoot, "data", `deployment-inputs-${randomUUID()}.json`);
-  await mkdir(path.dirname(transactionManifest), { recursive: true });
-  await writeFile(transactionManifest, `${JSON.stringify({ version: 1, backups }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
 
   return {
     profile: path.join(stateRoot, profileRelative),

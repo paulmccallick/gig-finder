@@ -33,7 +33,7 @@ test("synchronization preserves runtime-owned Scout artifacts", async () => {
   expect(await Bun.file(path.join(state, "artifacts", "gig-scout", "descriptions", "source.md")).exists()).toBe(false);
   expect(result.plan.prohibitedDeletes).toBe(0);
   expect(result.plan.runtimeOwnedRoots).toEqual([path.join(state, "artifacts")]);
-  await rollbackProductionInputs(result.plan.transactionManifest);
+  await rollbackProductionInputs(result.plan.transactionManifest, source, state, config);
   expect(await Bun.file(path.join(state, "profile", "candidate-profile.json")).exists()).toBe(false);
   expect(await readFile(runtimeArtifact, "utf8")).toBe("runtime\n");
 });
@@ -58,4 +58,21 @@ test("synchronization restores every source-managed input after a partial failur
   expect(await readFile(config, "utf8")).toBe("old config\n");
   expect(await readFile(profile, "utf8")).toBe("old profile\n");
   expect(await readFile(migration, "utf8")).toBe("old migration\n");
+});
+
+test("rollback rejects transaction targets outside the declared production inputs", async () => {
+  const source = path.join(directory, "source");
+  const state = path.join(directory, "state");
+  const config = path.join(directory, "config", "config.json");
+  const manifest = path.join(state, "data", "deployment-inputs-tampered.json");
+  const outside = path.join(directory, "outside.txt");
+  await mkdir(path.join(source, "profile"), { recursive: true });
+  await mkdir(path.dirname(config), { recursive: true });
+  await mkdir(path.dirname(manifest), { recursive: true });
+  await writeFile(path.join(source, "profile", "candidate-profile.json"), "{}\n");
+  await writeFile(outside, "safe\n");
+  await writeFile(manifest, JSON.stringify({ version: 1, backups: [{ target: outside, backup: `${outside}.deploy-backup-test`, existed: true }] }));
+
+  await expect(rollbackProductionInputs(manifest, source, state, config)).rejects.toThrow("unsafe target");
+  expect(await readFile(outside, "utf8")).toBe("safe\n");
 });

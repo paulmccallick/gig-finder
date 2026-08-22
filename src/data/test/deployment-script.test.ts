@@ -187,7 +187,7 @@ describe("local production deployment", () => {
     );
     expect(result.log).not.toContain("-v " + result.configFile + ":/etc/gig-finder/config.json:ro");
     expect(result.syncLog).toContain(result.productionRoot);
-    expect(result.syncLog).toContain("--finalize /var/lib/gig-finder/data/deployment-inputs-test.json");
+    expect(result.syncLog).toMatch(/--finalize .*\/data\/deployment-inputs-a{40}-\d+\.json/);
     expect(result.log).toContain("-v " + path.join(directory, "codex") + ":/run/codex:ro");
     expect(result.stdout + result.stderr).not.toContain(path.join(directory, "codex"));
   });
@@ -201,7 +201,7 @@ describe("local production deployment", () => {
     expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("start gig-finder");
     expect(result.log).not.toContain("run --detach");
-    expect(result.syncLog).toContain("--rollback /var/lib/gig-finder/data/deployment-inputs-test.json");
+    expect(result.syncLog).toMatch(/--rollback .*\/data\/deployment-inputs-a{40}-\d+\.json/);
   });
 
   test("restores the backup and prior container when health verification fails", async () => {
@@ -212,6 +212,6 @@ describe("local production deployment", () => {
     expect(result.log).toContain("maintenance.js restore /var/backups/gig-finder/test.sqlite");
     expect(result.log).toContain("rename gig-finder-previous-");
     expect(result.log).toContain("start gig-finder");
-    expect(result.syncLog).toContain("--rollback /var/lib/gig-finder/data/deployment-inputs-test.json");
+    expect(result.syncLog).toMatch(/--rollback .*\/data\/deployment-inputs-a{40}-\d+\.json/);
   });
 });
