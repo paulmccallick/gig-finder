@@ -15,11 +15,22 @@ export interface RuntimeArtifactIntegrity {
   hashMismatchedFingerprint: string;
   unsafeFingerprint: string;
   unregisteredFingerprint: string;
+  missingPathHashes: string[];
+  hashMismatchedPathHashes: string[];
+  unsafePathHashes: string[];
+  unregisteredPathHashes: string[];
 }
 
 const fingerprint = (values: string[]) => createHash("sha256")
   .update(values.sort().join("\n"))
   .digest("hex");
+const pathHashes = (values: string[]) => values
+  .map((value) => createHash("sha256").update(value).digest("hex"))
+  .sort();
+const introducesPath = (baseline: string[], current: string[]) => {
+  const known = new Set(baseline);
+  return current.some((value) => !known.has(value));
+};
 
 export function hasRuntimeArtifactRegression(
   baseline: RuntimeArtifactIntegrity,
@@ -29,10 +40,10 @@ export function hasRuntimeArtifactRegression(
     || current.hashMismatched > baseline.hashMismatched
     || current.unsafe > baseline.unsafe
     || current.unregistered > baseline.unregistered
-    || (current.missing === baseline.missing && current.missingFingerprint !== baseline.missingFingerprint)
-    || (current.hashMismatched === baseline.hashMismatched && current.hashMismatchedFingerprint !== baseline.hashMismatchedFingerprint)
-    || (current.unsafe === baseline.unsafe && current.unsafeFingerprint !== baseline.unsafeFingerprint)
-    || (current.unregistered === baseline.unregistered && current.unregisteredFingerprint !== baseline.unregisteredFingerprint);
+    || introducesPath(baseline.missingPathHashes, current.missingPathHashes)
+    || introducesPath(baseline.hashMismatchedPathHashes, current.hashMismatchedPathHashes)
+    || introducesPath(baseline.unsafePathHashes, current.unsafePathHashes)
+    || introducesPath(baseline.unregisteredPathHashes, current.unregisteredPathHashes);
 }
 
 interface RegisteredArtifact {
@@ -125,5 +136,9 @@ export async function verifyRuntimeArtifacts(
     hashMismatchedFingerprint: fingerprint(mismatchedPaths),
     unsafeFingerprint: fingerprint(unsafePaths),
     unregisteredFingerprint: fingerprint(unregisteredPaths),
+    missingPathHashes: pathHashes(missingPaths),
+    hashMismatchedPathHashes: pathHashes(mismatchedPaths),
+    unsafePathHashes: pathHashes(unsafePaths),
+    unregisteredPathHashes: pathHashes(unregisteredPaths),
   };
 }

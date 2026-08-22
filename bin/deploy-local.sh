@@ -118,15 +118,20 @@ backup_path=$(printf '%s\n' "${backup_output}" \
 [ -n "${backup_path}" ] || fail "maintenance backup did not report a backup path"
 
 echo "Synchronizing source-managed production inputs..."
-if ! "${sync_bin}" "${source_root}" "${state_root}" "${config_file}"; then
+if ! sync_output=$("${sync_bin}" "${source_root}" "${state_root}" "${config_file}"); then
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "source-managed input synchronization failed"
 fi
+echo "${sync_output}"
+input_manifest=$(printf '%s\n' "${sync_output}" \
+  | sed -n 's/.*"transactionManifest":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+[ -n "${input_manifest}" ] || fail "source synchronization did not report a rollback manifest"
 if [ ! -f "${config_file}" ]; then
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "production configuration was not created"
 fi
 if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
+  "${sync_bin}" --rollback "${input_manifest}" || true
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "source synchronization introduced an integrity regression"
 fi
@@ -134,6 +139,7 @@ fi
 if ! maintenance migrate || ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
   echo "Migration or validation failed; restoring ${backup_path}..." >&2
   if maintenance restore "${backup_path}"; then
+    "${sync_bin}" --rollback "${input_manifest}" || fail "production state restored but source-input rollback failed: ${input_manifest}"
     if [ "${old_running}" = true ]; then
       "${docker_bin}" start "${container_name}" >/dev/null
     fi
@@ -153,6 +159,10 @@ rollback() {
   if ! maintenance restore "${backup_path}"; then
     echo "Automatic database restore failed. The prior container remains ${previous_name}." >&2
     echo "Use the retained backup before restarting it: ${backup_path}" >&2
+    return 1
+  fi
+  if ! "${sync_bin}" --rollback "${input_manifest}"; then
+    echo "Source-input rollback failed; recovery manifest retained: ${input_manifest}" >&2
     return 1
   fi
   if [ "${old_exists}" = true ]; then
@@ -205,6 +215,8 @@ if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; the
   rollback || true
   fail "post-cutover database or runtime-artifact validation failed"
 fi
+
+"${sync_bin}" --finalize "${input_manifest}"
 
 if [ "${old_exists}" = true ]; then
   "${docker_bin}" rm "${previous_name}" >/dev/null

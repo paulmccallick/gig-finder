@@ -1,5 +1,6 @@
 import path from "node:path";
-import { chmod, cp, mkdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolveGigFinderContext } from "../data";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
@@ -56,10 +57,36 @@ async function snapshotInputs(targets: string[]) {
 }
 
 async function restoreInputs(backups: InputBackup[]) {
+  const failures: unknown[] = [];
   for (const { target, backup, existed } of [...backups].reverse()) {
-    if (existed) await rename(backup, target);
-    else await rm(target, { force: true });
+    try {
+      if (existed) await rename(backup, target);
+      else await rm(target, { force: true });
+    } catch (error) {
+      failures.push(error);
+    }
   }
+  if (failures.length) throw new AggregateError(failures, "Production input rollback failed; recovery copies were retained.");
+}
+
+async function readInputManifest(manifestPath: string) {
+  if (!path.isAbsolute(manifestPath)) throw new Error("Production input transaction manifest must be absolute.");
+  const parsed = JSON.parse(await readFile(manifestPath, "utf8")) as { version: number; backups: InputBackup[] };
+  if (parsed.version !== 1 || !Array.isArray(parsed.backups)) throw new Error("Invalid production input transaction manifest.");
+  return parsed.backups;
+}
+
+export async function finalizeProductionInputs(manifestPath: string) {
+  const backups = await readInputManifest(manifestPath);
+  await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
+  await rm(manifestPath);
+}
+
+export async function rollbackProductionInputs(manifestPath: string) {
+  const backups = await readInputManifest(manifestPath);
+  await restoreInputs(backups);
+  await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
+  await rm(manifestPath);
 }
 
 export async function syncProductionInputs(
@@ -108,11 +135,21 @@ export async function syncProductionInputs(
       if (!isMissing(error)) throw error;
     }
   } catch (error) {
-    await restoreInputs(backups);
+    try {
+      await restoreInputs(backups);
+      await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Production input synchronization and rollback failed.",
+        { cause: rollbackError },
+      );
+    }
     throw error;
-  } finally {
-    await Promise.all(backups.map(({ backup }) => rm(backup, { force: true })));
   }
+  const transactionManifest = path.join(stateRoot, "data", `deployment-inputs-${randomUUID()}.json`);
+  await mkdir(path.dirname(transactionManifest), { recursive: true });
+  await writeFile(transactionManifest, `${JSON.stringify({ version: 1, backups }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
 
   return {
     profile: path.join(stateRoot, profileRelative),
@@ -121,6 +158,7 @@ export async function syncProductionInputs(
       createsOrReplaces: [configTarget, path.join(stateRoot, profileRelative)],
       runtimeOwnedRoots: [path.join(stateRoot, "artifacts")],
       prohibitedDeletes: 0,
+      transactionManifest,
     },
   };
 }

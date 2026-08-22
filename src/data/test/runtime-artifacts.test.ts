@@ -14,11 +14,11 @@ beforeEach(async () => {
 });
 
 test("allows known damage but rejects a newly worse artifact inventory", () => {
-  const baseline = { ok: false, registered: 3, present: 1, missing: 2, hashMismatched: 0, unsafe: 0, unregistered: 0, missingFingerprint: "same", hashMismatchedFingerprint: "same", unsafeFingerprint: "same", unregisteredFingerprint: "same" };
+  const baseline = { ok: false, registered: 3, present: 1, missing: 2, hashMismatched: 0, unsafe: 0, unregistered: 0, missingFingerprint: "same", hashMismatchedFingerprint: "same", unsafeFingerprint: "same", unregisteredFingerprint: "same", missingPathHashes: ["a", "b"], hashMismatchedPathHashes: [], unsafePathHashes: [], unregisteredPathHashes: [] };
   expect(hasRuntimeArtifactRegression(baseline, { ...baseline, present: 2, missing: 1 })).toBe(false);
   expect(hasRuntimeArtifactRegression(baseline, { ...baseline, missing: 3 })).toBe(true);
   expect(hasRuntimeArtifactRegression(baseline, { ...baseline, unregistered: 1 })).toBe(true);
-  expect(hasRuntimeArtifactRegression(baseline, { ...baseline, missingFingerprint: "different" })).toBe(true);
+  expect(hasRuntimeArtifactRegression(baseline, { ...baseline, missing: 1, missingPathHashes: ["c"] })).toBe(true);
 });
 
 afterEach(async () => {

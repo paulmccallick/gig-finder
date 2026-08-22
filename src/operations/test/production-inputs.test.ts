@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { syncProductionInputs } from "../production-inputs";
+import { rollbackProductionInputs, syncProductionInputs } from "../production-inputs";
 
 const temporaryRoot = path.resolve("tmp");
 let directory = "";
@@ -33,6 +33,9 @@ test("synchronization preserves runtime-owned Scout artifacts", async () => {
   expect(await Bun.file(path.join(state, "artifacts", "gig-scout", "descriptions", "source.md")).exists()).toBe(false);
   expect(result.plan.prohibitedDeletes).toBe(0);
   expect(result.plan.runtimeOwnedRoots).toEqual([path.join(state, "artifacts")]);
+  await rollbackProductionInputs(result.plan.transactionManifest);
+  expect(await Bun.file(path.join(state, "profile", "candidate-profile.json")).exists()).toBe(false);
+  expect(await readFile(runtimeArtifact, "utf8")).toBe("runtime\n");
 });
 
 test("synchronization restores every source-managed input after a partial failure", async () => {

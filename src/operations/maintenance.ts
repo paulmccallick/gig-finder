@@ -95,7 +95,7 @@ async function activateArtifactSnapshot(databaseBackupPath: string) {
     await rm(temporary, { recursive: true, force: true });
   }
   return {
-    finalize: () => rm(displaced, { recursive: true, force: true }),
+    finalize: () => rm(displaced, { recursive: true, force: true }).catch(() => undefined),
     rollback: async () => {
       await rm(context.artifacts, { recursive: true, force: true });
       await rename(displaced, context.artifacts);
