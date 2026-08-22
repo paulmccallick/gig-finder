@@ -7,7 +7,6 @@ image_name=${GIG_FINDER_IMAGE:-ghcr.io/paulmccallick/gig-finder}
 container_name=${GIG_FINDER_CONTAINER_NAME:-gig-finder}
 source_root=${GIG_FINDER_SOURCE_CONTEXT_ROOT:-"${repo_root}/context"}
 state_root=${GIG_FINDER_PRODUCTION_ROOT:-/var/lib/gig-finder}
-artifact_root=${GIG_FINDER_ARTIFACT_ROOT:-"${state_root}/artifacts"}
 log_root=${GIG_FINDER_LOG_ROOT:-/var/log/gig-finder}
 backup_root=${GIG_FINDER_BACKUP_ROOT:-/var/backups/gig-finder}
 config_file=${GIG_FINDER_CONFIG:-/etc/gig-finder/config.json}
@@ -29,10 +28,6 @@ fi
 case "${state_root}" in
   /*) ;;
   *) fail "GIG_FINDER_PRODUCTION_ROOT must be an absolute path" ;;
-esac
-case "${artifact_root}" in
-  /*) ;;
-  *) fail "GIG_FINDER_ARTIFACT_ROOT must be an absolute path" ;;
 esac
 case "${log_root}" in
   /*) ;;
@@ -59,6 +54,7 @@ esac
 [ -d "${codex_home}" ] || fail "Codex credential directory does not exist: ${codex_home}"
 source_root=$(CDPATH= cd -- "${source_root}" && pwd -P)
 state_root=$(CDPATH= cd -- "${state_root}" && pwd -P)
+artifact_root="${state_root}/artifacts"
 log_root=$(CDPATH= cd -- "${log_root}" && pwd -P)
 backup_root=$(CDPATH= cd -- "${backup_root}" && pwd -P)
 config_root=$(CDPATH= cd -- "$(dirname -- "${config_file}")" && pwd -P)

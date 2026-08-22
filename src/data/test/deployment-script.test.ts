@@ -67,7 +67,7 @@ async function runDeployment(options: {
 } = {}) {
   const sourceRoot = path.join(directory, "repository", "context");
   const productionRoot = path.join(directory, "var", "lib", "gig-finder");
-  const artifactRoot = path.join(directory, "runtime-artifacts");
+  const artifactRoot = path.join(productionRoot, "artifacts");
   const logRoot = path.join(directory, "var", "log", "gig-finder");
   const backupRoot = path.join(directory, "var", "backups", "gig-finder");
   const configFile = path.join(directory, "etc", "gig-finder", "config.json");
@@ -114,7 +114,6 @@ async function runDeployment(options: {
     env: {
       ...process.env,
       GIG_FINDER_PRODUCTION_ROOT: productionRoot,
-      GIG_FINDER_ARTIFACT_ROOT: artifactRoot,
       GIG_FINDER_SOURCE_CONTEXT_ROOT: sourceRoot,
       GIG_FINDER_LOG_ROOT: logRoot,
       GIG_FINDER_BACKUP_ROOT: backupRoot,

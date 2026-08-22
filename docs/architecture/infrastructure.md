@@ -66,7 +66,7 @@
   `/var/backups/gig-finder`, and Codex credentials are mounted read-only at
   `/run/codex`.
 - **Documents:** Runtime artifacts use the dedicated persistent host directory
-  `${GIG_FINDER_ARTIFACT_ROOT:-/var/lib/gig-finder/artifacts}`, mounted into the
+  `/var/lib/gig-finder/artifacts`, mounted into the
   application container at `/var/lib/gig-finder/artifacts`. Deployment
   maintenance containers do not receive this mount.
 
@@ -81,7 +81,7 @@ Production deployment and recovery procedures are documented in the
 | configured candidate profile | Source-managed private input | Atomically synchronized |
 | `data/migration/0010-meeting-participants.json` | Source-managed migration input | Atomically synchronized when present |
 | `data/*.sqlite` and queue databases | Runtime | Never synchronized from the repository |
-| `${GIG_FINDER_ARTIFACT_ROOT:-/var/lib/gig-finder/artifacts}/**` | Runtime | Application-only persistent mount; never inspected, synchronized, backed up, or restored by deployment |
+| `/var/lib/gig-finder/artifacts/**` | Runtime | Application-only persistent mount; never inspected, synchronized, backed up, or restored by deployment |
 | logs and temporary materializations | Generated | Kept outside source synchronization |
 
 An unclassified path is not a deployable source input. Deployment code uses an

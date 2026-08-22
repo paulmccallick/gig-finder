@@ -79,7 +79,7 @@ database, replaces the container, and checks `/healthz` for the requested
 revision. On failure it restores SQLite with the prior container.
 
 Runtime artifacts remain at
-`${GIG_FINDER_ARTIFACT_ROOT:-/var/lib/gig-finder/artifacts}`. Only the
+`/var/lib/gig-finder/artifacts`. Only the
 application container mounts that directory, at
 `/var/lib/gig-finder/artifacts`; deployment maintenance containers mount only
 `/var/lib/gig-finder/data`. Normal deployment therefore does not enumerate,
