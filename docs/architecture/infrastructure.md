@@ -87,4 +87,5 @@ Production deployment and recovery procedures are documented in the
 An unclassified path is not a deployable source input. Deployment code uses an
 explicit source-input list and must not replace a shared production directory.
 Artifact integrity audits and backups are separate operational workflows rather
-than deployment steps.
+than deployment steps. Configurable deployment roots must be disjoint from the
+canonical artifact root.

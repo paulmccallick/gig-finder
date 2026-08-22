@@ -60,6 +60,28 @@ backup_root=$(CDPATH= cd -- "${backup_root}" && pwd -P)
 config_root=$(CDPATH= cd -- "$(dirname -- "${config_file}")" && pwd -P)
 config_file="${config_root}/$(basename "${config_file}")"
 codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
+
+require_disjoint_from_artifacts() {
+  candidate=$1
+  label=$2
+  case "${candidate}" in
+    "${artifact_root}"|"${artifact_root}"/*)
+      fail "${label} must not be inside the runtime artifact root"
+      ;;
+  esac
+  case "${artifact_root}" in
+    "${candidate}"/*)
+      fail "${label} must not contain the runtime artifact root"
+      ;;
+  esac
+}
+
+require_disjoint_from_artifacts "${source_root}" "source context root"
+require_disjoint_from_artifacts "${log_root}" "production log root"
+require_disjoint_from_artifacts "${backup_root}" "production backup root"
+require_disjoint_from_artifacts "${config_file}" "production configuration file"
+require_disjoint_from_artifacts "${codex_home}" "Codex credential directory"
+
 [ -f "${state_root}/data/gig-finder.sqlite" ] \
   || fail "production database does not exist; run bin/bootstrap-production.sh first"
 [ -x "${sync_bin}" ] || fail "production input synchronizer is unavailable: ${sync_bin}"

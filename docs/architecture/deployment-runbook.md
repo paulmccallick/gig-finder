@@ -85,7 +85,9 @@ application container mounts that directory, at
 `/var/lib/gig-finder/data`. Normal deployment therefore does not enumerate,
 copy, replace, back up, restore, or validate artifacts, and its validation cost
 does not grow with the artifact count. The prior and replacement application
-containers reuse the same persistent artifact mount.
+containers reuse the same persistent artifact mount. Deployment rejects any
+configured source, log, backup, configuration, or credential path that contains
+or is contained by the canonical artifact path before contacting Docker.
 
 Run the explicit artifact integrity command and artifact backups as separate
 operational maintenance. They are intentionally outside the deployment

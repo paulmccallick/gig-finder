@@ -64,12 +64,15 @@ async function runDeployment(options: {
   failure?: "migrate" | "health";
   oldContainer?: boolean;
   artifactCount?: number;
+  backupInsideArtifacts?: boolean;
 } = {}) {
   const sourceRoot = path.join(directory, "repository", "context");
   const productionRoot = path.join(directory, "var", "lib", "gig-finder");
   const artifactRoot = path.join(productionRoot, "artifacts");
   const logRoot = path.join(directory, "var", "log", "gig-finder");
-  const backupRoot = path.join(directory, "var", "backups", "gig-finder");
+  const backupRoot = options.backupInsideArtifacts
+    ? path.join(artifactRoot, "backups")
+    : path.join(directory, "var", "backups", "gig-finder");
   const configFile = path.join(directory, "etc", "gig-finder", "config.json");
   const actualConfigRoot = path.join(directory, "private", "etc");
   const codexHome = path.join(directory, "codex");
@@ -100,6 +103,8 @@ async function runDeployment(options: {
     writeFile(curlPath, fakeCurl),
     writeFile(sleepPath, fakeSleep),
     writeFile(syncPath, fakeSync),
+    writeFile(logPath, ""),
+    writeFile(syncLogPath, ""),
   ]);
   await Promise.all([
     chmod(deployScript, 0o755),
@@ -214,6 +219,15 @@ describe("local production deployment", () => {
       line.includes(`${path.join(result.productionRoot, "data")}:/var/lib/gig-finder/data`)
       && !line.includes(result.artifactRoot)
       && !line.includes(" artifacts"))).toBe(true);
+  });
+
+  test("rejects deploy-owned paths that overlap the artifact mount", async () => {
+    const result = await runDeployment({ backupInsideArtifacts: true });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("production backup root must not be inside the runtime artifact root");
+    expect(result.log).toBe("");
+    expect(result.syncLog).toBe("");
   });
 
   test("restarts the prior container when migration fails", async () => {
