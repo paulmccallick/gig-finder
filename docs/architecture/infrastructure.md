@@ -65,8 +65,10 @@
   configuration is `/etc/gig-finder/config.json`, backups are under
   `/var/backups/gig-finder`, and Codex credentials are mounted read-only at
   `/run/codex`.
-- **Documents:** Profile documents, managed documents, and Scout artifacts live
-  in the mounted `/var/lib/gig-finder` context and are not embedded in the image.
+- **Documents:** Runtime artifacts use the dedicated persistent host directory
+  `/var/lib/gig-finder/artifacts`, mounted into the
+  application container at `/var/lib/gig-finder/artifacts`. Deployment
+  maintenance containers do not receive this mount.
 
 Production deployment and recovery procedures are documented in the
 [Deployment runbook](deployment-runbook.md).
@@ -79,8 +81,11 @@ Production deployment and recovery procedures are documented in the
 | configured candidate profile | Source-managed private input | Atomically synchronized |
 | `data/migration/0010-meeting-participants.json` | Source-managed migration input | Atomically synchronized when present |
 | `data/*.sqlite` and queue databases | Runtime | Never synchronized from the repository |
-| `artifacts/**`, including `artifacts/gig-scout/**` | Runtime | Never synchronized from the repository; backed up and restored with SQLite |
+| `/var/lib/gig-finder/artifacts/**` | Runtime | Application-only persistent mount; never inspected, synchronized, backed up, or restored by deployment |
 | logs and temporary materializations | Generated | Kept outside source synchronization |
 
 An unclassified path is not a deployable source input. Deployment code uses an
 explicit source-input list and must not replace a shared production directory.
+Artifact integrity audits and backups are separate operational workflows rather
+than deployment steps. Configurable deployment roots must be disjoint from the
+canonical artifact root.

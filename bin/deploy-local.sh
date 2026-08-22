@@ -47,17 +47,42 @@ case "${codex_home}" in
 esac
 [ -d "${source_root}" ] || fail "source context does not exist: ${source_root}"
 [ -d "${state_root}" ] || fail "production state root does not exist: ${state_root}"
+[ -d "${state_root}/data" ] || fail "production data root does not exist: ${state_root}/data"
 [ -d "${log_root}" ] || fail "production log root does not exist: ${log_root}"
 [ -d "${backup_root}" ] || fail "production backup root does not exist: ${backup_root}"
 [ -d "$(dirname -- "${config_file}")" ] || fail "production configuration root does not exist"
 [ -d "${codex_home}" ] || fail "Codex credential directory does not exist: ${codex_home}"
 source_root=$(CDPATH= cd -- "${source_root}" && pwd -P)
 state_root=$(CDPATH= cd -- "${state_root}" && pwd -P)
+artifact_root="${state_root}/artifacts"
 log_root=$(CDPATH= cd -- "${log_root}" && pwd -P)
 backup_root=$(CDPATH= cd -- "${backup_root}" && pwd -P)
 config_root=$(CDPATH= cd -- "$(dirname -- "${config_file}")" && pwd -P)
 config_file="${config_root}/$(basename "${config_file}")"
 codex_home=$(CDPATH= cd -- "${codex_home}" && pwd -P)
+
+require_disjoint_from_artifacts() {
+  candidate=$1
+  label=$2
+  [ "${candidate}" != / ] || fail "${label} must not contain the runtime artifact root"
+  case "${candidate}" in
+    "${artifact_root}"|"${artifact_root}"/*)
+      fail "${label} must not be inside the runtime artifact root"
+      ;;
+  esac
+  case "${artifact_root}" in
+    "${candidate}"/*)
+      fail "${label} must not contain the runtime artifact root"
+      ;;
+  esac
+}
+
+require_disjoint_from_artifacts "${source_root}" "source context root"
+require_disjoint_from_artifacts "${log_root}" "production log root"
+require_disjoint_from_artifacts "${backup_root}" "production backup root"
+require_disjoint_from_artifacts "${config_file}" "production configuration file"
+require_disjoint_from_artifacts "${codex_home}" "Codex credential directory"
+
 [ -f "${state_root}/data/gig-finder.sqlite" ] \
   || fail "production database does not exist; run bin/bootstrap-production.sh first"
 [ -x "${sync_bin}" ] || fail "production input synchronizer is unavailable: ${sync_bin}"
@@ -87,7 +112,7 @@ maintenance() {
     -e GIG_FINDER_CONFIG=/etc/gig-finder/config.json \
     -e LOG_DIRECTORY=/var/log/gig-finder \
     -e GIG_FINDER_BACKUP_ROOT=/var/backups/gig-finder \
-    -v "${state_root}:/var/lib/gig-finder" \
+    -v "${state_root}/data:/var/lib/gig-finder/data" \
     -v "${log_root}:/var/log/gig-finder" \
     -v "${backup_root}:/var/backups/gig-finder" \
     -v "${config_file}:/etc/gig-finder/config.json:ro" \
@@ -98,19 +123,14 @@ if [ "${old_running}" = true ]; then
   "${docker_bin}" stop "${container_name}" >/dev/null
 fi
 
-echo "Creating verified production backup..."
+echo "Creating verified production database backup..."
 if ! maintenance validate; then
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
-  fail "pre-deployment database or runtime-artifact validation failed"
+  fail "pre-deployment database validation failed"
 fi
-if ! artifact_baseline=$(maintenance artifacts); then
-  if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
-  fail "pre-deployment runtime-artifact inventory failed"
-fi
-echo "${artifact_baseline}"
 if ! backup_output=$(maintenance backup); then
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
-  fail "consistent database and runtime-artifact backup failed"
+  fail "production database backup failed"
 fi
 echo "${backup_output}"
 backup_path=$(printf '%s\n' "${backup_output}" \
@@ -136,13 +156,13 @@ if [ ! -f "${config_file}" ]; then
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "production configuration was not created"
 fi
-if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
+if ! maintenance validate; then
   rollback_inputs || fail "integrity validation and source-input rollback failed; prior container remains stopped: ${input_manifest}"
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "source synchronization introduced an integrity regression"
 fi
 
-if ! maintenance migrate || ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
+if ! maintenance migrate || ! maintenance validate; then
   echo "Migration or validation failed; restoring ${backup_path}..." >&2
   if maintenance restore "${backup_path}"; then
     "${sync_bin}" --rollback "${input_manifest}" "${source_root}" "${state_root}" "${config_file}" || fail "production state restored but source-input rollback failed: ${input_manifest}"
@@ -190,6 +210,7 @@ if ! new_container_id=$("${docker_bin}" run --detach \
   -e GIG_FINDER_BACKUP_ROOT=/var/backups/gig-finder \
   -e CODEX_HOME=/run/codex \
   -v "${state_root}:/var/lib/gig-finder" \
+  --mount "type=bind,source=${artifact_root},target=/var/lib/gig-finder/artifacts" \
   -v "${log_root}:/var/log/gig-finder" \
   -v "${backup_root}:/var/backups/gig-finder" \
   -v "${config_file}:/etc/gig-finder/config.json:ro" \
@@ -217,9 +238,9 @@ if [ "${healthy}" != true ]; then
   fail "new container did not become healthy"
 fi
 
-if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
+if ! maintenance validate; then
   rollback || true
-  fail "post-cutover database or runtime-artifact validation failed"
+  fail "post-cutover database validation failed"
 fi
 
 "${sync_bin}" --finalize "${input_manifest}" "${source_root}" "${state_root}" "${config_file}"

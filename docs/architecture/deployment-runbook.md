@@ -73,16 +73,22 @@ GIG_FINDER_CODEX_HOME=/absolute/codex/home \
   bin/deploy-local.sh sha-<40-character-commit-sha>
 ```
 
-The script pulls the immutable image, stops runtime writes, verifies registered
-artifacts, and creates a matching SQLite-plus-artifact snapshot. It then
+The script pulls the immutable image, stops runtime writes, backs up SQLite,
 synchronizes only explicitly source-managed inputs, migrates and validates the
-state, replaces the container, checks `/healthz` for the requested revision,
-and validates the state again. On failure it restores the matching database and
-artifact snapshot with the prior container. The previous container and recovery
-snapshot remain until post-cutover validation succeeds.
+database, replaces the container, and checks `/healthz` for the requested
+revision. On failure it restores SQLite with the prior container.
 
-The artifact report contains counts only; it does not log document content.
-Known missing files are captured as the pre-deployment baseline so the safety
-fix can be released while recovery is incomplete. Every later phase must be no
-worse than that baseline. New missing, mismatched, unsafe, or unregistered Scout
-description paths abort deployment and retain recovery material.
+Runtime artifacts remain at
+`/var/lib/gig-finder/artifacts`. Only the
+application container mounts that directory, at
+`/var/lib/gig-finder/artifacts`; deployment maintenance containers mount only
+`/var/lib/gig-finder/data`. Normal deployment therefore does not enumerate,
+copy, replace, back up, restore, or validate artifacts, and its validation cost
+does not grow with the artifact count. The prior and replacement application
+containers reuse the same persistent artifact mount. Deployment rejects any
+configured source, log, backup, configuration, or credential path that contains
+or is contained by the canonical artifact path before contacting Docker.
+
+Run the explicit artifact integrity command and artifact backups as separate
+operational maintenance. They are intentionally outside the deployment
+critical path.

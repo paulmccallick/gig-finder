@@ -18,6 +18,7 @@ flowchart LR
   CI -->|main merge SHA| Image[Docker image in GHCR]
   Image -->|deploy exact tag| Host[Local production container]
   Host --> State["/var/lib/gig-finder"]
+  Host --> Artifacts["persistent artifact mount"]
   Host --> Logs["/var/log/gig-finder"]
   Host --> Backups["/var/backups/gig-finder"]
   Host --> Config["/etc/gig-finder"]
@@ -29,14 +30,16 @@ flowchart LR
 - Production deploys that exact Docker image without rebuilding it locally.
 - Databases, documents, configuration, logs, backups, and credentials remain
   outside the Docker image in operator-managed locations.
-- Before cutover, deployment stops runtime writes; creates and verifies a
-  coupled SQLite-and-runtime-artifact snapshot; runs migrations with the new
-  Docker image; and requires database and registered-artifact validation.
+- Before cutover, deployment stops runtime writes, backs up SQLite, runs
+  database migrations with the new Docker image, and validates the database.
+- Runtime artifacts are a dedicated persistent mount available to the
+  application container. Deployment maintenance cannot mount, enumerate,
+  synchronize, back up, or restore that directory.
 - The replacement must report healthy at the requested revision before the
   previous container is removed.
-- Migration, startup, health, or post-cutover integrity failure restores the
-  matching database and artifact snapshot with the prior container. Bypassing
-  this verified deployment path is unsupported.
+- Migration, startup, health, or post-cutover database failure restores SQLite
+  with the prior container, which reuses the unchanged artifact mount.
+  Bypassing this verified deployment path is unsupported.
 
 ## Consequences
 
@@ -44,6 +47,7 @@ flowchart LR
   image.
 - Pull-request validation and release publication share the same build path.
 - Private state cannot enter source or build artifacts.
-- Database, runtime-artifact, and application rollback remain coupled.
+- Artifact backup and full path/hash integrity auditing are separate operational
+  concerns and do not add work proportional to artifact count to deployment.
 - Deployment depends on Docker registry availability and maintained external
   state, backup, and credential directories.
