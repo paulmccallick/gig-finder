@@ -75,4 +75,6 @@ test("rollback rejects transaction targets outside the declared production input
 
   await expect(rollbackProductionInputs(manifest, source, state, config)).rejects.toThrow("unsafe target");
   expect(await readFile(outside, "utf8")).toBe("safe\n");
+  await writeFile(manifest, JSON.stringify({ version: 1, backups: [] }));
+  await expect(rollbackProductionInputs(manifest, source, state, config)).rejects.toThrow("incomplete");
 });

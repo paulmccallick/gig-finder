@@ -84,13 +84,25 @@ async function readInputManifest(manifestPath: string, sourceRoot: string, state
     path.join(stateRoot, profileRelative),
     path.join(stateRoot, "data", "migration", "0010-meeting-participants.json"),
   ]);
+  const seenTargets = new Set<string>();
+  let transactionSuffix: string | null = null;
   for (const entry of parsed.backups) {
     if (!allowedTargets.has(entry.target)) throw new Error("Production input manifest contains an unsafe target.");
-    if (path.dirname(entry.backup) !== path.dirname(entry.target)
-      || !path.basename(entry.backup).startsWith(`${path.basename(entry.target)}.deploy-backup-`)) {
+    if (seenTargets.has(entry.target) || typeof entry.existed !== "boolean") {
+      throw new Error("Production input manifest is incomplete or duplicated.");
+    }
+    seenTargets.add(entry.target);
+    const backupPrefix = `${entry.target}.deploy-backup-`;
+    if (!entry.backup.startsWith(backupPrefix) || path.dirname(entry.backup) !== path.dirname(entry.target)) {
       throw new Error("Production input manifest contains an unsafe recovery path.");
     }
+    const suffix = entry.backup.slice(backupPrefix.length);
+    if (!suffix || (transactionSuffix !== null && suffix !== transactionSuffix)) {
+      throw new Error("Production input manifest contains inconsistent recovery paths.");
+    }
+    transactionSuffix = suffix;
   }
+  if (seenTargets.size !== allowedTargets.size) throw new Error("Production input manifest is incomplete or duplicated.");
   return parsed.backups;
 }
 

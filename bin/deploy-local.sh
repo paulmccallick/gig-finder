@@ -119,18 +119,25 @@ backup_path=$(printf '%s\n' "${backup_output}" \
 
 echo "Synchronizing source-managed production inputs..."
 input_manifest="${state_root}/data/deployment-inputs-${revision}-$$.json"
+rollback_inputs() {
+  [ ! -f "${input_manifest}" ] \
+    || "${sync_bin}" --rollback "${input_manifest}" "${source_root}" "${state_root}" "${config_file}"
+}
 if ! sync_output=$("${sync_bin}" "${source_root}" "${state_root}" "${config_file}" "${input_manifest}"); then
+  if ! rollback_inputs; then
+    fail "source-managed input synchronization and rollback failed; prior container remains stopped: ${input_manifest}"
+  fi
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "source-managed input synchronization failed"
 fi
 echo "${sync_output}"
 if [ ! -f "${config_file}" ]; then
-  "${sync_bin}" --rollback "${input_manifest}" "${source_root}" "${state_root}" "${config_file}" || true
+  rollback_inputs || fail "configuration validation and source-input rollback failed; prior container remains stopped: ${input_manifest}"
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "production configuration was not created"
 fi
 if ! maintenance validate || ! maintenance artifacts "${artifact_baseline}"; then
-  "${sync_bin}" --rollback "${input_manifest}" "${source_root}" "${state_root}" "${config_file}" || true
+  rollback_inputs || fail "integrity validation and source-input rollback failed; prior container remains stopped: ${input_manifest}"
   if [ "${old_running}" = true ]; then "${docker_bin}" start "${container_name}" >/dev/null; fi
   fail "source synchronization introduced an integrity regression"
 fi
