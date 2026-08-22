@@ -8,7 +8,7 @@ const value = (name: string) => {
   outputPath = value("--output");
 if (!configPath || !outputPath)
   throw new Error(
-    "Usage: bun run scripts/scout-source.ts --config <private.json> --output <ignored.json> [--company <id>] [--source <key>] [--template <name>] [--term <private term>] [--pages <count>]",
+    "Usage: bun run scripts/scout-source.ts --config <private.json> --output <ignored.json> [--company <id>] [--source <key>] [--template <name>] [--term <private term>] [--location <private location>] [--pages <count>]",
   );
 const absoluteOutput = path.resolve(outputPath),
   ignored = Bun.spawnSync(["git", "check-ignore", "-q", absoluteOutput]);
@@ -20,6 +20,7 @@ const report = await runScoutHarness(raw, {
   sourceKey: value("--source"),
   template: value("--template"),
   term: value("--term"),
+  location: value("--location"),
   maxPages: Number(value("--pages") ?? 2),
 });
 await Bun.write(absoluteOutput, JSON.stringify(report, null, 2));

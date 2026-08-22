@@ -285,7 +285,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
           const attemptId = id("sat", runSourceId, String(index + 1));
           this.db
             .query(
-              `INSERT OR REPLACE INTO scout_source_attempts(id,run_source_id,attempt_number,source_method,stage,request_count,response_count,source_reported_total,records_received,records_parsed,records_evaluable,records_evaluated,candidate_count,accepted_count,rejected_count,pages_requested,pages_validated,unique_identities,validation_status,started_at,completed_at,failure_code,failure_message) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              `INSERT OR REPLACE INTO scout_source_attempts(id,run_source_id,attempt_number,source_method,stage,request_count,response_count,source_reported_total,records_received,records_parsed,records_evaluable,records_evaluated,candidate_count,accepted_count,rejected_count,pages_requested,pages_validated,unique_identities,validation_status,filter_decisions_json,started_at,completed_at,failure_code,failure_message) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             )
             .run(
               attemptId,
@@ -307,6 +307,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
               attempt.pagesValidated ?? attempt.responseCount,
               attempt.uniqueIdentities ?? attempt.acceptedCount,
               attempt.validationStatus,
+              JSON.stringify(attempt.filterDecisions ?? []),
               attempt.startedAt,
               attempt.completedAt,
               attempt.failure?.code ?? null,
@@ -411,7 +412,12 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
         position.title,
         position.canonicalUrl,
         position.location,
-        JSON.stringify(position.provenance),
+        JSON.stringify({
+          ...position.provenance,
+          displayLocation: position.location,
+          locations: position.locations ?? [],
+          workArrangement: position.workArrangement ?? null,
+        }),
         now,
       );
     const observationId=id("sobs", runSourceId, positionId);

@@ -67,6 +67,7 @@ export async function scanSource(
           attemptPositions,
           validation.accepted,
           validation.rejectedPositions,
+          validation.filterDecisions,
         );
         return {
           sourceKey: source.key,
@@ -129,6 +130,28 @@ export async function scanSource(
             responseCount++;
           }
           const extracted = await adapter.decode(source, response.body, page);
+          for (const [positionIndex, position] of extracted.positions.entries()) {
+            const enrichment = adapter.enrichmentRequest?.(source, position);
+            if (!enrichment) continue;
+            if (attempts.reduce((sum, attempt) => sum + attempt.requestCount, 0) + requestCount >= policy.maxRequests)
+              throw new Error("source_limit_reached_location_enrichment");
+            const detailResponse = await http.request({
+              ...enrichment,
+              headers: { accept: "application/json", ...enrichment.headers },
+              timeoutMs: 15_000,
+              maxResponseBytes: policy.maxDetailBytes,
+              signal,
+            });
+            requestCount++;
+            if (detailResponse.status < 200 || detailResponse.status >= 300)
+              throw new Error(`http_${detailResponse.status}`);
+            responseCount++;
+            extracted.positions[positionIndex] = adapter.enrich?.(
+              source,
+              position,
+              detailResponse.body,
+            ) ?? position;
+          }
           nextHtmlPageUrl = extracted.nextPageUrl ?? null;
           const identities = extracted.positions.map(
             (position) =>
@@ -264,6 +287,7 @@ export async function scanSource(
             attemptPositions,
             validation.accepted,
             validation.rejectedPositions,
+            validation.filterDecisions,
           );
           attempts
             .at(-1)!
@@ -337,6 +361,7 @@ export async function scanSource(
     attemptPositions,
     validation.accepted,
     validation.rejectedPositions,
+    validation.filterDecisions,
   );
   const final = attempts.at(-1)!;
   final.validationStatus =
@@ -362,6 +387,7 @@ function applyValidation(
     code: string;
     message: string;
   }>,
+  decisions: NonNullable<SourceAttempt["filterDecisions"]>,
 ) {
   const acceptedPositions = new Set(accepted);
   for (const batch of batches) {
@@ -371,6 +397,10 @@ function applyValidation(
     batch.attempt.acceptedCount = acceptedCount;
     batch.attempt.rejectedCount =
       batch.attempt.recordsReceived! - acceptedCount;
+    const identities = new Set(batch.positions.map((position) =>
+      `${position.sourceKey}\0${position.externalId ?? position.canonicalUrl}`,
+    ));
+    batch.attempt.filterDecisions = decisions.filter((decision) => identities.has(decision.identity));
     const reasons = new Map<string, { count: number; message: string }>();
     for (const rejection of rejected) {
       if (!batch.positions.includes(rejection.position)) continue;

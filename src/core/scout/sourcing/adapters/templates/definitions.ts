@@ -57,6 +57,8 @@ const detailDescriptionSchema = z.object({
   response: z.enum(["json", "html"]),
   request: requestSchema,
   descriptionPath: z.string().trim().min(1).max(200).optional(),
+  locationPaths: z.array(z.string().trim().min(1).max(200)).default([]),
+  workArrangementPaths: z.array(z.string().trim().min(1).max(200)).default([]),
   extractor: z.discriminatedUnion("type", [
     z.object({ type: z.literal("dom"), selector: z.string().trim().min(1).max(300), titleSelector:z.string().trim().min(1).max(300).optional(), idSelector:z.string().trim().min(1).max(300).optional() }).strict().superRefine((value,context)=>{if(!value.titleSelector&&!value.idSelector)context.addIssue({code:"custom",message:"DOM detail extraction requires an ID or title selector."});}),
     z.object({ type: z.literal("json-ld") }).strict(),
@@ -109,6 +111,8 @@ export const reusableJsonDefinitionSchema = z
         title: fieldSchema,
         url: fieldSchema,
         location: fieldSchema.optional(),
+        locations: fieldSchema.optional(),
+        workArrangement: fieldSchema.optional(),
         description: fieldSchema.optional(),
         descriptionUrl: fieldSchema.optional(),
       })

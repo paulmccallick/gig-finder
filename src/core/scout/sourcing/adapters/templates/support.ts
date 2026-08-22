@@ -4,6 +4,7 @@ import { assignedJson, atPath } from "../../extractors/json";
 import type { ReusableJsonTemplateSource } from "./types";
 import type { SourcePage } from "../types";
 import type { ReusableJsonDefinition } from "./definitions";
+import { normalizeLocations, normalizeWorkArrangement } from "../../matching";
 export type Json = Record<string, unknown>;
 export const object = (value: unknown): Json =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -34,6 +35,8 @@ export function normalize(
     title?: unknown;
     url?: unknown;
     location?: unknown;
+    locations?: unknown;
+    workArrangement?: unknown;
     description?: unknown;
     descriptionUrl?: unknown;
   },
@@ -48,12 +51,20 @@ export function normalize(
     source.url,
   );
   const descriptionUrl = configuredDescriptionUrl || (description ? null : url);
+  const locations = normalizeLocations([
+    ...(Array.isArray(value.locations) ? value.locations : [value.locations]),
+    value.location,
+  ]);
   return {
     sourceKey: source.key,
     externalId: scalar(value.id) || null,
     canonicalUrl: url,
     title,
     location: text(value.location).trim() || null,
+    locations,
+    workArrangement:
+      normalizeWorkArrangement(text(value.workArrangement)) ??
+      locations.find(({ workArrangement }) => workArrangement)?.workArrangement ?? null,
     description,
     descriptionSourceContent,
     provenance: {
@@ -247,6 +258,8 @@ export function decodeReusableJson(
       title: fieldValue(record, definition.fields.title, source, payload, index),
       url: fieldValue(record, definition.fields.url, source, payload, index),
       location: fieldValue(record, definition.fields.location, source, payload, index),
+      locations: fieldValue(record, definition.fields.locations, source, payload, index),
+      workArrangement: fieldValue(record, definition.fields.workArrangement, source, payload, index),
       description: fieldValue(record, definition.fields.description, source, payload, index),
       descriptionUrl: fieldValue(
         record,

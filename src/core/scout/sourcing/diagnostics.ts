@@ -4,34 +4,12 @@ import type {
   SourceOutcomeStatus,
   ScoutSearchProfile,
 } from "./contracts";
-
-const normalizeMatchText = (value: string) =>
-  value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
-
-export function positionMatchesSearchProfile(
-  position: Pick<NormalizedPosition, "title" | "location">,
-  profile: ScoutSearchProfile,
-) {
-  const title = normalizeMatchText(position.title);
-  const location = position.location
-    ? normalizeMatchText(position.location)
-    : null;
-  return {
-    title: profile.terms.length
-      ? profile.terms.some((term) => title.includes(normalizeMatchText(term)))
-      : true,
-    location: profile.locations.length
-      ? location !== null &&
-        profile.locations.some((item) =>
-          location.includes(normalizeMatchText(item)),
-        )
-      : true,
-  };
-}
+import { positionMatchesSearchProfile } from "./matching";
+export { positionMatchesSearchProfile } from "./matching";
 export function validatePositions(
   positions: NormalizedPosition[],
   surfaceVerified: boolean,
-  searchProfile: ScoutSearchProfile = { terms: [], locations: [] },
+  searchProfile: ScoutSearchProfile = { terms: [], titleVariants: [], locations: [] },
 ) {
   const accepted: NormalizedPosition[] = [];
   const seen = new Set<string>();
@@ -45,6 +23,7 @@ export function validatePositions(
     code: string;
     message: string;
   }> = [];
+  const filterDecisions = [];
   for (const position of positions) {
     const identity = `${position.sourceKey}\0${position.externalId ?? position.canonicalUrl}`;
     if (seen.has(identity)) {
@@ -75,6 +54,14 @@ export function validatePositions(
       continue;
     }
     const profileMatch = positionMatchesSearchProfile(position, searchProfile);
+    filterDecisions.push({
+      identity,
+      titleMatched: profileMatch.title,
+      locationMatched: profileMatch.location,
+      normalizedTitle: profileMatch.normalizedTitle,
+      normalizedLocations: profileMatch.normalizedLocations,
+      workArrangements: profileMatch.workArrangements,
+    });
     if (!profileMatch.title) {
       titleMismatches++;
       rejectedPositions.push({
@@ -150,5 +137,5 @@ export function validatePositions(
         "Results were extracted but the configured listing surface was not verified.",
     });
   }
-  return { accepted, rejected, rejectedPositions, diagnostics, status };
+  return { accepted, rejected, rejectedPositions, filterDecisions, diagnostics, status };
 }

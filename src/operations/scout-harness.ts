@@ -14,6 +14,7 @@ export interface ScoutHarnessSelection {
   sourceKey?: string;
   template?: string;
   term?: string;
+  location?: string;
   maxPages: number;
 }
 
@@ -122,7 +123,10 @@ export async function runScoutHarness(
                 selection.term === undefined
                   ? searchProfile.terms
                   : [selection.term],
-              locations: searchProfile.locations,
+              locations:
+                selection.location === undefined
+                  ? searchProfile.locations
+                  : [selection.location],
             },
           },
           {
@@ -157,6 +161,12 @@ export async function runScoutHarness(
         samples.push({
           title: position.title,
           url: position.canonicalUrl,
+          displayLocation: position.location,
+          normalizedLocations: (position.locations ?? []).map(({ label }) => label),
+          workArrangements: [...new Set([
+            position.workArrangement ?? null,
+            ...(position.locations ?? []).map(({ workArrangement }) => workArrangement),
+          ].filter((value) => value !== null))],
           status,
           semantic,
           failure,

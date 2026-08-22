@@ -64,9 +64,19 @@ as the run's immutable snapshot and dispatches it uniformly; these values do
 not enter company configurations or reusable templates.
 
 After JSON or DOM normalization, the common sourcing validation path applies
-the captured profile case-insensitively. Terms are ORed within the title
-dimension, locations are ORed within the location dimension, and both
-dimensions must match. Nonmatching candidates remain evaluated rejections with
-profile-title or profile-location diagnostics so reconciliation stays
+the captured profile to structured title and location data. Optional
+`titleVariants` group a configured term with equivalent forms; the defaults
+map Vice President to VP and Senior Vice President to SVP. Title matching uses
+normalized contiguous token sequences and boundaries rather than arbitrary
+substrings. A position preserves its source display location, every
+authoritative location with an explicit remote, hybrid, or on-site arrangement,
+and its overall arrangement. Any authoritative location or arrangement may
+satisfy the location dimension. Remote, Work at Home, Work from Home, and
+home-based labels are remote; a country label alone never implies remote.
+Aggregate-only labels such as `N Locations` defer source filtering when their
+underlying locations are unavailable. Workday v3 resolves those collections
+from a bounded official detail request before filtering when possible.
+Nonmatching candidates remain evaluated rejections with title, location, or
+both diagnostics and the normalized decision inputs so reconciliation stays
 balanced. Template-side search parameters remain acquisition optimizations,
 not the enforcement boundary.
