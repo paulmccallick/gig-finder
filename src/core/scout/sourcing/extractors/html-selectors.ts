@@ -143,6 +143,7 @@ export async function extractHtmlSelectors(
       title,
       location: clean(listing.location) || null,
       description,
+      descriptionSourceContent:listing.description||null,
       provenance: {
         sourceKey: source.key,
         sourceUrl: source.url,

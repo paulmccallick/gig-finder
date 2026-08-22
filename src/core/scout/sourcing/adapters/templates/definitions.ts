@@ -37,7 +37,7 @@ const requestSchema = z
     method: z.enum(["GET", "POST"]),
     endpoint: z
       .object({
-        mode: z.enum(["configured", "origin"]),
+        mode: z.enum(["configured", "origin", "position"]),
         path: z.string().optional(),
         canonicalHost: z.string().optional(),
         configuredPathIncludes: z.string().optional(),
@@ -52,6 +52,21 @@ const requestSchema = z
     body: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
+
+const detailDescriptionSchema = z.object({
+  response: z.enum(["json", "html"]),
+  request: requestSchema,
+  descriptionPath: z.string().trim().min(1).max(200).optional(),
+  extractor: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("dom"), selector: z.string().trim().min(1).max(300), titleSelector:z.string().trim().min(1).max(300).optional(), idSelector:z.string().trim().min(1).max(300).optional() }).strict().superRefine((value,context)=>{if(!value.titleSelector&&!value.idSelector)context.addIssue({code:"custom",message:"DOM detail extraction requires an ID or title selector."});}),
+    z.object({ type: z.literal("json-ld") }).strict(),
+  ]).optional(),
+  identity: z.object({ titlePath: z.string().trim().min(1).max(200).optional(), idPath: z.string().trim().min(1).max(200).optional() }).strict().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.response === "json" && !value.descriptionPath) context.addIssue({ code:"custom", message:"JSON detail descriptions require descriptionPath." });
+  if (value.response === "json" && !value.identity?.idPath && !value.identity?.titlePath) context.addIssue({ code:"custom", message:"JSON detail descriptions require an ID or title identity path." });
+  if (value.response === "html" && !value.extractor) context.addIssue({ code:"custom", message:"HTML detail descriptions require an extractor." });
+});
 
 const inputSchema = z
   .object({
@@ -87,6 +102,7 @@ export const reusableJsonDefinitionSchema = z
       .strict()
       .optional(),
     request: requestSchema.optional(),
+    detailDescription: detailDescriptionSchema.optional(),
     fields: z
       .object({
         id: fieldSchema.optional(),

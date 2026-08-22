@@ -187,6 +187,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
   }, {
     defaultAgentModel: configuration.defaultAgentModel,
     scoutDefaults: configuration.scout,
+    scoutTemplates: scoutTemplateCatalog,
     scoutScreening:{profile:candidateProfile,profileVersion:candidateProfile.version,profileArtifactId:`candidate-profile:${profileHash}`,profileHash,model:screeningModel,provider:"openai-codex",modelConfiguration:screeningModelConfiguration},
     onProfileDocumentMaterializationFailure: (error, document) => logging.logger.error({
       event: "profile_document.materialization_failed",
