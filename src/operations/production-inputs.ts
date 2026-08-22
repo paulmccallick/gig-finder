@@ -100,6 +100,14 @@ async function readInputManifest(manifestPath: string, sourceRoot: string, state
     if (!suffix || (transactionSuffix !== null && suffix !== transactionSuffix)) {
       throw new Error("Production input manifest contains inconsistent recovery paths.");
     }
+    const backupInfo = await stat(entry.backup).catch((error) => {
+      if (isMissing(error)) return null;
+      throw error;
+    });
+    if (backupInfo && !backupInfo.isFile()) throw new Error("Production input recovery copy is not a regular file.");
+    if (entry.existed !== Boolean(backupInfo)) {
+      throw new Error("Production input manifest existence metadata does not match protected recovery state.");
+    }
     transactionSuffix = suffix;
   }
   if (seenTargets.size !== allowedTargets.size) throw new Error("Production input manifest is incomplete or duplicated.");

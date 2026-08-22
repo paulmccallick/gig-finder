@@ -78,3 +78,23 @@ test("rollback rejects transaction targets outside the declared production input
   await writeFile(manifest, JSON.stringify({ version: 1, backups: [] }));
   await expect(rollbackProductionInputs(manifest, source, state, config)).rejects.toThrow("incomplete");
 });
+
+test("rollback rejects tampered existence metadata for the external config", async () => {
+  const source = path.join(directory, "source");
+  const state = path.join(directory, "state");
+  const config = path.join(directory, "config", "config.json");
+  await mkdir(path.join(source, "profile"), { recursive: true });
+  await mkdir(state, { recursive: true });
+  await mkdir(path.dirname(config), { recursive: true });
+  await writeFile(path.join(source, "profile", "candidate-profile.json"), "{}\n");
+  await writeFile(config, "old config\n");
+  const result = await syncProductionInputs(source, state, config);
+  const manifest = JSON.parse(await readFile(result.plan.transactionManifest, "utf8")) as { backups: Array<{ target: string; existed: boolean }> };
+  const configEntry = manifest.backups.find((entry) => entry.target === config);
+  if (!configEntry) throw new Error("Missing config transaction fixture.");
+  configEntry.existed = false;
+  await writeFile(result.plan.transactionManifest, JSON.stringify({ version: 1, backups: manifest.backups }));
+
+  await expect(rollbackProductionInputs(result.plan.transactionManifest, source, state, config)).rejects.toThrow("existence metadata");
+  expect(await Bun.file(config).exists()).toBe(true);
+});
