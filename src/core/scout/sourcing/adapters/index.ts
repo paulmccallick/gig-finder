@@ -130,27 +130,53 @@ export async function scanSource(
             responseCount++;
           }
           const extracted = await adapter.decode(source, response.body, page);
+          const enrichmentDiagnostics = [];
           for (const [positionIndex, position] of extracted.positions.entries()) {
             const enrichment = adapter.enrichmentRequest?.(source, position);
             if (!enrichment) continue;
-            if (attempts.reduce((sum, attempt) => sum + attempt.requestCount, 0) + requestCount >= policy.maxRequests)
-              throw new Error("source_limit_reached_location_enrichment");
-            const detailResponse = await http.request({
-              ...enrichment,
-              headers: { accept: "application/json", ...enrichment.headers },
-              timeoutMs: 15_000,
-              maxResponseBytes: policy.maxDetailBytes,
-              signal,
-            });
-            requestCount++;
-            if (detailResponse.status < 200 || detailResponse.status >= 300)
-              throw new Error(`http_${detailResponse.status}`);
-            responseCount++;
-            extracted.positions[positionIndex] = adapter.enrich?.(
-              source,
-              position,
-              detailResponse.body,
-            ) ?? position;
+            if (attempts.reduce((sum, attempt) => sum + attempt.requestCount, 0) + requestCount >= policy.maxRequests) {
+              enrichmentDiagnostics.push({
+                code: "location_enrichment_budget_exhausted",
+                category: "validation" as const,
+                count: 1,
+                message: "Aggregate location detail was unavailable within the source request budget; location filtering was deferred.",
+              });
+              continue;
+            }
+            try {
+              const detailResponse = await http.request({
+                ...enrichment,
+                headers: { accept: "application/json", ...enrichment.headers },
+                timeoutMs: 15_000,
+                maxResponseBytes: policy.maxDetailBytes,
+                signal,
+              });
+              requestCount++;
+              if (detailResponse.status < 200 || detailResponse.status >= 300) {
+                enrichmentDiagnostics.push({
+                  code: "location_enrichment_http_failed",
+                  category: "network" as const,
+                  count: 1,
+                  message: "Aggregate location detail returned a non-success response; location filtering was deferred.",
+                });
+                continue;
+              }
+              responseCount++;
+              extracted.positions[positionIndex] = adapter.enrich?.(
+                source,
+                position,
+                detailResponse.body,
+              ) ?? position;
+            } catch (error) {
+              if (signal?.aborted || String(error).includes("response_too_large")) throw error;
+              requestCount++;
+              enrichmentDiagnostics.push({
+                code: "location_enrichment_request_failed",
+                category: "network" as const,
+                count: 1,
+                message: "Aggregate location detail could not be retrieved; location filtering was deferred.",
+              });
+            }
           }
           nextHtmlPageUrl = extracted.nextPageUrl ?? null;
           const identities = extracted.positions.map(
@@ -227,7 +253,7 @@ export async function scanSource(
               reconciled && extracted.surfaceVerified ? "verified" : "failed",
             startedAt,
             completedAt: clock.now().toISOString(),
-            diagnostics: reconciliationDiagnostics,
+            diagnostics: [...reconciliationDiagnostics, ...enrichmentDiagnostics],
           };
           attempts.push(attempt);
           attemptPositions.push({ attempt, positions: extracted.positions });

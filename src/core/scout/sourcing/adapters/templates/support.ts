@@ -225,6 +225,41 @@ function fieldValue(
   return renderFieldTemplate(template, selected, source, record);
 }
 
+function fieldCollectionValues(
+  record: unknown,
+  field: ReusableJsonDefinition["fields"]["locations"],
+  source: ReusableJsonTemplateSource,
+  payload: unknown,
+  index: number,
+) {
+  if (!field) return undefined;
+  const valuesAtPaths = (paths: string[]) => paths.flatMap((path) => {
+    const resolvedPath = path.replaceAll("$index", String(index));
+    const selected = resolvedPath.startsWith("$payload.")
+      ? atPath(payload, resolvedPath.slice("$payload.".length))
+      : atPath(record, resolvedPath);
+    return Array.isArray(selected) ? selected : [selected];
+  });
+  let present = valuesAtPaths(field.paths).filter(
+    (value) => value !== undefined && value !== null && value !== "",
+  );
+  const usingFallback = present.length === 0 && Boolean(field.fallbackPaths.length);
+  if (usingFallback)
+    present = valuesAtPaths(field.fallbackPaths).filter(
+      (value) => value !== undefined && value !== null && value !== "",
+    );
+  const transforms = usingFallback ? field.fallbackTransforms : field.transforms;
+  const template = usingFallback ? field.fallbackTemplate : field.template;
+  return present.map((value) => {
+    let selected = value;
+    for (const transform of transforms)
+      selected = transformText(scalar(selected), transform);
+    return template
+      ? renderFieldTemplate(template, selected, source, record)
+      : selected;
+  });
+}
+
 export function decodeReusableJson(
   source: ReusableJsonTemplateSource,
   body: string,
@@ -258,7 +293,7 @@ export function decodeReusableJson(
       title: fieldValue(record, definition.fields.title, source, payload, index),
       url: fieldValue(record, definition.fields.url, source, payload, index),
       location: fieldValue(record, definition.fields.location, source, payload, index),
-      locations: fieldValue(record, definition.fields.locations, source, payload, index),
+      locations: fieldCollectionValues(record, definition.fields.locations, source, payload, index),
       workArrangement: fieldValue(record, definition.fields.workArrangement, source, payload, index),
       description: fieldValue(record, definition.fields.description, source, payload, index),
       descriptionUrl: fieldValue(

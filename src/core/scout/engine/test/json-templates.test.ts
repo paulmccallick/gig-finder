@@ -537,7 +537,7 @@ describe("reusable JSON templates", () => {
       profile: { terms: ["Director"], locations: ["Remote"] },
     },
   ])("Workday enriches aggregate locations before filtering for $name", async ({ title, display, locations, profile }) => {
-    const result = await scanCompany(
+    const result = await scanCompanyCore(
       {
         companyId: "company-1",
         configurationVersionId: "config-1",
@@ -599,6 +599,121 @@ describe("reusable JSON templates", () => {
       normalizedLocations: locations.map((value) => value.toLocaleLowerCase()),
       workArrangements: ["remote"],
     });
+  });
+  test("reusable templates preserve complete listing location arrays", async () => {
+    const template = reusableJsonDefinitionSchema.parse({
+      kind: "hr-system",
+      version: 1,
+      id: "synthetic-location-array",
+      inputs: { variables: [], overrides: [] },
+      recordsPaths: ["jobs"],
+      totalPaths: ["total"],
+      pageSize: 20,
+      exhaustion: { mode: "reported-total" },
+      request: {
+        method: "GET",
+        endpoint: { mode: "configured", clearQuery: false, removeQuery: [] },
+        query: {},
+        headers: {},
+      },
+      fields: {
+        id: { paths: ["id"] },
+        title: { paths: ["title"] },
+        url: { paths: ["url"] },
+        location: { paths: ["displayLocation"] },
+        locations: { paths: ["locations.*"] },
+      },
+    });
+    const result = await scanCompanyCore(
+      {
+        companyId: "company-1",
+        configurationVersionId: "config-1",
+        searchProfile: { terms: ["Vice President"], locations: ["Remote"] },
+        sources: [{
+          key: "official",
+          type: "json",
+          template: { id: template.id, version: template.version },
+          url: "https://careers.example.test/jobs",
+          active: true,
+          variables: {},
+        }],
+      },
+      {
+        templates: createTemplateCatalog([template]),
+        http: {
+          async request(input) {
+            return {
+              status: 200,
+              url: input.url,
+              headers: {},
+              body: JSON.stringify({
+                total: 1,
+                jobs: [{
+                  id: "role-1",
+                  title: "Vice President, Architecture",
+                  url: "/jobs/role-1",
+                  displayLocation: "2 Locations",
+                  locations: ["Remote USA", "Remote Canada"],
+                }],
+              }),
+            };
+          },
+        },
+      },
+    );
+    expect(result.positions[0]?.locations?.map(({ label }) => label)).toEqual([
+      "Remote USA",
+      "Remote Canada",
+    ]);
+  });
+
+  test.each([
+    { name: "detail HTTP failure", maxRequests: 10 },
+    { name: "request budget exhaustion", maxRequests: 1 },
+  ])("Workday defers aggregate filtering after $name", async ({ maxRequests }) => {
+    const result = await scanCompany(
+      {
+        companyId: "company-1",
+        configurationVersionId: "config-1",
+        searchProfile: { terms: ["Director"], locations: ["Remote"] },
+        sources: [{
+          key: "official",
+          type: "json",
+          template: { id: "workday", version: 3 },
+          url: "https://example.wd1.myworkdayjobs.com/en-US/External",
+          active: true,
+          variables: { tenant: "example", site: "External" },
+        }],
+      },
+      {
+        templates: scoutTemplateCatalog,
+        policy: { maxRequests },
+        http: {
+          async request(input) {
+            if (input.method === "GET")
+              return { status: 503, url: input.url, headers: {}, body: "" };
+            return {
+              status: 200,
+              url: input.url,
+              headers: {},
+              body: JSON.stringify({
+                total: 1,
+                jobPostings: [{
+                  title: "Director, Architecture",
+                  externalPath: "/job/role-1",
+                  locationsText: "26 Locations",
+                }],
+              }),
+            };
+          },
+        },
+      },
+    );
+    expect(result.positions).toHaveLength(1);
+    expect(result.positions[0]).toMatchObject({ location: "26 Locations", locations: [] });
+    expect(result.sources[0]?.attempts[0]?.diagnostics).toContainEqual(
+      expect.objectContaining({ code: expect.stringContaining("location_enrichment_") }),
+    );
   });
   test("search terms each start at page one and paginate independently", async () => {
     const requests: string[] = [];
