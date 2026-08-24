@@ -6,7 +6,7 @@ import { WebRequestError, type AgentApi } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";
 import type { ReadableDocument } from "../core/document-reader";
 import type { ScoutRunService } from "../core/scout/engine/runs";
-import type {ScoutPositionService} from "../core/scout/engine/positions";
+import type {ScoutPositionService} from "../core/scout/engine/scout-position-service";
 
 const agentIdleTimeoutSeconds = 120;
 const documentUploadTimeoutSeconds = 60;

@@ -10,7 +10,7 @@ afterEach(()=>rmSync(fixtureRoot,{recursive:true,force:true}));
 test("dependency cruiser rejects type-only data imports of core service implementations",()=>{
   const dataDirectory=path.join(fixtureRoot,"src","data");
   mkdirSync(dataDirectory,{recursive:true});
-  writeFileSync(path.join(dataDirectory,"invalid-adapter.ts"),`import type { ManagedDocumentService } from "../../../../src/core/managed-document-service";\nexport type InvalidDependency = ManagedDocumentService;\n`);
+  writeFileSync(path.join(dataDirectory,"invalid-adapter.ts"),`import type { ScoutPositionService } from "../../../../src/core/scout/engine/scout-position-service";\nexport type InvalidDependency = ScoutPositionService;\n`);
   writeFileSync(path.join(fixtureRoot,"dependency-cruiser.cjs"),`const base=require("../../.dependency-cruiser.cjs");\nmodule.exports={forbidden:base.forbidden.filter(rule=>rule.name==="data-does-not-orchestrate-core-services").map(rule=>({...rule,from:{path:"^tmp/architecture-boundary/src/data/"}})),options:base.options};\n`);
   const result=spawnSync("bunx",["depcruise","tmp/architecture-boundary/src","--config","tmp/architecture-boundary/dependency-cruiser.cjs"],{cwd:process.cwd(),encoding:"utf8"});
   expect(result.status).not.toBe(0);

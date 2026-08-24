@@ -30,7 +30,7 @@ module.exports = {
         pathNot: "^src/data/local-application[.]ts$|^src/data/test/",
       },
       to: {
-        path: "^src/core/(application|changes|interaction-service|managed-document-service|services|tracker-services)[.]ts$",
+        path: "^src/core/.*service.*[.]ts$|^src/core/(application|changes)[.]ts$",
       },
     },
     {

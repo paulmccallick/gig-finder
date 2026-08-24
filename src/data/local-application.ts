@@ -12,7 +12,7 @@ import { validateDatabase } from "./maintenance";
 import { SqliteConversationRepository } from "./conversation-store";
 import { SqliteScoutRunStore } from "./scout-run-store";
 import { ScoutRunService } from "../core/scout/engine/runs";
-import { ScoutPositionService } from "../core/scout/engine/positions";
+import { ScoutPositionService } from "../core/scout/engine/scout-position-service";
 import { SqliteScoutCompanyImportStore } from "./scout-company-import-store";
 import type { ScoutScreeningInputs } from "./scout-run-store";
 import type { TemplateResolver } from "../core/scout/sourcing/adapters/templates/definitions";
