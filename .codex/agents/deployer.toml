@@ -19,4 +19,7 @@ You are the project's deployment specialist.
 - Verify production health reports the deployed revision and inspect logs for
   startup failures. Report the PR, merge SHA, image, backup, health, and any
   rollback or cleanup outcome before finishing.
+- Upon a a successful release: 
+  - Removed the feature branches related to the pr from both local and remote
+  - update main on the local repo to match origin
 """
