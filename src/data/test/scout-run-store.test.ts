@@ -353,6 +353,8 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
+  const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};
+  expect(JSON.parse(promotedProvenance.sourceDescription)).toMatchObject({scoutDescriptionId:identities.descriptionId,officialSourceUrl:review.descriptionSourceUrl,retrievedAt:review.descriptionRetrievedAt,sourceKey:"official",extractionStrategy:"search-result-v1",converterVersion:"html-to-markdown-v1"});
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=(SELECT gig_id FROM scout_position_promotions WHERE position_id=?)`).get(review.id)).toEqual({count:1});
   expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
   expect(database.query(`SELECT count(*) count FROM changes WHERE id IN ('change-pursue:gig','change-pursue:document')`).get()).toEqual({count:2});
