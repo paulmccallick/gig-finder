@@ -4,9 +4,9 @@ import { mkdir, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import {
   candidateProfileId,
-  ManagedDocumentService,
   type ManagedDocumentData,
 } from "../../core/documents";
+import { ManagedDocumentService } from "../../core/managed-document-service";
 import {
   MutationError,
   PersistenceConsistencyError,

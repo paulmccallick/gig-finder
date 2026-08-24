@@ -5,7 +5,7 @@ module.exports = {
       name: "no-circular",
       severity: "error",
       from: {},
-      to: { circular: true },
+      to: { circular: true, viaOnly: { dependencyTypesNot: ["type-only"] } },
     },
     {
       name: "core-is-independent",
@@ -20,6 +20,18 @@ module.exports = {
       comment: "Data adapters may depend on core, but not on inbound adapters.",
       from: { path: "^src/data/" },
       to: { path: "^src/(agent|cli|observability|web)/" },
+    },
+    {
+      name: "data-does-not-orchestrate-core-services",
+      severity: "error",
+      comment: "Only the data composition root may construct core application and domain services.",
+      from: {
+        path: "^src/data/",
+        pathNot: "^src/data/local-application[.]ts$|^src/data/test/",
+      },
+      to: {
+        path: "^src/core/(application|changes|interaction-service|managed-document-service|services|tracker-services)[.]ts$",
+      },
     },
     {
       name: "agent-does-not-own-adapters",
@@ -60,6 +72,7 @@ module.exports = {
     doNotFollow: { path: "node_modules" },
     exclude: { path: "(^|/)node_modules/|(^|/)dist/|(^|/)context/" },
     tsConfig: { fileName: "tsconfig.json" },
+    tsPreCompilationDeps: "specify",
     enhancedResolveOptions: { exportsFields: ["exports"] },
     reporterOptions: { dot: { collapsePattern: "node_modules/[^/]+" } },
   },

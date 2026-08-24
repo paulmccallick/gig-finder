@@ -3,7 +3,7 @@ import { HistoryService, GigPeopleService, PeopleService } from "./services";
 import { InteractionService } from "./interaction-service";
 import { ArtifactDomainService, GigDomainService, TaskDomainService } from "./tracker-services";
 import { ChangeExecutor, ChangeService } from "./changes";
-import { ManagedDocumentService } from "./documents";
+import { ManagedDocumentService } from "./managed-document-service";
 import { SearchContextService } from "./context-search";
 import { ApplicationDocumentReader } from "./document-reader";
 import {

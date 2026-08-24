@@ -25,12 +25,10 @@ import {
 } from "./queries";
 import type { GigRecord } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
-import type { ManagedDocumentService } from "./documents";
+import type { ManagedDocumentService } from "./managed-document-service";
 import { ChangeExecutor, creationPayloadHash, type MutationOptions, type MutationResult } from "./changes";
 import { deepPatch } from "./tracker-services";
 import { gigPersonRelationshipEntitySchema, gigPersonRelationshipInputSchema, type GigPersonRelationshipInput } from "./gig-people";
-
-export type AuditQuery={resource:"change";id:string}|{resource:"history";entity:EntityName;id:string};
 
 type PersonRelationshipData = Pick<PersonData,
   "relationshipType" | "relationshipStrength" | "introducedBy" | "relationshipNotes"

@@ -1,4 +1,5 @@
-import type { ManagedDocumentService, ManagedDocumentType } from "./documents";
+import type { ManagedDocumentType } from "./documents";
+import type { ManagedDocumentService } from "./managed-document-service";
 import { createHash } from "node:crypto";
 import type { GigRecord } from "./gigs";
 import { page, type Page, type ReadResult } from "./queries";

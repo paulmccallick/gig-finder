@@ -37,12 +37,12 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
   );
   store.synchronizeProfileDocuments();
   const application=new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId);
-  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions,options.scoutScreening,undefined,options.scoutTemplates,{gigs:application.gigs,documents:application.documents});
+  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions,options.scoutScreening,undefined,options.scoutTemplates);
   return {
     application,
     conversations:new SqliteConversationRepository(database),
     scout:new ScoutRunService(scoutStore,options.scoutDefaults),
-    scoutPositions:new ScoutPositionService(scoutStore),
+    scoutPositions:new ScoutPositionService(scoutStore,application.gigs,application.documents),
     scoutStore,
     scoutCompanyImportStore:new SqliteScoutCompanyImportStore(database),
     validate:()=>validateDatabase(database),

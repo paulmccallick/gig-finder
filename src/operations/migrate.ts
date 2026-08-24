@@ -2,7 +2,6 @@ import path from "node:path";
 import {
   createManagedBackup,
   loadLegacyMeetingParticipants,
-  migrateLegacyGigArtifacts,
   migrateDatabase,
   openDatabase,
   resolveGigFinderContext,
@@ -22,7 +21,6 @@ try {
     ),
     onInteractionMigrationReport:report=>{interactionMigration=report},
   });
-  const legacyArtifacts = await migrateLegacyGigArtifacts(database, context.artifacts);
   const validation = validateDatabase(database);
   if (!validation.ok) {
     throw new Error(
@@ -34,7 +32,6 @@ try {
     backup: backup.path,
     integrity: validation.integrity,
     foreignKeyViolations: validation.foreignKeyViolations,
-    legacyArtifacts,
     interactionMigration,
   }, null, 2));
 } finally {
