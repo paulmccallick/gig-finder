@@ -2,41 +2,114 @@
   "kind": "hr-system",
   "version": 3,
   "id": "workday",
-  "recordsPaths": ["jobPostings"],
-  "totalPaths": ["total"],
+  "recordsPaths": [
+    "jobPostings"
+  ],
+  "totalPaths": [
+    "total"
+  ],
   "pageSize": 20,
-  "exhaustion": { "mode": "reported-total" },
+  "exhaustion": {
+    "mode": "reported-total"
+  },
   "request": {
     "method": "POST",
-    "endpoint": { "mode": "origin", "path": "/wday/cxs/{variable.tenant}/{variable.site}/jobs", "clearQuery": false, "removeQuery": [] },
+    "endpoint": {
+      "mode": "origin",
+      "path": "/wday/cxs/{variable.tenant}/{variable.site}/jobs",
+      "clearQuery": false,
+      "removeQuery": []
+    },
     "query": {},
     "headers": {},
-    "body": { "appliedFacets": {}, "limit": 20, "offset": "{offset}", "searchText": "{term}" }
+    "body": {
+      "appliedFacets": {},
+      "limit": 20,
+      "offset": "{offset}",
+      "searchText": "{term}"
+    }
   },
   "detailDescription": {
     "response": "json",
     "request": {
       "method": "GET",
-      "endpoint": { "mode": "origin", "path": "/wday/cxs/{variable.tenant}/{variable.site}{position.id}", "clearQuery": true, "removeQuery": [] },
+      "endpoint": {
+        "mode": "origin",
+        "path": "/wday/cxs/{variable.tenant}/{variable.site}{position.id}",
+        "clearQuery": true,
+        "removeQuery": []
+      },
       "query": {},
       "headers": {}
     },
     "descriptionPath": "jobPostingInfo.jobDescription",
-    "locationPaths": ["jobPostingInfo.location", "jobPostingInfo.additionalLocations.*"],
-    "workArrangementPaths": ["jobPostingInfo.remoteType"],
-    "identity": { "titlePath": "jobPostingInfo.title" }
+    "locationPaths": [
+      "jobPostingInfo.location",
+      "jobPostingInfo.additionalLocations.*"
+    ],
+    "workArrangementPaths": [
+      "jobPostingInfo.remoteType"
+    ],
+    "identity": {
+      "titlePath": "jobPostingInfo.title"
+    }
   },
   "fields": {
-    "id": { "paths": ["externalPath"], "fallbackPaths": [], "transforms": [], "fallbackTransforms": [] },
-    "title": { "paths": ["title"], "fallbackPaths": [], "transforms": [], "fallbackTransforms": [] },
-    "url": { "paths": ["externalPath"], "template": "{source.origin}/{variable.site}{value}", "fallbackPaths": [], "transforms": [], "fallbackTransforms": [] },
-    "location": { "paths": ["locationsText", "remoteType"], "separator": " - ", "fallbackPaths": [], "transforms": [], "fallbackTransforms": [] },
-    "descriptionUrl": { "paths": ["externalPath"], "template": "{source.origin}/wday/cxs/{variable.tenant}/{variable.site}{value}", "fallbackPaths": [], "transforms": [], "fallbackTransforms": [] }
+    "id": {
+      "paths": [
+        "externalPath"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "title": {
+      "paths": [
+        "title"
+      ],
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "url": {
+      "paths": [
+        "externalPath"
+      ],
+      "template": "{source.origin}/{variable.site}{value}",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "location": {
+      "paths": [
+        "locationsText",
+        "remoteType"
+      ],
+      "separator": " - ",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    },
+    "descriptionUrl": {
+      "paths": [
+        "externalPath"
+      ],
+      "template": "{source.origin}/wday/cxs/{variable.tenant}/{variable.site}{value}",
+      "fallbackPaths": [],
+      "transforms": [],
+      "fallbackTransforms": []
+    }
   },
   "inputs": {
     "variables": [
-      { "name": "tenant", "required": true },
-      { "name": "site", "required": true }
+      {
+        "name": "tenant",
+        "required": true
+      },
+      {
+        "name": "site",
+        "required": true
+      }
     ],
     "overrides": []
   }
