@@ -649,10 +649,12 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     const state=this.db.query(`SELECT revision,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(positionId) as {revision:number;currentDecisionId:string|null};
     const evaluation=this.db.query(`SELECT d.id descriptionId,d.source_url descriptionSourceUrl,d.retrieved_at descriptionRetrievedAt,a.file_path filePath,a.provenance_json descriptionProvenance,r.id relevanceEvaluationId,r.reason relevanceReason,m.id candidateMatchEvaluationId FROM scout_position_descriptions d JOIN scout_description_artifacts a ON a.id=d.artifact_id JOIN scout_relevance_evaluations r ON r.description_id=d.id JOIN scout_candidate_match_evaluations m ON m.relevance_evaluation_id=r.id WHERE d.position_id=? ORDER BY m.created_at DESC,m.id DESC LIMIT 1`).get(positionId) as Record<string,unknown>|null;
     const decision=state.currentDecisionId?this.db.query(`SELECT origin FROM scout_position_decisions WHERE id=?`).get(state.currentDecisionId) as {origin:"agent"|"user"}|null:null;
+    const promotion=this.db.query(`SELECT status,failure_code failureCode,failure_message failureMessage FROM scout_position_promotions WHERE position_id=?`).get(positionId) as {status:"pending"|"completed"|"failed";failureCode:string|null;failureMessage:string|null}|null;
+    Object.assign(base,{promotionStatus:promotion?.status??null,promotionFailureCode:promotion?.failureCode??null,promotionFailureMessage:promotion?.failureMessage??null});
     return{...base,stateRevision:state.revision,descriptionId:nullableText(evaluation?.descriptionId),descriptionMarkdown:evaluation&&this.descriptionsRoot?readFileSync(path.resolve(this.descriptionsRoot,String(evaluation.filePath)),"utf8"):null,descriptionSourceUrl:nullableText(evaluation?.descriptionSourceUrl),descriptionRetrievedAt:nullableText(evaluation?.descriptionRetrievedAt),descriptionProvenance:evaluation?JSON.parse(String(evaluation.descriptionProvenance)):null,relevanceEvaluationId:nullableText(evaluation?.relevanceEvaluationId),relevanceReason:nullableText(evaluation?.relevanceReason),candidateMatchEvaluationId:nullableText(evaluation?.candidateMatchEvaluationId),irrelevanceOrigin:decision?.origin??null};
   }
   decide(command:ScoutUserDecisionCommand,now:string):ScoutPositionDetail{
-    const decisionId=this.db.transaction(()=>{
+    const _decisionId=this.db.transaction(()=>{
     const current=this.db.query(`SELECT state,revision,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(command.positionId) as {state:string;revision:number;linkedGigId:string|null}|null;
     if(!current)throw new Error("Scout position not found.");
     const existing=this.db.query(`SELECT position_id positionId FROM scout_position_decisions WHERE change_id=?`).get(command.changeId) as {positionId:string}|null;
@@ -670,7 +672,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     if(command.action==="pursue")this.db.query(`INSERT OR IGNORE INTO scout_position_promotions(id,decision_id,position_id,description_id,status,created_at,updated_at) VALUES(?,?,?,?,'pending',?,?)`).run(id("spprom",command.positionId),decisionId,command.positionId,command.descriptionId,now,now);
     return decisionId;
   })();
-    if(command.action==="pursue")try{this.db.transaction(()=>this.promote(command.positionId,decisionId,command.descriptionId,command.changeId,command.actor,now))();}catch(reason){const message=reason instanceof Error?reason.message:"Promotion failed.";this.db.query(`UPDATE scout_position_promotions SET status='failed',failure_code='promotion_failed',failure_message=?,attempt_count=attempt_count+1,updated_at=? WHERE position_id=? AND status<>'completed'`).run(message.slice(0,500),now,command.positionId);}
+    if(command.action==="pursue")return this.retryPromotion(command.positionId,now) as ScoutPositionDetail;
     return this.reviewDetail(command.positionId)??this.positionDetail(command.positionId)!;
   }
   private promote(positionId:string,decisionId:string,descriptionId:string,changeId:string,actor:string,now:string){
