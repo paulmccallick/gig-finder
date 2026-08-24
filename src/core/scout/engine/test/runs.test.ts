@@ -37,14 +37,22 @@ const store = (captured: Array<unknown>): ScoutRunStore =>
   }) satisfies ScoutRunStore;
 
 describe("Scout run search profiles", () => {
+  const defaultTitleVariants = () =>
+    defaultScoutSearchProfile.titleVariants.map(({ term, variants }) => ({
+      term,
+      variants: [...variants],
+    }));
+
   test("uses independent copies of the temporary defaults for omitted and empty dimensions", () => {
     expect(resolveScoutSearchProfile()).toEqual({
       terms: [...defaultScoutSearchProfile.terms],
+      titleVariants: defaultTitleVariants(),
       locations: [...defaultScoutSearchProfile.locations],
     });
     expect(resolveScoutSearchProfile({ terms: [], locations: [] })).toEqual(
       {
         terms: [...defaultScoutSearchProfile.terms],
+        titleVariants: defaultTitleVariants(),
         locations: [...defaultScoutSearchProfile.locations],
       },
     );
@@ -56,11 +64,13 @@ describe("Scout run search profiles", () => {
   test("non-empty explicit dimensions replace only that dimension", () => {
     expect(resolveScoutSearchProfile({ terms: ["Architect"] })).toEqual({
       terms: ["Architect"],
+      titleVariants: defaultTitleVariants(),
       locations: [...defaultScoutSearchProfile.locations],
     });
     expect(resolveScoutSearchProfile({ locations: ["Synthetic Region"] })).toEqual(
       {
         terms: [...defaultScoutSearchProfile.terms],
+        titleVariants: defaultTitleVariants(),
         locations: ["Synthetic Region"],
       },
     );
@@ -74,6 +84,7 @@ describe("Scout run search profiles", () => {
     expect(captured).toEqual([
       {
         terms: ["Architect"],
+        titleVariants: defaultTitleVariants(),
         locations: [...defaultScoutSearchProfile.locations],
       },
     ]);

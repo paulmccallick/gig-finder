@@ -73,6 +73,8 @@ export const customJsonSourceSchema = commonSource
         urlPrefix: z.string().max(300).optional(),
         description: z.string().trim().min(1).optional(),
         location: z.string().trim().min(1).optional(),
+        locations: z.string().trim().min(1).optional(),
+        workArrangement: z.string().trim().min(1).optional(),
       })
       .strict(),
     detailDescription: detailDescriptionSchema.optional(),
@@ -178,10 +180,21 @@ export const sourceConfigurationSchema = z.union([
 export const scoutSearchProfileSchema = z
   .object({
     terms: z.array(z.string().trim().min(1).max(100)).max(25).default([]),
+    titleVariants: z
+      .array(
+        z
+          .object({
+            term: z.string().trim().min(1).max(100),
+            variants: z.array(z.string().trim().min(1).max(100)).min(1).max(10),
+          })
+          .strict(),
+      )
+      .max(25)
+      .default([]),
     locations: z.array(z.string().trim().min(1).max(200)).max(50).default([]),
   })
   .strict()
-  .default({ terms: [], locations: [] });
+  .default({ terms: [], titleVariants: [], locations: [] });
 
 export const defaultScoutSearchProfile = Object.freeze({
   terms: Object.freeze([
@@ -194,6 +207,10 @@ export const defaultScoutSearchProfile = Object.freeze({
     "VP Engineering",
     "Head of Engineering",
     "Head of Technology",
+  ]),
+  titleVariants: Object.freeze([
+    Object.freeze({ term: "Vice President", variants: Object.freeze(["VP"]) }),
+    Object.freeze({ term: "Senior Vice President", variants: Object.freeze(["SVP"]) }),
   ]),
   locations: Object.freeze([
     "Seattle",
@@ -212,6 +229,9 @@ export function resolveScoutSearchProfile(
     terms: parsed.terms.length
       ? [...parsed.terms]
       : [...defaultScoutSearchProfile.terms],
+    titleVariants: parsed.titleVariants.length
+      ? parsed.titleVariants.map(({ term, variants }) => ({ term, variants: [...variants] }))
+      : defaultScoutSearchProfile.titleVariants.map(({ term, variants }) => ({ term, variants: [...variants] })),
     locations: parsed.locations.length
       ? [...parsed.locations]
       : [...defaultScoutSearchProfile.locations],
@@ -240,9 +260,10 @@ export const scoutRuntimePolicySchema = z
   })
   .strict();
 export type ScoutRuntimePolicy = z.infer<typeof scoutRuntimePolicySchema>;
-export type ScoutSearchProfile = z.infer<
-  typeof scoutSearchProfileSchema
->;
+type ParsedScoutSearchProfile = z.infer<typeof scoutSearchProfileSchema>;
+export type ScoutSearchProfile = Omit<ParsedScoutSearchProfile, "titleVariants"> & {
+  titleVariants?: ParsedScoutSearchProfile["titleVariants"];
+};
 export type CompanyScanRequest = z.input<typeof companyScanRequestSchema>;
 export type SourceOutcomeStatus = (typeof sourceOutcomeStatuses)[number];
 
@@ -273,6 +294,7 @@ export interface SourceAttempt {
   completedAt: string;
   failure?: { code: string; message: string };
   diagnostics: SourceDiagnostic[];
+  filterDecisions?: FilterDecision[];
 }
 export interface PositionProvenance {
   sourceKey: string;
@@ -280,12 +302,28 @@ export interface PositionProvenance {
   description: "listing" | "detail" | "none";
   descriptionUrl: string | null;
 }
+export const workArrangements = ["remote", "hybrid", "on-site"] as const;
+export type WorkArrangement = (typeof workArrangements)[number];
+export interface NormalizedLocation {
+  label: string;
+  workArrangement: WorkArrangement | null;
+}
+export interface FilterDecision {
+  identity: string;
+  titleMatched: boolean;
+  locationMatched: boolean;
+  normalizedTitle: string;
+  normalizedLocations: string[];
+  workArrangements: WorkArrangement[];
+}
 export interface NormalizedPosition {
   sourceKey: string;
   externalId: string | null;
   canonicalUrl: string;
   title: string;
   location: string | null;
+  locations?: NormalizedLocation[];
+  workArrangement?: WorkArrangement | null;
   description: string | null;
   descriptionSourceContent?: string | null;
   provenance: PositionProvenance;

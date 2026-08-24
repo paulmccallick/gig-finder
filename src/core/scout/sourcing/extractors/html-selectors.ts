@@ -1,5 +1,6 @@
 import type { NormalizedPosition, SourceConfiguration } from "../contracts";
 import { normalizeDescription } from "../descriptions";
+import { normalizeLocations } from "../matching";
 
 type HtmlSource = Extract<SourceConfiguration, { type: "html" }>;
 type Field = { selector?: string; attribute?: string };
@@ -136,12 +137,17 @@ export async function extractHtmlSelectors(
       continue;
     }
     const description = normalizeDescription(listing.description);
+    const locations = normalizeLocations([
+      clean(listing.location),
+    ]);
     positions.push({
       sourceKey: source.key,
       externalId: clean(listing.id) || null,
       canonicalUrl,
       title,
       location: clean(listing.location) || null,
+      locations,
+      workArrangement: locations.find(({ workArrangement }) => workArrangement)?.workArrangement ?? null,
       description,
       descriptionSourceContent:listing.description||null,
       provenance: {

@@ -1,0 +1,1 @@
+ALTER TABLE `scout_source_attempts` ADD `filter_decisions_json` text DEFAULT '[]' NOT NULL;

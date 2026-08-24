@@ -1,5 +1,6 @@
 import type { NormalizedPosition, SourceConfiguration } from "../contracts";
 import { normalizeDescription } from "../descriptions";
+import { normalizeLocations, normalizeWorkArrangement } from "../matching";
 
 export function atPath(value: unknown, path: string): unknown {
   if (path === "$") return value;
@@ -84,6 +85,12 @@ export function extractJson(
     }
     const id = read(source.fields.id);
     const location = read(source.fields.location);
+    const locationValues = read(source.fields.locations);
+    const locations = normalizeLocations([
+      ...(Array.isArray(locationValues) ? locationValues : [locationValues]),
+      location,
+    ]);
+    const explicitWorkArrangement = read(source.fields.workArrangement);
     const rawDescription=read(source.fields.description);
     const description = normalizeDescription(rawDescription);
     return [
@@ -94,6 +101,11 @@ export function extractJson(
         canonicalUrl,
         title: title.trim(),
         location: typeof location === "string" ? location.trim() || null : null,
+        locations,
+        workArrangement:
+          typeof explicitWorkArrangement === "string"
+            ? normalizeWorkArrangement(explicitWorkArrangement)
+            : locations.find(({ workArrangement }) => workArrangement)?.workArrangement ?? null,
         description,
         descriptionSourceContent:typeof rawDescription==="string"?rawDescription:null,
         provenance: {

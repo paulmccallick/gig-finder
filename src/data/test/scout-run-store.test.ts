@@ -87,6 +87,8 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
         canonicalUrl: "https://careers.example.test/jobs/1",
         title: "Systems Gardener",
         location: "Remote",
+        locations: [{ label: "Remote USA", workArrangement: "remote" as const }],
+        workArrangement: "remote" as const,
         description: null,
         provenance: {
           sourceKey: "official",
@@ -135,6 +137,14 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
             startedAt: "2026-01-01T00:00:00Z",
             completedAt: "2026-01-01T00:00:01Z",
             diagnostics: [],
+            filterDecisions: [{
+              identity: "official\0role-1",
+              titleMatched: true,
+              locationMatched: true,
+              normalizedTitle: "systems gardener",
+              normalizedLocations: ["remote usa"],
+              workArrangements: ["remote" as const],
+            }],
           },
         ],
       },
@@ -150,6 +160,18 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
     acceptedCount: 1,
   });
   expect(detail.companies[0]?.sources[0]?.attempts).toHaveLength(2);
+  const persistedDecision = databases.at(-1)!.query(
+    `SELECT filter_decisions_json decisions FROM scout_source_attempts WHERE validation_status='verified'`,
+  ).get() as { decisions: string };
+  expect(JSON.parse(persistedDecision.decisions)).toEqual(result.sources[0]!.attempts[1]!.filterDecisions);
+  const persistedObservation = databases.at(-1)!.query(
+    `SELECT provenance_json provenance FROM scout_position_observations LIMIT 1`,
+  ).get() as { provenance: string };
+  expect(JSON.parse(persistedObservation.provenance)).toMatchObject({
+    displayLocation: "Remote",
+    locations: [{ label: "Remote USA", workArrangement: "remote" }],
+    workArrangement: "remote",
+  });
   expect(
     detail.companies[0]?.sources[0]?.attempts[0]?.diagnostics,
   ).toContainEqual(

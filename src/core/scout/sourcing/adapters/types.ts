@@ -43,4 +43,13 @@ export interface SourceAdapter {
     body: string,
     page: number,
   ): SourcePage | Promise<SourcePage>;
+  enrichmentRequest?(
+    source: SourceConfiguration,
+    position: NormalizedPosition,
+  ): PlannedRequest | null;
+  enrich?(
+    source: SourceConfiguration,
+    position: NormalizedPosition,
+    body: string,
+  ): NormalizedPosition;
 }

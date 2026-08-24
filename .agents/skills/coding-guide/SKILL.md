@@ -23,3 +23,4 @@ description: Apply GigFinder development, testing, scope, privacy, and design ru
 - Be pragmatic - avoid unecessary obfuscation
 - Do not create automated tests to verify the deprecation of features or old implementations.
 - typescript should be human readable, not minimized
+- json should be human readable, not minimized

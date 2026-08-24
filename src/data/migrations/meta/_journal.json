@@ -225,6 +225,13 @@
       "when": 1787356652522,
       "tag": "0031_scout_processing_configuration_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1787428742010,
+      "tag": "0032_scout_structured_filter_decisions",
+      "breakpoints": true
     }
   ]
 }

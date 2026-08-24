@@ -20,6 +20,7 @@ import oracleHcmV2 from "../../config/scout/templates/oracle-hcm.v2.json";
 import smartRecruitersV2 from "../../config/scout/templates/smartrecruiters.v2.json";
 import successFactorsRmkV2 from "../../config/scout/templates/successfactors-rmk.v2.json";
 import workdayV2 from "../../config/scout/templates/workday.v2.json";
+import workdayV3 from "../../config/scout/templates/workday.v3.json";
 import { createTemplateCatalog } from "../core/scout/sourcing/adapters/templates/definitions";
 
 export const scoutTemplateCatalog = createTemplateCatalog([
@@ -45,4 +46,5 @@ export const scoutTemplateCatalog = createTemplateCatalog([
   smartRecruitersV2,
   successFactorsRmkV2,
   workdayV2,
+  workdayV3,
 ]);
