@@ -22,8 +22,10 @@ Project](https://github.com/users/paulmccallick/projects/5).
 - development requires the user to ask for the issue to be implemented
 - once all tests are passing the developer must commit, push, and create a PR
 - a PR should spawn the code reviewer sub agent to do a code review
+- a PR should spawn the change overview agent to create a markdown file with reported changes.
 - the developer should resolve any found issues, and push
 - fixes will initiate a code review
+- fixes will initiate a new change overview
 
 ## Root coordination workflow
 
