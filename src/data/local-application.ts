@@ -36,9 +36,10 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
     options.onProfileDocumentMaterializationFailure,
   );
   store.synchronizeProfileDocuments();
-  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions,options.scoutScreening,undefined,options.scoutTemplates);
+  const application=new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId);
+  const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions,options.scoutScreening,undefined,options.scoutTemplates,{gigs:application.gigs,documents:application.documents});
   return {
-    application:new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId),
+    application,
     conversations:new SqliteConversationRepository(database),
     scout:new ScoutRunService(scoutStore,options.scoutDefaults),
     scoutPositions:new ScoutPositionService(scoutStore),

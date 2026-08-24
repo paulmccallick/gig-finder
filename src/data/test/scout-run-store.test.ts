@@ -3,6 +3,8 @@ import { openDatabase, migrateDatabase } from "../database";
 import { SqliteScoutCompanyImportStore } from "../scout-company-import-store";
 import { SqliteScoutRunStore } from "../scout-run-store";
 import {DataStore} from "../store";
+import {AuditReader} from "../audit";
+import {GigFinderApplication} from "../../core/application";
 import { importScoutCompany } from "../../core/scout/engine/company-import";
 import { ScoutPositionProcessor, type ScoutScreeningModel } from "../../core/scout/engine/screening";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -299,7 +301,8 @@ test("screening persists bounded comments and exposes only the score explanation
   const boundScore=store.candidateMatchInput(scoreJob.id);
   database.query(`INSERT INTO scout_candidate_match_rubrics(id,version,rubric,prompt_version,created_at) VALUES('later-rubric',2,'Later synthetic rubric','later-match-prompt','2026-01-01T00:00:03Z')`).run();
   expect(store.candidateMatchInput(scoreJob.id)).toMatchObject({descriptionHash:boundScore.descriptionHash,rubric:boundScore.rubric,rubricVersion:1,profileVersion:"profile-v1",promptCacheKey:boundScore.promptCacheKey});
-  const changedStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Current Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
+  const promotionApplication=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
+  const changedStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Current Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"},undefined,undefined,{gigs:promotionApplication.gigs,documents:promotionApplication.documents});
   expect(changedStore.refreshCandidateMatch(scoreJob.id,"2026-01-01T00:00:03.500Z")).toBeTrue();
   expect(database.query(`SELECT status FROM scout_position_processing WHERE id=?`).get(scoreJob.id)).toEqual({status:"superseded"});
   const currentScoreJob=changedStore.pendingPositionJobs(10)[0]!;
@@ -342,6 +345,8 @@ test("screening persists bounded comments and exposes only the score explanation
   const failed=changedStore.decide({positionId:review.id,action:"pursue",actor:"Reviewer",changeId:"change-pursue",expectedStateRevision:resurfaced.stateRevision,...identities},"2026-01-01T00:00:13Z");
   expect(failed).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureCode:"promotion_failed"});
   expect(database.query(`SELECT status,description_id descriptionId FROM scout_position_promotions WHERE position_id=?`).get(review.id)).toEqual({status:"failed",descriptionId:identities.descriptionId});
+  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
+  expect(database.query(`SELECT count(*) count FROM managed_documents`).get()).toEqual({count:0});
   database.exec(`DROP TRIGGER synthetic_promotion_failure`);
   const promoted=changedStore.decide({positionId:review.id,action:"pursue",actor:"Forged replay",changeId:"change-pursue",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"},"2026-01-01T00:00:14Z");
   expect(promoted).toBeNull();
@@ -349,6 +354,8 @@ test("screening persists bounded comments and exposes only the score explanation
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=(SELECT gig_id FROM scout_position_promotions WHERE position_id=?)`).get(review.id)).toEqual({count:1});
+  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
+  expect(database.query(`SELECT count(*) count FROM changes WHERE id IN ('change-pursue:gig','change-pursue:document')`).get()).toEqual({count:2});
   database.exec(`DELETE FROM managed_document_links; DELETE FROM managed_document_versions; DELETE FROM scout_position_promotions; DELETE FROM managed_documents; UPDATE scout_position_states SET state='needs_user_review',linked_gig_id=NULL,deferred_until=NULL,current_decision_id=NULL WHERE position_id<>'other-position'; DELETE FROM scout_position_notes; DELETE FROM scout_position_decisions; DELETE FROM changes WHERE id LIKE 'change-%'; DELETE FROM gigs;`);
   database.query(`UPDATE scout_position_processing SET run_id=? WHERE stage='screen_relevance' AND status='completed'`).run(run.id);
   database.query(`DELETE FROM scout_position_processing_outbox WHERE processing_id IN (SELECT id FROM scout_position_processing WHERE stage='score_candidate_match')`).run();
