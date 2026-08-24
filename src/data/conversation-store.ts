@@ -3,7 +3,7 @@ import type {
   Conversation,
   ConversationMessage,
   ConversationRepository,
-} from "../core/conversation-service";
+} from "../core/conversation-contracts";
 
 interface ConversationRow {
   id: string;

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { EntityName } from "../core/models";
-import type { AuditQuery } from "../core/services";
+import type { AuditQuery } from "../core/ports";
 
 const historyTable:Record<EntityName,string>={gig:"gig_history",person:"person_history","gig-person":"gig_people_history",task:"task_history",interaction:"interaction_history","interaction-participant":"interaction_participant_history"};
 

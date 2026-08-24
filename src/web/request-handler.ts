@@ -6,11 +6,13 @@ import { WebRequestError, type AgentApi } from "./agent-handler";
 import type { StaticFileHandler } from "./static-files";
 import type { ReadableDocument } from "../core/document-reader";
 import type { ScoutRunService } from "../core/scout/engine/runs";
-import type {ScoutPositionService} from "../core/scout/engine/positions";
+import type {ScoutPositionService} from "../core/scout/engine/scout-position-service";
 
 const agentIdleTimeoutSeconds = 120;
 const documentUploadTimeoutSeconds = 60;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
+const trustedUserActor="User";
+const scoutMutation=<T>(operation:()=>T)=>{try{return operation();}catch(reason){const message=reason instanceof Error?reason.message:"Invalid Scout position request.";throw new WebRequestError(message,message.includes("revised")?409:422);}};
 
 export interface WebHandlerDependencies {
   gigFinder: GigFinderApplication;
@@ -224,6 +226,16 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
         response=!scoutPositions?json({error:"Gig Scout unavailable"},503):request.method!=="POST"?json({error:"Method not allowed"},405):json(scoutPositions.backfill(url.searchParams.get("sourceRunId")??"",Number(url.searchParams.get("limit")??100)),202);
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+$/)){
         const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const position=scoutPositions?.get(positionId);response=request.method!=="GET"?json({error:"Method not allowed"},405):position?json(position):json({error:"Scout position not found"},404);
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/decision$/)){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.decide(positionId,{...body,actor:trustedUserActor} as never)));}
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/restore$/)){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.restore(positionId,{...body,actor:trustedUserActor} as never)));}
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/reverse$/)){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.reverse(positionId,{...body,actor:trustedUserActor} as never)));}
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/notes$/)){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.addNote(positionId,{...body,actor:trustedUserActor} as never)),201);}
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/promotion\/retry$/)){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");response=json(scoutMutation(()=>scoutPositions.retryPromotion(positionId)),202);}
       } else if (url.pathname === "/api/gig-scout/runs") {
         if (!scout) {
           response = json({ error: "Gig Scout unavailable" }, 503);

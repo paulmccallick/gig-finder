@@ -111,10 +111,12 @@ test("discovers and processes positions from a full Scout run", async ({
   await page
     .getByRole("button", { name: "Head of Orchard Technology" })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Observation history" }),
-  ).toBeVisible();
   await expect(page.getByText("Candidate-match score:")).toBeVisible();
   await expect(page.getByText(/synthetic profile aligns/)).toBeVisible();
-  await expect(page.getByText(/run srun_/)).toBeVisible();
+  await page.getByText("Processing diagnostics and observation history").click();
+  await expect(page.getByText(/succeeded_with_results/)).toBeVisible();
+  await page.getByRole("button", { name: "Pursue" }).click();
+  await expect(page.getByRole("heading", { name: "Positions", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Head of Orchard Technology" })).toHaveCount(0);
+  await expect.poll(async()=>{const response=await page.request.get("/api/gig-scout/positions");const body=await response.json() as {items:Array<{id:string}>};return body.items.length;}).toBe(0);
 });

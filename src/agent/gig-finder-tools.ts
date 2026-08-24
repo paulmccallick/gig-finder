@@ -11,7 +11,6 @@ import type {
   GigPersonRelationshipQueryInput,
   GigQueryInput,
   ManagedDocumentMutationResult,
-  ManagedDocumentService,
   InteractionQueryInput,
   InteractionService,
   PeopleQueryInput,
@@ -42,6 +41,7 @@ import {
   managedDocumentTypes,
   profileDocumentDescriptionLimit,
 } from "../core/documents";
+import type { ManagedDocumentService } from "../core/managed-document-service";
 import { stagedDocumentReferencePattern } from "../core/staged-documents";
 import { gigPersonRelationships } from "../core/people";
 import { interactionChannels, interactionDirections, interactionInputSchema, interactionKinds, interactionStatuses, interactionTimezoneSchema, type InteractionInput } from "../core/interactions";

@@ -105,6 +105,11 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
     return row ? fromRow(row, this.links(id)) : null;
   }
 
+  createdByChange(changeId:string):ManagedDocumentRecord|null {
+    const row=this.database.query(`${selectCurrent} WHERE EXISTS(SELECT 1 FROM managed_document_versions created WHERE created.document_id=d.id AND created.version=1 AND created.change_id=?)`).get(changeId) as DocumentRow|null;
+    return row?fromRow(row,this.links(row.id)):null;
+  }
+
   list(
     entityType: DocumentLinkEntityType,
     entityId: string,

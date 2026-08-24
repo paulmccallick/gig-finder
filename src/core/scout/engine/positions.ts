@@ -12,9 +12,16 @@ export interface ScoutBackfillStatus {
  descriptionRecovery:Array<{company:string;template:string;extractionStrategy:string;failureCode:string|null;recovered:number;unresolved:number}>;
 }
 export interface ScoutPositionEvaluationSummary {score:number|null;scoreExplanation:string|null;criteriaVersion:number|null;rubricVersion:number|null;profileVersion:string|null;model:string|null;provider:string|null}
-export interface ScoutWorkspacePosition extends ScoutPositionEvaluationSummary {id:string;title:string;company:string;location:string|null;canonicalUrl:string;state:ScoutPositionState;processingStage:ScoutPositionProcessingStage|null;processingStatus:ScoutPositionProcessingStatus|null;processingFailureCode:string|null;processingFailureMessage:string|null;descriptionAvailable:boolean;firstSeenAt:string;lastSeenAt:string;observationCount:number}
+export interface ScoutWorkspacePosition extends ScoutPositionEvaluationSummary {id:string;title:string;company:string;location:string|null;canonicalUrl:string;state:ScoutPositionState;stateRevision:number;processingStage:ScoutPositionProcessingStage|null;processingStatus:ScoutPositionProcessingStatus|null;processingFailureCode:string|null;processingFailureMessage:string|null;descriptionAvailable:boolean;firstSeenAt:string;lastSeenAt:string;observationCount:number}
 export interface ScoutWorkspacePage {items:ScoutWorkspacePosition[];offset:number;limit:number;total:number;counts:Record<"actionable"|"processing"|"needs_user_review"|"irrelevant"|"deferred",number>}
-export interface ScoutPositionDetail extends ScoutWorkspacePosition {externalId:string|null;sourceKey:string;observations:Array<{id:string;runId:string;runCreatedAt:string;companyStatus:string;sourceKey:string;sourceStatus:string;title:string;canonicalUrl:string;location:string|null;observedAt:string;descriptionAvailable:boolean;provenance:unknown}>}
+export interface ScoutPositionDetail extends ScoutWorkspacePosition {externalId:string|null;sourceKey:string;descriptionId:string|null;descriptionMarkdown:string|null;descriptionSourceUrl:string|null;descriptionRetrievedAt:string|null;descriptionProvenance:unknown|null;relevanceEvaluationId:string|null;relevanceReason:string|null;candidateMatchEvaluationId:string|null;irrelevanceOrigin:"agent"|"user"|null;observations:Array<{id:string;runId:string;runCreatedAt:string;companyStatus:string;sourceKey:string;sourceStatus:string;title:string;canonicalUrl:string;location:string|null;observedAt:string;descriptionAvailable:boolean;provenance:unknown}>}
+export interface ScoutReviewedRevision {expectedStateRevision:number;descriptionId:string;relevanceEvaluationId:string;candidateMatchEvaluationId:string}
+export type ScoutUserDecisionCommand = ScoutReviewedRevision & {positionId:string;changeId:string;actor:string;action:"irrelevant"|"defer"|"pursue";note?:string;reviewAt?:string};
+export interface ScoutPromotionWork {
+ positionId:string; descriptionId:string; changeId:string; actor:string; gigId:string;
+ company:string; title:string; externalId:string|null; location:string|null; sourceUrl:string;
+ markdown:string; sourceDescription:string;
+}
 export interface ScoutPositionStore {
  pendingPositionJobs(limit:number):ScoutPositionProcessingJob[];
  markPositionJobsDispatched(processingIds:string[],now:string):void;
@@ -23,14 +30,15 @@ export interface ScoutPositionStore {
  backfillPositions(sourceRunId:string,limit:number,now:string):ScoutBackfillStatus;
  workspace(input:{text?:string;company?:string;state?:string;sort:string;direction:"asc"|"desc";offset:number;limit:number}):ScoutWorkspacePage;
  positionDetail(id:string):ScoutPositionDetail|null;
+ reviewDetail?(id:string):ScoutPositionDetail|null;
+ decide(command:ScoutUserDecisionCommand,now:string):ScoutPositionDetail;
+ restoreAgentIrrelevant(input:{positionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
+ reverseDecision(input:{positionId:string;decisionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
+ appendPositionNote(input:{positionId:string;decisionId?:string;actor:string;body:string},now:string):void;
+ promotionWork(positionId:string):ScoutPromotionWork|null;
+ failPromotion(positionId:string,message:string,now:string):void;
+ completePromotion(positionId:string,gigId:string,managedDocumentId:string,now:string):void;
+ resurfaceDue(now:string):number;
  relevanceCriteria():{version:number;criteria:string;confidenceThreshold:number};
  appendRelevanceCriteria(criteria:string,confidenceThreshold:number,now:string):{version:number;criteria:string;confidenceThreshold:number};
-}
-export class ScoutPositionService {
- constructor(private readonly store:ScoutPositionStore){}
- list(input:Partial<{text:string;company:string;state:string;sort:string;direction:"asc"|"desc";offset:number;limit:number}>={}){const offset=input.offset??0,limit=input.limit??20;if(!Number.isInteger(offset)||offset<0||!Number.isInteger(limit)||limit<1||limit>100)throw new Error("Invalid Scout position pagination.");const state=input.state??"actionable";if(!["actionable","processing","needs_user_review","deferred"].includes(state))throw new Error("Invalid Scout position state filter.");const sort=input.sort??"last_seen";if(!["last_seen","first_seen","company","title","state","score"].includes(sort))throw new Error("Invalid Scout position sort.");const direction=input.direction??"desc";if(direction!=="asc"&&direction!=="desc")throw new Error("Invalid Scout position sort direction.");return this.store.workspace({text:input.text?.trim().slice(0,200),company:input.company?.trim().slice(0,200),state,sort,direction,offset,limit});}
- get(id:string){return this.store.positionDetail(id);}
- relevance(){return this.store.relevanceCriteria();}
- configureRelevance(input:{criteria:unknown;confidenceThreshold:unknown}){if(typeof input.criteria!=="string"||input.criteria.trim().length<10||input.criteria.length>4_000)throw new Error("Relevance criteria must contain 10 to 4000 characters.");if(typeof input.confidenceThreshold!=="number"||input.confidenceThreshold<0||input.confidenceThreshold>1)throw new Error("Relevance confidence threshold must be from 0 through 1.");return this.store.appendRelevanceCriteria(input.criteria.trim(),input.confidenceThreshold,new Date().toISOString());}
- backfill(sourceRunId:string,limit=100){if(!sourceRunId.trim())throw new Error("A source Scout run ID is required.");if(!Number.isInteger(limit)||limit<1||limit>1000)throw new Error("Backfill limit must be from 1 through 1000.");return this.store.backfillPositions(sourceRunId.trim(),limit,new Date().toISOString());}
 }

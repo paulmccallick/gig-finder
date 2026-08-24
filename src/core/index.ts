@@ -3,6 +3,7 @@ export * from "./application-settings";
 export * from "./changes";
 export * from "./document-reader";
 export * from "./documents";
+export * from "./managed-document-service";
 export * from "./staged-documents";
 export * from "./context-search";
 export * from "./conversation-service";

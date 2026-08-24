@@ -4,7 +4,7 @@ import { fitRatings, gigEntitySchema, gigInputSchema, outcomes, pipelineStages, 
 import { DomainValidationError, MutationError } from "./errors";
 import { compareTasks, taskInputSchema, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskInput, type TaskRecord, type TaskRelatedEntityInput } from "./tasks";
 import { ChangeExecutor, creationPayloadHash, type MutationOptions } from "./changes";
-import type { ManagedDocumentService } from "./documents";
+import type { ManagedDocumentService } from "./managed-document-service";
 import type { PeopleService } from "./services";
 import {
   hasMeaningfulFilters,
