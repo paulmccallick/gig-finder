@@ -188,3 +188,14 @@ test("0031 preserves queued processing while adding an optional configuration-so
   database.query("UPDATE scout_position_processing SET configuration_source_id='source' WHERE id='processing'").run();
   database.close();
 });
+
+test("0033 installs revision-bound Scout decision, note, and promotion storage",()=>{
+  const database=new Database(":memory:");
+  migrateDatabase(database);
+  const stateColumns=database.query("PRAGMA table_info(scout_position_states)").all() as Array<{name:string}>;
+  expect(stateColumns.map(column=>column.name)).toContain("current_decision_id");
+  expect(database.query("PRAGMA table_info(scout_position_decisions)").all()).toEqual(expect.arrayContaining([expect.objectContaining({name:"origin"}),expect.objectContaining({name:"description_id"}),expect.objectContaining({name:"reverses_decision_id"})]));
+  expect(database.query("PRAGMA table_info(scout_position_notes)").all()).toContainEqual(expect.objectContaining({name:"body"}));
+  expect(database.query("PRAGMA table_info(scout_position_promotions)").all()).toContainEqual(expect.objectContaining({name:"managed_document_id"}));
+  database.close();
+});
