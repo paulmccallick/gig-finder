@@ -316,6 +316,9 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(recoveredAgain.backfillRunId).toBe(backfill.backfillRunId);
   expect(database.query(`SELECT status,attempt_count attemptCount,failure_code failureCode FROM scout_position_processing WHERE id=?`).get(completedDescription.id)).toEqual({status:"pending",attemptCount:0,failureCode:null});
   expect(database.query(`SELECT dispatch_status dispatchStatus,dispatched_at dispatchedAt FROM scout_position_processing_outbox WHERE processing_id=?`).get(completedDescription.id)).toEqual({dispatchStatus:"pending",dispatchedAt:null});
+  changedStore.completeDescription(completedDescription.id,{markdown:"Exact acquired detail Markdown.",sourceContentHash:"a".repeat(64),sourceUrl:"https://careers.example.test/jobs/screen-1/detail",retrievedAt:"2026-01-01T00:00:05.500Z",converterVersion:"detail-converter-v2",strategyVersion:"json-field-v1"},"2026-01-01T00:00:05.500Z");
+  const acquiredDescription=database.query(`SELECT description_id descriptionId FROM scout_position_processing WHERE id=?`).get(completedDescription.id) as {descriptionId:string};
+  database.query(`UPDATE scout_relevance_evaluations SET description_id=?`).run(acquiredDescription.descriptionId);
   expect(database.query(`SELECT count(*) relevanceCount FROM scout_relevance_evaluations`).get()).toEqual({relevanceCount:1});
   expect(database.query(`SELECT count(*) matchCount FROM scout_candidate_match_evaluations`).get()).toEqual({matchCount:1});
   const persisted=database.query(`SELECT r.reason,m.score,m.score_explanation scoreExplanation,s.state FROM scout_relevance_evaluations r JOIN scout_candidate_match_evaluations m ON m.relevance_evaluation_id=r.id JOIN scout_position_states s ON s.position_id=r.position_id`).get() as Record<string,unknown>;
@@ -354,7 +357,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
   const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};
-  expect(JSON.parse(promotedProvenance.sourceDescription)).toMatchObject({scoutDescriptionId:identities.descriptionId,officialSourceUrl:review.descriptionSourceUrl,retrievedAt:review.descriptionRetrievedAt,sourceKey:"official",extractionStrategy:"search-result-v1",converterVersion:"html-to-markdown-v1"});
+  expect(JSON.parse(promotedProvenance.sourceDescription)).toMatchObject({scoutDescriptionId:identities.descriptionId,officialSourceUrl:"https://careers.example.test/jobs/screen-1/detail",retrievedAt:"2026-01-01T00:00:05.500Z",sourceKey:"official",configurationVersionId:expect.any(String),extractionStrategy:"json-field-v1",converterVersion:"detail-converter-v2"});
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=(SELECT gig_id FROM scout_position_promotions WHERE position_id=?)`).get(review.id)).toEqual({count:1});
   expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
   expect(database.query(`SELECT count(*) count FROM changes WHERE id IN ('change-pursue:gig','change-pursue:document')`).get()).toEqual({count:2});
