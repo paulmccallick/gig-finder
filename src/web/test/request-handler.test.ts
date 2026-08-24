@@ -55,6 +55,21 @@ describe("Gig Scout company API",()=>{
   test("creates one private company idempotently without returning its configuration",async()=>{const body={id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{title:"title",url:"url"}}]};const first=await fetchRequest(new Request("http://localhost/api/gig-scout/companies",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}),requestServer);expect(first.status).toBe(201);expect(await first.json()).toEqual({created:1,unchanged:0,versioned:0,rejected:0});const second=await fetchRequest(new Request("http://localhost/api/gig-scout/companies",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}),requestServer);expect(second.status).toBe(200);expect(await second.json()).toEqual({created:0,unchanged:1,versioned:0,rejected:0});});
 });
 
+describe("Gig Scout position mutation API",()=>{
+  test("uses the trusted actor and returns stable stale and validation errors",async()=>{
+    const calls:Array<Record<string,unknown>>=[];
+    const scoutPositions={
+      decide(_positionId:string,input:Record<string,unknown>){calls.push(input);if(input.changeId==="stale")throw new Error("This position was revised and requires review again.");if(input.changeId==="invalid")throw new Error("Decision note must contain 1 to 2000 characters.");return{ok:true};},
+    };
+    const handler=createWebHandler({gigFinder:application,agentApi:{messages:async()=>new Response(null),list:()=>Response.json({conversations:[]}),load:()=>Response.json({error:"Not found"},{status:404})},uploadHandler:async()=>new Response(null),discardStagedDocument:()=>false,requestLogger:()=>logger,scoutPositions:scoutPositions as never});
+    const decide=(changeId:string)=>handler(new Request("http://localhost/api/gig-scout/positions/position-1/decision",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({changeId,actor:"Forged caller"})}),requestServer);
+    expect((await decide("accepted")).status).toBe(200);
+    expect(calls[0]).toMatchObject({changeId:"accepted",actor:"User"});
+    const stale=await decide("stale");expect(stale.status).toBe(409);expect(await stale.json()).toMatchObject({error:"This position was revised and requires review again."});
+    const invalid=await decide("invalid");expect(invalid.status).toBe(422);expect(await invalid.json()).toMatchObject({error:"Decision note must contain 1 to 2000 characters."});
+  });
+});
+
 function createVersionedDocument() {
   application.gigs.create({ actor: "test", source: "test", summary: "Create synthetic gig" }, {
     id: "gig-document", company: "Example Company", title: "Director",
