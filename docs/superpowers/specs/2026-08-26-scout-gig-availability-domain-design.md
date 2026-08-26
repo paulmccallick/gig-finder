@@ -24,9 +24,9 @@ the invalid revision chain.
 
 - Keep the existing trustworthy-company-result availability policy.
 - Move availability decisions into core Scout orchestration.
-- Make availability changes first-class, audited Gig-domain mutations.
+- Make market availability a first-class, audited Gig-domain property and
+  mutation, independent of which observer reports it.
 - Preserve the prior complete Gig row in `gig_history` on every change.
-- Record Scout availability evidence in the same transaction as the Gig update.
 - Make unchanged availability idempotent without creating a revision or audit.
 - Keep company-job retry and recovery behavior deterministic.
 
@@ -54,7 +54,7 @@ The service performs three phases:
    identities. The company remains nonterminal during this phase.
 2. For a trustworthy `succeeded` outcome only, compare active tracked Gigs for
    the exact company with those observed identities and invoke the Gig domain
-   for each changed availability.
+   to report whether each tracked position is still available.
 3. Ask the Scout store to mark the company result terminal and finalize the run.
 
 Partial, failed, unsupported, and suspiciously empty results never enter phase
@@ -77,43 +77,42 @@ idempotent for a previously completed company result.
 
 ### Gig domain owns availability
 
-Represent `scoutAvailability` and `scoutAvailabilityUpdatedAt` in the Gig
-domain persistence model and the typed Gig repository column mapping. They are
-read-only from the general Gig input contract; callers cannot edit them through
-ordinary Gig create/update patches.
+Represent `availability` and `availabilityUpdatedAt` in the Gig domain model
+and typed Gig repository column mapping. They are read-only from the general
+Gig input contract; callers cannot edit them through ordinary Gig
+create/update patches.
 
-Add a narrowly named Gig-domain capability such as:
+Add a generic Gig-domain capability:
 
 ```ts
-reconcileScoutAvailability(
+setAvailability(
   context: ChangeContext,
   gigId: string,
-  input: {
-    availability: "available" | "unavailable";
-    runId: string;
-  },
+  availability: "available" | "unavailable",
 ): MutationResult<GigRecord>
 ```
+
+The method knows nothing about Scout, Scout runs, company scans, or position
+observations. `ChangeContext` identifies the actor, source, summary, time, and
+deterministic caller-owned change ID in the same way as every other Gig
+mutation.
 
 The capability:
 
 - Loads the current active Gig.
-- Uses a deterministic change ID derived from the Scout run and Gig. If that
-  change already exists, it verifies the persisted availability evidence and
-  current Gig agree with the requested run, Gig, and availability before
-  returning the prior result.
 - Returns an explicit unchanged result without a transaction when availability
-  already equals the requested value and no replayed change requires
-  verification.
+  already equals the requested value.
 - Otherwise executes one audited change transaction.
 - Updates the Gig through the standard revision-checked repository.
-- Records the prior and new availability plus Scout run ID through a dedicated
-  unit-of-work evidence port in that same transaction.
-- Rejects a reused change ID whose evidence or resulting Gig state differs.
+- Preserves the complete prior Gig, including availability, through the normal
+  `gig_history` snapshot.
+- Rejects a reused change ID through the existing change-id concurrency rules.
 
-The data implementation of the evidence port writes
-`scout_gig_availability_history` using the transaction's change ID, actor, and
-timestamp. It does not decide whether a change is allowed.
+No Scout-specific availability history is written. The normal `changes` and
+`gig_history` records are the authoritative audit. The database migration
+renames the existing `scout_availability` columns to domain-owned
+`availability` names and removes the obsolete `scout_gig_availability_history`
+table. Production has already removed every row produced by the invalid path.
 
 ### Retry and failure behavior
 
@@ -122,10 +121,8 @@ mutations and company finalization succeed.
 
 - Failure before a Gig update leaves the company nonterminal; retry prepares
   the same result and resumes reconciliation.
-- Failure after some Gig updates replays deterministic change IDs. Completed
-  mutations are verified against their persisted evidence; Gigs that already
-  had the requested availability before this run remain unchanged; remaining
-  Gigs are updated.
+- Failure after some Gig updates recomputes the same desired state. Gigs already
+  at that availability are unchanged; remaining Gigs are updated.
 - Failure before company finalization retries finalization without creating new
   Gig revisions.
 - Retry exhaustion continues to use the existing company infrastructure-failure
@@ -152,8 +149,8 @@ sequenceDiagram
   ScoutDB-->>Core: outcome + company + observed identities
   alt trustworthy succeeded result
     loop each changed tracked Gig
-      Core->>Gig: reconcileScoutAvailability(...)
-      Gig->>UoW: audited revision update + availability evidence
+      Core->>Gig: setAvailability(...)
+      Gig->>UoW: audited Gig revision update
       UoW-->>Gig: complete Gig and change
     end
   end
@@ -166,10 +163,9 @@ sequenceDiagram
 
 - A changed availability increments the Gig revision exactly once.
 - `gig_history` contains the complete prior Gig at revision `N` before the live
-  row becomes revision `N + 1`, including prior Scout availability fields.
-- The corresponding `changes`, `gig_history`, live `gigs`, and
-  `scout_gig_availability_history` writes share one SQLite transaction and
-  change ID.
+  row becomes revision `N + 1`, including prior availability fields.
+- The corresponding `changes`, `gig_history`, and live `gigs` writes share one
+  SQLite transaction and change ID.
 - An unchanged availability creates none of those writes.
 - No runtime SQL in the Scout store mutates a Gig table.
 - A company result cannot become terminal-successful while required
@@ -184,7 +180,7 @@ Use strict red-green-refactor TDD.
 - Gig-domain tests prove changed availability writes one audited revision and
   unchanged availability writes none.
 - SQLite integration tests prove `gig_history` contains every revision and the
-  availability evidence shares the change ID.
+  availability change uses the normal Gig audit envelope.
 - Retry tests inject failure after one Gig update and prove replay completes
   without duplicate revisions or evidence.
 - Company/run summary tests prove terminal status is written only after
