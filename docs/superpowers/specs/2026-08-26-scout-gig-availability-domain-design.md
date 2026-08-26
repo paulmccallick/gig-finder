@@ -43,11 +43,12 @@ the invalid revision chain.
 
 ### Core owns orchestration
 
-Add a core `ScoutCompanyResultService` between the BunQueue runtime and the
-Scout persistence port. The runtime continues to coordinate queue execution and
-HTTP scanning, but hands the completed scan result to this core service.
+Extend the existing core `ScoutRunService` to own company-result completion.
+The runtime continues to coordinate queue execution and HTTP scanning, but
+hands the completed scan result to `ScoutRunService.commitCompanyResult()`.
+Do not introduce another Scout application service.
 
-The service performs three phases:
+`ScoutRunService` performs three phases:
 
 1. Ask the Scout store to persist the scan evidence and prepare a company
    completion containing the company outcome and exact observed position
@@ -60,8 +61,10 @@ The service performs three phases:
 Partial, failed, unsupported, and suspiciously empty results never enter phase
 2. The existing classification and trustworthy-result rules remain unchanged.
 
-`src/operations/scout-runtime.ts` invokes the core service. It does not decide
-availability and gains no business logic.
+`src/operations/scout-runtime.ts` invokes `ScoutRunService`. It does not decide
+availability and gains no business logic. Queue recovery may continue to use a
+narrow job-store port for pending/dispatched transport state; company-result
+business orchestration goes through `ScoutRunService`.
 
 ### Scout persistence remains Scout-only
 
@@ -137,7 +140,7 @@ availability reconciliation completes.
 sequenceDiagram
   participant Queue as ScoutRuntime
   participant Scan as Scout sourcing
-  participant Core as ScoutCompanyResultService
+  participant Core as ScoutRunService
   participant ScoutDB as ScoutRunStore
   participant Gig as GigDomainService
   participant UoW as DataStore transaction
@@ -175,7 +178,7 @@ sequenceDiagram
 
 Use strict red-green-refactor TDD.
 
-- Core service tests prove succeeded results reconcile exact observed Gig
+- `ScoutRunService` tests prove succeeded results reconcile exact observed Gig
   identities, while partial/failed results do not call the Gig capability.
 - Gig-domain tests prove changed availability writes one audited revision and
   unchanged availability writes none.
