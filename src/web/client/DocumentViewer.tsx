@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { MarkdownRenderer } from "./MarkdownRenderer";
+import {
+  DocumentViewShell,
+  parseScoutDescriptionViewerPath,
+} from "./DocumentViewShell";
 
 const managedReferencePattern = /^doc_[0-9a-f]+(?:-[0-9a-f]+)*$/i;
 
@@ -15,6 +18,15 @@ interface DocumentViewData extends DocumentViewerLocation {
   mediaType: "text/markdown" | "text/plain";
   currentVersion: number;
   content: string;
+}
+
+interface ScoutDescriptionViewData {
+  id: string;
+  title: string;
+  company: string;
+  descriptionMarkdown: string | null;
+  descriptionSourceUrl: string | null;
+  descriptionRetrievedAt: string | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -57,6 +69,21 @@ function parseDocumentViewData(value: unknown, expected: DocumentViewerLocation)
   return value as unknown as DocumentViewData;
 }
 
+function parseScoutDescriptionViewData(value: unknown, positionId: string): ScoutDescriptionViewData {
+  if (!isRecord(value)) throw new Error("The Scout position service returned an invalid response.");
+  if (
+    value.id !== positionId
+    || typeof value.title !== "string"
+    || value.title.trim().length === 0
+    || typeof value.company !== "string"
+    || value.company.trim().length === 0
+    || (typeof value.descriptionMarkdown !== "string" && value.descriptionMarkdown !== null)
+    || (typeof value.descriptionSourceUrl !== "string" && value.descriptionSourceUrl !== null)
+    || (typeof value.descriptionRetrievedAt !== "string" && value.descriptionRetrievedAt !== null)
+  ) throw new Error("The Scout position service returned an invalid response.");
+  return value as unknown as ScoutDescriptionViewData;
+}
+
 export function DocumentViewer({ location }: { location: DocumentViewerLocation | null }) {
   const [document, setDocument] = useState<DocumentViewData | null>(null);
   const [failure, setFailure] = useState<string | null>(
@@ -82,30 +109,62 @@ export function DocumentViewer({ location }: { location: DocumentViewerLocation 
     return () => { active = false; };
   }, [location?.reference, location?.version]);
 
-  const download = location
+  const downloadHref = location
     ? `/api/documents/${encodeURIComponent(location.reference)}/versions/${location.version}/download`
-    : null;
-  return <main className="document-viewer">
-    <header>
-      <div>
-        <span className="eyebrow">Managed document</span>
-        <h1>{document?.displayName ?? "Document"}</h1>
-      </div>
-      {document && download && <a href={download}>Download</a>}
-    </header>
-    {!document && !failure && <p className="document-viewer-status">Loading document…</p>}
-    {failure && <section className="document-viewer-error" role="alert">
-      <h2>Document unavailable</h2>
-      <p>{failure}</p>
-    </section>}
-    {document && <article className="document-viewer-content">
-      {document.mediaType === "text/markdown"
-        ? <MarkdownRenderer>{document.content}</MarkdownRenderer>
-        : <pre>{document.content}</pre>}
-    </article>}
-  </main>;
+    : undefined;
+  return <DocumentViewShell
+    eyebrow="Managed document"
+    title={document?.displayName ?? "Document"}
+    content={document?.content ?? null}
+    mediaType={document?.mediaType ?? "text/markdown"}
+    loading={location !== null && document === null && failure === null}
+    failure={failure}
+    downloadHref={document ? downloadHref : undefined}
+    backFallbackHref="/"
+  />;
+}
+
+export function ScoutDescriptionViewer({ positionId }: { positionId: string | null }) {
+  const [position, setPosition] = useState<ScoutDescriptionViewData | null>(null);
+  const [failure, setFailure] = useState<string | null>(
+    positionId ? null : "This Scout description link is invalid.",
+  );
+  useEffect(() => {
+    if (!positionId) return;
+    let active = true;
+    setPosition(null);
+    setFailure(null);
+    void fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}`, {
+      cache: "no-store",
+    }).then(async response => {
+      if (response.status === 404) throw new Error("This Scout position could not be found.");
+      if (!response.ok) throw new Error("This Scout description could not be opened.");
+      return parseScoutDescriptionViewData(await response.json(), positionId);
+    }).then(value => {
+      if (active) setPosition(value);
+    }).catch(error => {
+      if (active) setFailure(error instanceof Error ? error.message : "This Scout description could not be opened.");
+    });
+    return () => { active = false; };
+  }, [positionId]);
+
+  return <DocumentViewShell
+    eyebrow="Scout position description"
+    title={position?.title ?? "Position description"}
+    content={position?.descriptionMarkdown ?? null}
+    mediaType="text/markdown"
+    loading={positionId !== null && position === null && failure === null}
+    failure={failure}
+    backFallbackHref="/?workspace=scout"
+  />;
 }
 
 export function DocumentViewerRoute() {
-  return <DocumentViewer location={parseDocumentViewerPath(window.location.pathname)} />;
+  const pathname = window.location.pathname;
+  if (pathname.startsWith("/documents/")) {
+    return <DocumentViewer location={parseDocumentViewerPath(pathname)} />;
+  }
+  return <ScoutDescriptionViewer positionId={parseScoutDescriptionViewerPath(pathname)?.positionId ?? null} />;
 }
+
+export { parseScoutDescriptionViewerPath } from "./DocumentViewShell";

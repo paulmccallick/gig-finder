@@ -30,6 +30,12 @@ import {
 
 type WorkspaceView = "gigs" | "network" | "tasks" | "scout";
 
+export function initialWorkspaceView(search: string): WorkspaceView {
+  return new URLSearchParams(search).get("workspace") === "scout"
+    ? "scout"
+    : "gigs";
+}
+
 interface GigArtifacts {
   jobDescription: string | null;
   sourceUrl: string | null;
@@ -279,7 +285,7 @@ function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: Works
 }
 
 export function App() {
-  const [view, setView] = useState<WorkspaceView>("gigs");
+  const [view, setView] = useState<WorkspaceView>(() => initialWorkspaceView(window.location.search));
   const [agentWorkspace, dispatchAgentWorkspace] = useReducer(
     updateAgentWorkspace,
     initialAgentWorkspace,
