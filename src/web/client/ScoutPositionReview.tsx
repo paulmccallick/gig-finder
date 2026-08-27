@@ -53,11 +53,19 @@ type PromotionDetail = WorkspaceDetail & {
 };
 
 export interface ScoutPositionReviewProps {
-  onOpenPosition(): void;
+  onPositionOpenChange(open: boolean): void;
 }
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString();
+}
+
+async function readResponseJson<T>(response: Response): Promise<T | null> {
+  try {
+    return await response.json() as T;
+  } catch {
+    return null;
+  }
 }
 
 export function nearestPageOffset(
@@ -134,6 +142,8 @@ function PositionReviewDrawer({
   submittingAction: "pursue" | "irrelevant" | "defer" | "retry" | null;
 }): JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const canClose = submittingAction === null;
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const descriptionPath = `/gig-scout/positions/${encodeURIComponent(detail.id)}/description`;
   const descriptionHref = parseScoutDescriptionViewerPath(descriptionPath)
@@ -144,18 +154,33 @@ function PositionReviewDrawer({
     const previousFocus = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && canClose) onClose();
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(drawerRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? []);
+      const first = focusable.at(0);
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       previousFocus?.focus();
     };
-  }, [onClose]);
+  }, [canClose, onClose]);
 
   return <div className="drawer-layer">
-    <button className="drawer-scrim" aria-label="Close position review" onClick={onClose} />
+    <button className="drawer-scrim" aria-label="Close position review" disabled={!canClose} onClick={onClose} />
     <aside
+      ref={drawerRef}
       className="record-drawer scout-review-drawer"
       role="dialog"
       aria-modal="true"
@@ -167,7 +192,7 @@ function PositionReviewDrawer({
           <h2 id="scout-review-drawer-title">{detail.title}</h2>
           <p>{detail.company} · {detail.location ?? "Location not listed"}</p>
         </div>
-        <button ref={closeRef} className="icon-button" aria-label="Close position review" onClick={onClose}>×</button>
+        <button ref={closeRef} className="icon-button" aria-label="Close position review" disabled={!canClose} onClick={onClose}>×</button>
       </header>
       <div className="drawer-body">
         <div className="drawer-badges">
@@ -247,7 +272,7 @@ function PositionReviewDrawer({
 }
 
 export function ScoutPositionReview({
-  onOpenPosition,
+  onPositionOpenChange,
 }: ScoutPositionReviewProps): JSX.Element {
   const [items, setItems] = useState<WorkspacePosition[]>([]);
   const [state, setState] = useState("needs_user_review");
@@ -258,18 +283,28 @@ export function ScoutPositionReview({
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [drawerError, setDrawerError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<PromotionDetail | null>(null);
   const [note, setNote] = useState("");
   const [reviewAt, setReviewAt] = useState("");
   const [submittingAction, setSubmittingAction] = useState<"pursue" | "irrelevant" | "defer" | "retry" | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const refreshRequestRef = useRef(false);
+  const pendingScrollRef = useRef<{ x: number; y: number } | null>(null);
+  const selectedRef = useRef<string | null>(null);
   const limit = 20;
   const states = ["actionable", "processing", "needs_user_review", "deferred"];
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
+    let succeeded = false;
+    const backgroundRefresh = refreshRequestRef.current;
+    refreshRequestRef.current = false;
     const query = new URLSearchParams({
       state,
       offset: String(offset),
@@ -279,7 +314,12 @@ export function ScoutPositionReview({
     });
     if (company) query.set("company", company);
     if (text) query.set("text", text);
-    setLoading(true);
+    if (backgroundRefresh) {
+      setRefreshing(true);
+      setRefreshError(null);
+    } else {
+      setLoading(true);
+    }
     void fetch(`/api/gig-scout/positions?${query}`, {
       cache: "no-store",
       signal: controller.signal,
@@ -287,6 +327,7 @@ export function ScoutPositionReview({
       if (!response.ok) throw new Error("Could not load Scout positions.");
       return response.json() as Promise<{ items: WorkspacePosition[]; total: number; counts: Record<string, number> }>;
     }).then(page => {
+      if (!active) return;
       const repairedOffset = nearestPageOffset(page.total, offset, limit);
       if (repairedOffset !== offset) {
         setOffset(repairedOffset);
@@ -295,11 +336,28 @@ export function ScoutPositionReview({
       setItems(page.items);
       setTotal(page.total);
       setCounts(page.counts);
-      setError(null);
+      setListError(null);
+      setRefreshError(null);
+      succeeded = true;
     }).catch(reason => {
-      if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message);
-    }).finally(() => setLoading(false));
-    return () => controller.abort();
+      if (!active || (reason instanceof Error && reason.name === "AbortError")) return;
+      const message = reason instanceof Error ? reason.message : "Could not load Scout positions.";
+      if (backgroundRefresh) setRefreshError(message);
+      else setListError(message);
+    }).finally(() => {
+      if (!active) return;
+      setLoading(false);
+      setRefreshing(false);
+      const scroll = pendingScrollRef.current;
+      if (scroll) {
+        window.requestAnimationFrame(() => window.scrollTo(scroll.x, scroll.y));
+        if (succeeded) pendingScrollRef.current = null;
+      }
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [state, sort, company, text, offset, refreshVersion]);
 
   useEffect(() => {
@@ -314,56 +372,77 @@ export function ScoutPositionReview({
         return response.json() as Promise<PromotionDetail>;
       })
       .then(value => { if (active) setDetail(value); })
-      .catch(() => { if (active) setError("Could not load position history."); });
+      .catch(() => { if (active) setDrawerError("Could not load position history."); });
     return () => { active = false; };
   }, [selected]);
 
   const closeDrawer = useCallback(() => {
+    selectedRef.current = null;
     setSelected(null);
     setDetail(null);
-  }, []);
+    setNote("");
+    setReviewAt("");
+    setDrawerError(null);
+    setSubmittingAction(null);
+    onPositionOpenChange(false);
+  }, [onPositionOpenChange]);
   const openPosition = (id: string) => {
-    onOpenPosition();
-    setError(null);
+    if (selectedRef.current !== id) {
+      setNote("");
+      setReviewAt("");
+    }
+    selectedRef.current = id;
+    onPositionOpenChange(true);
+    setDrawerError(null);
     setSelected(id);
   };
 
+  useEffect(() => () => onPositionOpenChange(false), [onPositionOpenChange]);
+
+  const refreshPositions = () => {
+    refreshRequestRef.current = true;
+    setRefreshVersion(value => value + 1);
+  };
+
   const completeDecision = (id: string) => {
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
+    pendingScrollRef.current = { x: window.scrollX, y: window.scrollY };
     setItems(values => values.filter(value => value.id !== id));
     setTotal(value => Math.max(0, value - 1));
     closeDrawer();
-    setNote("");
-    setReviewAt("");
-    setRefreshVersion(value => value + 1);
-    window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+    refreshPositions();
+    const scroll = pendingScrollRef.current;
+    if (scroll) window.requestAnimationFrame(() => window.scrollTo(scroll.x, scroll.y));
   };
   const retryPromotion = async () => {
     if (!detail || submittingAction !== null) return;
+    const positionId = detail.id;
     setSubmittingAction("retry");
     try {
-      const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}/promotion/retry`, { method: "POST" });
-      const outcome = await response.json() as PromotionDetail | { error?: string } | null;
+      const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}/promotion/retry`, { method: "POST" });
+      const outcome = await readResponseJson<PromotionDetail | { error?: string }>(response);
+      if (selectedRef.current !== positionId) return;
       if (!response.ok) {
-        setError(outcome && "error" in outcome ? outcome.error ?? "Promotion retry failed." : "Promotion retry failed.");
+        setDrawerError(outcome && "error" in outcome ? outcome.error ?? "Promotion retry failed." : "Promotion retry failed.");
         return;
       }
       if (outcome && "promotionStatus" in outcome && outcome.promotionStatus === "failed") {
         setDetail(outcome);
-        setError(outcome.promotionFailureMessage ?? "Promotion retry failed.");
+        setDrawerError(outcome.promotionFailureMessage ?? "Promotion retry failed.");
         return;
       }
-      completeDecision(detail.id);
+      completeDecision(positionId);
+    } catch {
+      if (selectedRef.current === positionId) setDrawerError("Promotion retry could not reach the server.");
     } finally {
       setSubmittingAction(null);
     }
   };
   const decide = async (action: "irrelevant" | "defer" | "pursue") => {
     if (submittingAction !== null || !detail?.descriptionId || !detail.relevanceEvaluationId || !detail.candidateMatchEvaluationId) return;
+    const positionId = detail.id;
     setSubmittingAction(action);
     try {
-      const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}/decision`, {
+      const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}/decision`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -377,23 +456,27 @@ export function ScoutPositionReview({
           candidateMatchEvaluationId: detail.candidateMatchEvaluationId,
         }),
       });
-      const outcome = await response.json() as PromotionDetail | { error?: string } | null;
+      const outcome = await readResponseJson<PromotionDetail | { error?: string }>(response);
+      if (selectedRef.current !== positionId) return;
       if (!response.ok) {
         if (response.status === 409) {
-          const refreshed = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}`, { cache: "no-store" });
-          if (refreshed.ok) setDetail(await refreshed.json() as PromotionDetail);
-          setError("This position was revised. Review the latest details before deciding.");
+          const refreshed = await fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}`, { cache: "no-store" });
+          const refreshedDetail = await readResponseJson<PromotionDetail>(refreshed);
+          if (refreshed.ok && refreshedDetail && selectedRef.current === positionId) setDetail(refreshedDetail);
+          setDrawerError("This position was revised. Review the latest details before deciding.");
           return;
         }
-        setError(outcome && "error" in outcome ? outcome.error ?? "Could not save position decision." : "Could not save position decision.");
+        setDrawerError(outcome && "error" in outcome ? outcome.error ?? "Could not save position decision." : "Could not save position decision.");
         return;
       }
       if (outcome && "promotionStatus" in outcome && outcome.promotionStatus === "failed") {
         setDetail(outcome);
-        setError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
+        setDrawerError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
         return;
       }
-      completeDecision(detail.id);
+      completeDecision(positionId);
+    } catch {
+      if (selectedRef.current === positionId) setDrawerError("The decision could not reach the server.");
     } finally {
       setSubmittingAction(null);
     }
@@ -403,7 +486,9 @@ export function ScoutPositionReview({
     <h3 id="positions-title">Positions</h3>
     <p>One cross-run workspace for official positions that still need attention.</p>
     <RelevanceSettings />
-    {error && <p role="alert">{error}</p>}
+    {listError && <p role="alert">{listError}</p>}
+    {refreshError && <p role="alert" className="scout-review-refresh-error">{refreshError} <button type="button" onClick={refreshPositions}>Retry refresh</button></p>}
+    {refreshing && <p role="status" className="scout-review-refreshing">Refreshing positions…</p>}
     <section className="controls scout-review-controls" aria-label="Position review controls">
       <label className="search-control">
         <span className="sr-only">Search positions</span>
@@ -422,13 +507,12 @@ export function ScoutPositionReview({
       </label>
       <button className="clear-button" onClick={() => { setState("needs_user_review"); setSort("last_seen"); setCompany(""); setText(""); setOffset(0); }}>Clear</button>
     </section>
-    {loading ? <p role="status">Loading positions…</p> : items.length === 0 ? <p>No positions match the active filters.</p> : <section className="scout-review-ledger" aria-label="Positions for review">
+    {loading && items.length === 0 ? <p role="status">Loading positions…</p> : items.length === 0 ? <p>No positions match the active filters.</p> : <section className="scout-review-ledger" aria-label="Positions for review">
       <header><span>Score</span><span>Position</span><span>Company</span><span>First seen</span></header>
       {items.map((position, index) => <button
         key={position.id}
         type="button"
         className="scout-review-row"
-        aria-label={`Review ${position.title}`}
         onClick={() => openPosition(position.id)}
         style={{ "--scout-review-index": index } as CSSProperties}
       >
@@ -445,7 +529,7 @@ export function ScoutPositionReview({
     </nav>
     {detail && <PositionReviewDrawer
       detail={detail}
-      error={error}
+      error={drawerError}
       note={note}
       reviewAt={reviewAt}
       onClose={closeDrawer}

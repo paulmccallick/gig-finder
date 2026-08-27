@@ -119,8 +119,7 @@ test("discovers and processes positions from a full Scout run", async ({
     name: /Head of Orchard Technology/,
   }).click();
   await expect(agentPanel).toBeHidden();
-  await expect(agentLauncher).toBeVisible();
-  await expect(agentLauncher).toHaveAttribute("aria-expanded", "false");
+  await expect(agentLauncher).toBeHidden();
   const drawer = page.getByRole("dialog", { name: "Head of Orchard Technology" });
   await expect(drawer).toBeVisible();
   await expect(drawer.getByText("8 / 10 match")).toBeVisible();
@@ -129,6 +128,13 @@ test("discovers and processes positions from a full Scout run", async ({
   await expect(drawer.getByRole("button", { name: "Pursue position" })).toBeVisible();
   await expect(drawer.getByRole("button", { name: "Mark irrelevant" })).toBeVisible();
   await expect(drawer.getByRole("button", { name: "Defer review" })).toBeVisible();
+
+  await drawer.getByLabel("Private note (optional)").fill("Discarded draft");
+  await drawer.getByRole("button", { name: "Close position review" }).click();
+  await expect(agentLauncher).toBeVisible();
+  await ledger.getByRole("button", { name: /Head of Orchard Technology/ }).click();
+  await expect(drawer.getByLabel("Private note (optional)")).toHaveValue("");
+  await expect(agentLauncher).toBeHidden();
 
   await drawer.getByRole("button", { name: "Expand description" }).click();
   await expect(drawer.locator(".scout-review-description")).toHaveClass(/is-expanded/);
@@ -165,6 +171,7 @@ test("discovers and processes positions from a full Scout run", async ({
   const decisionPattern = "**/api/gig-scout/positions/*/decision";
   await page.route(decisionPattern, async route => {
     failedDecision = route.request().postDataJSON() as typeof failedDecision;
+    await new Promise(resolve => setTimeout(resolve, 200));
     await route.fulfill({
       status: 422,
       contentType: "application/json",
@@ -172,12 +179,27 @@ test("discovers and processes positions from a full Scout run", async ({
     });
   });
   await drawer.getByLabel("Private note (optional)").fill("Synthetic review note");
-  await drawer.getByRole("button", { name: "Mark irrelevant" }).click();
+  const failedClick = drawer.getByRole("button", { name: "Mark irrelevant" }).click();
+  await expect(drawer.getByRole("button", { name: "Mark irrelevant" })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "Close position review" })).toBeDisabled();
+  await failedClick;
   await expect(drawer.getByRole("alert")).toContainText("Synthetic decision failure.");
   await expect(drawer.getByLabel("Private note (optional)")).toHaveValue("Synthetic review note");
   await expect(drawer.getByRole("button", { name: "Mark irrelevant" })).toBeEnabled();
   await expect(ledger.getByText("Head of Orchard Technology")).toBeVisible();
   expect(failedDecision).toMatchObject({ action: "irrelevant", note: "Synthetic review note" });
+  await page.unroute(decisionPattern);
+
+  await page.route(decisionPattern, async route => {
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Position revised." }),
+    });
+  });
+  await drawer.getByRole("button", { name: "Mark irrelevant" }).click();
+  await expect(drawer.getByRole("alert")).toContainText("This position was revised");
+  await expect(drawer.getByLabel("Private note (optional)")).toHaveValue("Synthetic review note");
   await page.unroute(decisionPattern);
 
   await drawer.getByLabel("Private note (optional)").fill("");
@@ -186,10 +208,25 @@ test("discovers and processes positions from a full Scout run", async ({
     window.scrollTo(0, 240);
   });
   const beforeScroll = await page.evaluate(() => window.scrollY);
+  let refreshAttempts = 0;
+  const listPattern = "**/api/gig-scout/positions?*";
+  await page.route(listPattern, async route => {
+    refreshAttempts += 1;
+    if (refreshAttempts === 1) {
+      await route.fulfill({ status: 500, contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.continue();
+  });
   await drawer.getByRole("button", { name: "Pursue position" }).click();
   await expect(drawer).toHaveCount(0);
   await expect(ledger.getByText("Head of Orchard Technology")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(beforeScroll);
+  await expect(page.getByRole("button", { name: "Retry refresh" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry refresh" }).click();
+  await expect(page.getByRole("button", { name: "Retry refresh" })).toHaveCount(0);
+  expect(refreshAttempts).toBeGreaterThanOrEqual(2);
+  await page.unroute(listPattern);
   await expect(page.getByRole("combobox", { name: "View", exact: true }))
     .toHaveValue("needs_user_review");
   await expect.poll(async()=>{const response=await page.request.get("/api/gig-scout/positions");const body=await response.json() as {items:Array<{id:string}>};return body.items.length;}).toBe(0);

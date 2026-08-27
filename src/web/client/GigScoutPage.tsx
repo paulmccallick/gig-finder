@@ -369,9 +369,9 @@ function RunHistoryPage() {
 }
 
 export function GigScoutPage({
-  onOpenPosition,
+  onPositionOpenChange,
 }: {
-  onOpenPosition(): void;
+  onPositionOpenChange(open: boolean): void;
 }) {
   const [view, setView] = useState<"positions" | "runs">("positions");
   return <section className="scout-page" aria-labelledby="scout-workspace-title">
@@ -380,6 +380,6 @@ export function GigScoutPage({
       <button type="button" aria-current={view === "positions" ? "page" : undefined} onClick={() => setView("positions")}>Positions</button>
       <button type="button" aria-current={view === "runs" ? "page" : undefined} onClick={() => setView("runs")}>Run history</button>
     </nav>
-    {view === "positions" ? <ScoutPositionReview onOpenPosition={onOpenPosition} /> : <RunHistoryPage />}
+    {view === "positions" ? <ScoutPositionReview onPositionOpenChange={onPositionOpenChange} /> : <RunHistoryPage />}
   </section>;
 }
