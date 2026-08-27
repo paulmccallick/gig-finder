@@ -396,9 +396,6 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
   .agent-thinking span { opacity: .75; }
 }
 
-.link-button { appearance: none; border: 0; background: none; color: #265d97; cursor: pointer; font: inherit; padding: 0; text-align: left; text-decoration: underline; }
-.scout-position-detail { background: #fff; border: 1px solid #d8dee7; border-radius: .5rem; margin-top: 1rem; padding: 1rem; }
-.scout-position-detail ul { max-height: 18rem; overflow: auto; }
 .agent-composer textarea::placeholder { color: var(--dim); }
 .agent-composer-footer { min-height: 35px; display: flex; align-items: end; justify-content: space-between; }
 .agent-composer-footer > span { color: var(--dim); font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }

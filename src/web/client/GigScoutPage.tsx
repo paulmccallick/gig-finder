@@ -371,7 +371,7 @@ function RunHistoryPage() {
 export function GigScoutPage({
   onOpenPosition,
 }: {
-  onOpenPosition?: () => void;
+  onOpenPosition(): void;
 }) {
   const [view, setView] = useState<"positions" | "runs">("positions");
   return <section className="scout-page" aria-labelledby="scout-workspace-title">

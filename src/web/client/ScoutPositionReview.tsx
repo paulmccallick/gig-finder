@@ -52,14 +52,25 @@ type PromotionDetail = WorkspaceDetail & {
   promotionFailureMessage?: string;
 };
 
-const noOp = () => {};
-
 export interface ScoutPositionReviewProps {
-  onOpenPosition?: () => void;
+  onOpenPosition(): void;
 }
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString();
+}
+
+export function nearestPageOffset(
+  total: number,
+  offset: number,
+  limit: number,
+): number {
+  if (![total, offset, limit].every(Number.isInteger)
+    || total < 0 || offset < 0 || limit <= 0) {
+    throw new Error("Invalid Scout position pagination.");
+  }
+  if (total === 0) return 0;
+  return Math.min(offset, Math.floor((total - 1) / limit) * limit);
 }
 
 function RelevanceSettings(): JSX.Element {
@@ -109,6 +120,7 @@ function PositionReviewDrawer({
   onReviewAtChange,
   onDecide,
   onRetryPromotion,
+  submittingAction,
 }: {
   detail: PromotionDetail;
   error: string | null;
@@ -119,6 +131,7 @@ function PositionReviewDrawer({
   onReviewAtChange(value: string): void;
   onDecide(action: "irrelevant" | "defer" | "pursue"): void;
   onRetryPromotion(): void;
+  submittingAction: "pursue" | "irrelevant" | "defer" | "retry" | null;
 }): JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
@@ -172,20 +185,20 @@ function PositionReviewDrawer({
           <h3>Your decision</h3>
           <label className="scout-review-note">
             Private note (optional)
-            <textarea value={note} maxLength={2000} onChange={event => onNoteChange(event.target.value)} />
+            <textarea value={note} maxLength={2000} disabled={submittingAction !== null} onChange={event => onNoteChange(event.target.value)} />
           </label>
           <div className="scout-review-decision-actions">
-            <button type="button" onClick={() => onDecide("pursue")}>Pursue position</button>
-            <button type="button" onClick={() => onDecide("irrelevant")}>Mark irrelevant</button>
+            <button type="button" disabled={submittingAction !== null} onClick={() => onDecide("pursue")}>Pursue position</button>
+            <button type="button" disabled={submittingAction !== null} onClick={() => onDecide("irrelevant")}>Mark irrelevant</button>
           </div>
           <label className="scout-review-defer">
             Review again at
-            <input type="datetime-local" value={reviewAt} onChange={event => onReviewAtChange(event.target.value)} />
+            <input type="datetime-local" value={reviewAt} disabled={submittingAction !== null} onChange={event => onReviewAtChange(event.target.value)} />
           </label>
-          <button type="button" className="clear-button" onClick={() => onDecide("defer")} disabled={!reviewAt}>Defer review</button>
+          <button type="button" className="clear-button" onClick={() => onDecide("defer")} disabled={!reviewAt || submittingAction !== null}>Defer review</button>
           {detail.promotionStatus === "failed" && <div className="scout-review-promotion-error">
             <p role="alert">{detail.promotionFailureMessage ?? "Promotion failed."}</p>
-            <button type="button" onClick={onRetryPromotion}>Retry promotion</button>
+            <button type="button" disabled={submittingAction !== null} onClick={onRetryPromotion}>Retry promotion</button>
           </div>}
           {error && <p role="alert">{error}</p>}
         </section>
@@ -207,7 +220,7 @@ function PositionReviewDrawer({
             className="scout-review-document-link"
             href={descriptionHref}
             target="_blank"
-            rel="noopener noreferrer"
+            rel="opener"
             aria-label={`Open ${detail.title} description in document view`}
           >
             Open in document view
@@ -234,7 +247,7 @@ function PositionReviewDrawer({
 }
 
 export function ScoutPositionReview({
-  onOpenPosition = noOp,
+  onOpenPosition,
 }: ScoutPositionReviewProps): JSX.Element {
   const [items, setItems] = useState<WorkspacePosition[]>([]);
   const [state, setState] = useState("needs_user_review");
@@ -250,6 +263,8 @@ export function ScoutPositionReview({
   const [detail, setDetail] = useState<PromotionDetail | null>(null);
   const [note, setNote] = useState("");
   const [reviewAt, setReviewAt] = useState("");
+  const [submittingAction, setSubmittingAction] = useState<"pursue" | "irrelevant" | "defer" | "retry" | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const limit = 20;
   const states = ["actionable", "processing", "needs_user_review", "deferred"];
 
@@ -272,6 +287,11 @@ export function ScoutPositionReview({
       if (!response.ok) throw new Error("Could not load Scout positions.");
       return response.json() as Promise<{ items: WorkspacePosition[]; total: number; counts: Record<string, number> }>;
     }).then(page => {
+      const repairedOffset = nearestPageOffset(page.total, offset, limit);
+      if (repairedOffset !== offset) {
+        setOffset(repairedOffset);
+        return;
+      }
       setItems(page.items);
       setTotal(page.total);
       setCounts(page.counts);
@@ -280,7 +300,7 @@ export function ScoutPositionReview({
       if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message);
     }).finally(() => setLoading(false));
     return () => controller.abort();
-  }, [state, sort, company, text, offset]);
+  }, [state, sort, company, text, offset, refreshVersion]);
 
   useEffect(() => {
     if (!selected) {
@@ -307,49 +327,76 @@ export function ScoutPositionReview({
     setError(null);
     setSelected(id);
   };
-  const retryPromotion = async () => {
-    if (!detail) return;
-    const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}/promotion/retry`, { method: "POST" });
-    const outcome = await response.json() as PromotionDetail | null;
-    if (outcome?.promotionStatus === "failed") {
-      setDetail(outcome);
-      setError(outcome.promotionFailureMessage ?? "Promotion retry failed.");
-      return;
-    }
-    setItems(values => values.filter(value => value.id !== detail.id));
-    closeDrawer();
-  };
-  const decide = async (action: "irrelevant" | "defer" | "pursue") => {
-    if (!detail?.descriptionId || !detail.relevanceEvaluationId || !detail.candidateMatchEvaluationId) return;
-    const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}/decision`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        changeId: `change_${crypto.randomUUID()}`,
-        action,
-        note: note || undefined,
-        reviewAt: action === "defer" ? new Date(reviewAt).toISOString() : undefined,
-        expectedStateRevision: detail.stateRevision,
-        descriptionId: detail.descriptionId,
-        relevanceEvaluationId: detail.relevanceEvaluationId,
-        candidateMatchEvaluationId: detail.candidateMatchEvaluationId,
-      }),
-    });
-    if (!response.ok) {
-      const value = await response.json() as { error?: string };
-      setError(value.error ?? "Could not save position decision.");
-      return;
-    }
-    const outcome = await response.json() as PromotionDetail | null;
-    if (outcome?.promotionStatus === "failed") {
-      setDetail(outcome);
-      setError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
-      return;
-    }
-    setItems(values => values.filter(value => value.id !== detail.id));
+
+  const completeDecision = (id: string) => {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    setItems(values => values.filter(value => value.id !== id));
     setTotal(value => Math.max(0, value - 1));
     closeDrawer();
     setNote("");
+    setReviewAt("");
+    setRefreshVersion(value => value + 1);
+    window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+  };
+  const retryPromotion = async () => {
+    if (!detail || submittingAction !== null) return;
+    setSubmittingAction("retry");
+    try {
+      const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}/promotion/retry`, { method: "POST" });
+      const outcome = await response.json() as PromotionDetail | { error?: string } | null;
+      if (!response.ok) {
+        setError(outcome && "error" in outcome ? outcome.error ?? "Promotion retry failed." : "Promotion retry failed.");
+        return;
+      }
+      if (outcome && "promotionStatus" in outcome && outcome.promotionStatus === "failed") {
+        setDetail(outcome);
+        setError(outcome.promotionFailureMessage ?? "Promotion retry failed.");
+        return;
+      }
+      completeDecision(detail.id);
+    } finally {
+      setSubmittingAction(null);
+    }
+  };
+  const decide = async (action: "irrelevant" | "defer" | "pursue") => {
+    if (submittingAction !== null || !detail?.descriptionId || !detail.relevanceEvaluationId || !detail.candidateMatchEvaluationId) return;
+    setSubmittingAction(action);
+    try {
+      const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}/decision`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          changeId: `change_${crypto.randomUUID()}`,
+          action,
+          note: note.trim() || undefined,
+          reviewAt: action === "defer" ? new Date(reviewAt).toISOString() : undefined,
+          expectedStateRevision: detail.stateRevision,
+          descriptionId: detail.descriptionId,
+          relevanceEvaluationId: detail.relevanceEvaluationId,
+          candidateMatchEvaluationId: detail.candidateMatchEvaluationId,
+        }),
+      });
+      const outcome = await response.json() as PromotionDetail | { error?: string } | null;
+      if (!response.ok) {
+        if (response.status === 409) {
+          const refreshed = await fetch(`/api/gig-scout/positions/${encodeURIComponent(detail.id)}`, { cache: "no-store" });
+          if (refreshed.ok) setDetail(await refreshed.json() as PromotionDetail);
+          setError("This position was revised. Review the latest details before deciding.");
+          return;
+        }
+        setError(outcome && "error" in outcome ? outcome.error ?? "Could not save position decision." : "Could not save position decision.");
+        return;
+      }
+      if (outcome && "promotionStatus" in outcome && outcome.promotionStatus === "failed") {
+        setDetail(outcome);
+        setError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
+        return;
+      }
+      completeDecision(detail.id);
+    } finally {
+      setSubmittingAction(null);
+    }
   };
 
   return <section aria-labelledby="positions-title">
@@ -406,6 +453,7 @@ export function ScoutPositionReview({
       onReviewAtChange={setReviewAt}
       onDecide={action => void decide(action)}
       onRetryPromotion={() => void retryPromotion()}
+      submittingAction={submittingAction}
     />}
   </section>;
 }

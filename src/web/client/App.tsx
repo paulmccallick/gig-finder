@@ -313,7 +313,7 @@ export function App() {
       ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard people={peopleResult.data} /></main>
       : view === "tasks"
         ? <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>
-        : <main className="app-shell"><Masthead today={todayInPacific()} active="scout" onChange={setView} /><GigScoutPage /></main>;
+        : <main className="app-shell"><Masthead today={todayInPacific()} active="scout" onChange={setView} /><GigScoutPage onOpenPosition={() => dispatchAgentWorkspace({ type: "close" })} /></main>;
   return (
     <>
       <div
