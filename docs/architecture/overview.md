@@ -59,6 +59,7 @@ flowchart LR
 - [ADR 0013: Allow private application data in local logs](decisions/0013-allow-private-data-in-local-logs.md) permits diagnostic profile and company data in private local logs while excluding authentication secrets and tracked artifacts.
 - [ADR 0014: Separate Scout discovery from position processing](decisions/0014-separate-scout-discovery-from-position-processing.md) retains company scans as the discovery boundary while durable logical-position stages run independently with database-authoritative progress.
 - [ADR 0015: Keep business logic out of operations](decisions/0015-keep-business-logic-out-of-operations.md) keeps queue and process coordination separate from domain decisions.
+- [ADR 0016: Mutate domain-owned tables through the owning domain service](decisions/0016-own-domain-table-mutations.md) requires cross-domain mutations to use the owning domain's capability.
 
 Runtime settings are documented in [Configuration](configuration.md), environment
 roles in [Infrastructure environments](infrastructure.md), and production layout

@@ -116,6 +116,8 @@ function gigRecord(
     otherCompensation: null,
     documents: [],
     ...input,
+    availability: input.availability ?? "unknown",
+    availabilityUpdatedAt: input.availabilityUpdatedAt ?? null,
   };
 }
 

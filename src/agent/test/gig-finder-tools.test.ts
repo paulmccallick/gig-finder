@@ -1108,6 +1108,8 @@ describe("GigFinderAgent tools", () => {
       tags: [],
       hasJobDescription: false,
       hasInterviewPrep: false,
+      availability: "unknown",
+      availabilityUpdatedAt: null,
       location: null,
       workArrangement: null,
       postedDate: null,
@@ -1632,6 +1634,8 @@ describe("GigFinderAgent tools", () => {
       otherCompensation: null,
       hasJobDescription: false,
       hasInterviewPrep: false,
+      availability: "unknown",
+      availabilityUpdatedAt: null,
     } satisfies Gig;
     const loggingMutations: TestGigFinderMutationCapabilities = {
       gigs: { update: context => ({

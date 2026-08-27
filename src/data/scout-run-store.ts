@@ -10,6 +10,7 @@ import type {
 } from "../core/scout/engine";
 import type {
   ScoutCompanyJob,
+  PreparedScoutCompanyResult,
   ScoutPositionPage,
   ScoutRunDetail,
   ScoutRunStore,
@@ -247,8 +248,12 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
         runId,
       );
   }
-  commitResult(job: ScoutCompanyJob, result: CompanyScanResult, now: string) {
-    this.db.transaction(() => {
+  prepareCompanyResult(
+    job: ScoutCompanyJob,
+    result: CompanyScanResult,
+    now: string,
+  ): PreparedScoutCompanyResult {
+    return this.db.transaction(() => {
       for (const source of result.sources) {
         const configured = this.db
           .query(
@@ -332,7 +337,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
           this.observe(job, runSourceId, position, now);
       }
       const statuses = result.sources.map((source) => source.status);
-      const companyStatus =
+      const companyStatus:PreparedScoutCompanyResult["status"] =
         statuses.length > 0 &&
         statuses.every((status) => status.startsWith("succeeded_"))
           ? "succeeded"
@@ -342,21 +347,48 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
               )
             ? "partial"
             : "failed";
-      this.db
+      const company = this.db
+        .query(`SELECT name FROM scout_companies WHERE id=?`)
+        .get(job.companyId) as { name: string } | null;
+      if (!company) throw new Error("Scout company not found.");
+      const observedPositions = [
+        ...new Map(
+          result.positions.map((position) => [
+            `${position.canonicalUrl}\0${position.externalId ?? ""}`,
+            {
+              canonicalUrl: position.canonicalUrl,
+              externalId: position.externalId,
+            },
+          ]),
+        ).values(),
+      ];
+      return {
+        companyName: company.name,
+        status: companyStatus,
+        observedPositions,
+      };
+    })();
+  }
+  completeCompanyResult(
+    job: ScoutCompanyJob,
+    result: PreparedScoutCompanyResult,
+    now: string,
+  ): void {
+    this.db.transaction(() => {
+      const changed = this.db
         .query(
-          `UPDATE scout_run_companies SET status=?,completed_at=?,failure_code=?,failure_message=? WHERE id=? AND status='queued'`,
+          `UPDATE scout_run_companies SET status=?,completed_at=?,failure_code=?,failure_message=? WHERE id=? AND status IN ('queued','dispatched','running')`,
         )
         .run(
-          companyStatus,
+          result.status,
           now,
-          companyStatus === "failed" ? "all_sources_failed" : null,
-          companyStatus === "failed"
+          result.status === "failed" ? "all_sources_failed" : null,
+          result.status === "failed"
             ? "No configured source completed successfully."
             : null,
           job.runCompanyId,
-        );
-      if(companyStatus==="succeeded")this.reconcileCompanyAvailability(job,now);
-      this.finalize(job.runId, now);
+        ).changes;
+      if (changed) this.finalize(job.runId, now);
     })();
   }
   private observe(
@@ -450,11 +482,6 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     if(revived)this.db.query(`UPDATE scout_position_processing_outbox SET dispatch_status='pending',dispatched_at=NULL WHERE processing_id=?`).run(processingId);
     if(!inserted&&!revived){const current=this.db.query(`SELECT s.linked_gig_id linkedGigId,x.status FROM scout_position_states s JOIN scout_position_processing x ON x.position_id=s.position_id AND x.stage='reconcile_gig' AND x.input_identity=? WHERE s.position_id=?`).get(inputIdentity,positionId) as {linkedGigId:string|null;status:string}|null;if(current?.status==="completed"&&!current.linkedGigId)this.ensureStage(positionId,"acquire_description",this.descriptionIdentity(positionId,bindings.observationId,bindings.configurationSourceId),now,bindings);}
     return inserted||revived;
-  }
-  private reconcileCompanyAvailability(job:ScoutCompanyJob,now:string){
-    const company=this.db.query(`SELECT name FROM scout_companies WHERE id=?`).get(job.companyId) as {name:string}|null;if(!company)return;
-    const gigs=this.db.query(`SELECT id,revision,scout_availability,source_url,external_job_id FROM gigs WHERE is_deleted=0 AND lower(trim(company))=lower(trim(?))`).all(company.name) as Array<{id:string;revision:number;scout_availability:string;source_url:string|null;external_job_id:string|null}>;
-    for(const gig of gigs){if(!gig.source_url&&!gig.external_job_id)continue;const observed=this.db.query(`SELECT 1 FROM scout_position_observations o JOIN scout_run_sources rs ON rs.id=o.run_source_id JOIN scout_run_companies rc ON rc.id=rs.run_company_id JOIN scout_positions p ON p.id=o.position_id WHERE rc.run_id=? AND rc.company_id=? AND ((? IS NOT NULL AND p.canonical_url=?) OR (? IS NOT NULL AND p.external_id=?)) LIMIT 1`).get(job.runId,job.companyId,gig.source_url,gig.source_url,gig.external_job_id,gig.external_job_id);const availability=observed?"available":"unavailable";if(gig.scout_availability!==availability){const changeId=id("change","scout-availability",job.runId,gig.id);this.db.query(`INSERT OR IGNORE INTO changes(id,occurred_at,actor,source,summary,status) VALUES(?,?,'Gig Scout','automation','Reconciled tracked Gig availability','committed')`).run(changeId,now);this.db.query(`INSERT OR IGNORE INTO scout_gig_availability_history(change_id,gig_id,prior_availability,availability,recorded_at,recorded_by,run_id) VALUES(?,?,?,?,?,'Gig Scout',?)`).run(changeId,gig.id,gig.scout_availability,availability,now,job.runId);this.db.query(`UPDATE gigs SET scout_availability=?,scout_availability_updated_at=?,updated_at=?,revision=revision+1 WHERE id=?`).run(availability,now,now,gig.id);}}
   }
   pendingPositionJobs(limit:number){return this.db.query(`SELECT p.id,p.id processingId,p.position_id positionId,p.stage,p.input_identity inputIdentity,p.attempt_count attemptCount FROM scout_position_processing p JOIN scout_position_processing_outbox o ON o.processing_id=p.id WHERE p.status='pending' ORDER BY CASE p.stage WHEN 'reconcile_gig' THEN 0 WHEN 'acquire_description' THEN 1 WHEN 'screen_relevance' THEN 2 ELSE 3 END,o.created_at,o.id LIMIT ?`).all(limit) as ScoutPositionProcessingJob[];}
   markPositionJobsDispatched(ids:string[],now:string){const q=this.db.query(`UPDATE scout_position_processing_outbox SET dispatch_status='dispatched',dispatched_at=? WHERE processing_id=?`);this.db.transaction(()=>ids.forEach(value=>q.run(now,value)))();}

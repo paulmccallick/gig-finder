@@ -9,6 +9,11 @@ const applyStatements = async (database: Database, migrationUrl: URL) => {
   }
 };
 
+const columnNames = (database: Database, table: string) =>
+  (database.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(column => column.name);
+const tableNames = (database: Database) =>
+  (database.query("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map(table => table.name);
+
 test("0025 keeps the deployed Scout source constraint on JSON and HTML methods", async () => {
   const database = new Database(":memory:");
   database.exec("PRAGMA foreign_keys=ON");
@@ -197,5 +202,32 @@ test("0033 installs revision-bound Scout decision, note, and promotion storage",
   expect(database.query("PRAGMA table_info(scout_position_decisions)").all()).toEqual(expect.arrayContaining([expect.objectContaining({name:"origin"}),expect.objectContaining({name:"description_id"}),expect.objectContaining({name:"reverses_decision_id"})]));
   expect(database.query("PRAGMA table_info(scout_position_notes)").all()).toContainEqual(expect.objectContaining({name:"body"}));
   expect(database.query("PRAGMA table_info(scout_position_promotions)").all()).toContainEqual(expect.objectContaining({name:"managed_document_id"}));
+  database.close();
+});
+
+test("0034 renames Gig availability columns and removes the Scout-specific history",async()=>{
+  const database=new Database(":memory:");
+  migrateDatabase(database);
+  database.exec(`
+    ALTER TABLE gigs RENAME COLUMN availability TO scout_availability;
+    ALTER TABLE gigs RENAME COLUMN availability_updated_at TO scout_availability_updated_at;
+    ALTER TABLE gig_history RENAME COLUMN availability TO scout_availability;
+    ALTER TABLE gig_history RENAME COLUMN availability_updated_at TO scout_availability_updated_at;
+    CREATE TABLE scout_gig_availability_history (history_id integer PRIMARY KEY);
+    INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at,scout_availability,scout_availability_updated_at)
+    VALUES('gig-1','Synthetic Company','Synthetic Role','identified','pending','Found','2026-08-20','good','[]',0,0,1,0,'2026-08-20T00:00:00Z','2026-08-20T00:00:00Z','available','2026-08-20T12:00:00Z');
+    INSERT INTO changes(id,occurred_at,actor,source,summary,status)
+    VALUES('availability-history','2026-08-20T12:00:00Z','test','test','Synthetic availability history','committed');
+    INSERT INTO gig_history(change_id,operation,recorded_at,recorded_by,id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at,scout_availability,scout_availability_updated_at)
+    VALUES('availability-history','update','2026-08-20T12:00:00Z','test','gig-1','Synthetic Company','Synthetic Role','identified','pending','Found','2026-08-20','good','[]',0,0,1,0,'2026-08-20T00:00:00Z','2026-08-20T00:00:00Z','unavailable','2026-08-19T12:00:00Z');
+  `);
+  await applyStatements(database,new URL("../migrations/0034_gig_domain_availability.sql",import.meta.url));
+  expect(columnNames(database,"gigs")).toEqual(expect.arrayContaining(["availability","availability_updated_at"]));
+  expect(columnNames(database,"gigs")).not.toContain("scout_availability");
+  expect(columnNames(database,"gig_history")).toEqual(expect.arrayContaining(["availability","availability_updated_at"]));
+  expect(columnNames(database,"gig_history")).not.toContain("scout_availability");
+  expect(tableNames(database)).not.toContain("scout_gig_availability_history");
+  expect(database.query("SELECT availability,availability_updated_at FROM gigs WHERE id='gig-1'").get()).toEqual({availability:"available",availability_updated_at:"2026-08-20T12:00:00Z"});
+  expect(database.query("SELECT availability,availability_updated_at FROM gig_history WHERE id='gig-1'").get()).toEqual({availability:"unavailable",availability_updated_at:"2026-08-19T12:00:00Z"});
   database.close();
 });

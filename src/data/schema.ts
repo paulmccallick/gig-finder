@@ -102,8 +102,8 @@ const gigFields = {
   tagsJson: text("tags_json").notNull().default("[]"),
   hasJobDescription: integer("has_job_description", { mode:"boolean" }).notNull().default(false),
   hasInterviewPrep: integer("has_interview_prep", { mode:"boolean" }).notNull().default(false),
-  scoutAvailability: text("scout_availability", { enum: ["unknown", "available", "unavailable"] }).notNull().default("unknown"),
-  scoutAvailabilityUpdatedAt: text("scout_availability_updated_at"),
+  availability: text("availability", { enum: ["unknown", "available", "unavailable"] }).notNull().default("unknown"),
+  availabilityUpdatedAt: text("availability_updated_at"),
 };
 
 export const gigs = sqliteTable("gigs", { ...gigFields, id: text("id").primaryKey(), ...recordMetadata }, (table) => [index("gigs_stage_idx").on(table.stage), index("gigs_due_idx").on(table.nextActionDue), index("gigs_deleted_idx").on(table.isDeleted), check("gigs_is_deleted_check", sql`${table.isDeleted} in (0, 1)`)]);

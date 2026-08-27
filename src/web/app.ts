@@ -197,7 +197,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
     }, "Profile document materialization remains pending"),
   });
   const gigFinder = local.application;
-  const scoutRuntime = new ScoutRuntime(local.scoutStore, {
+  const scoutRuntime = new ScoutRuntime(local.scoutStore, local.scout, {
     dataPath: configuration.context.scoutQueue,
     batchSize: configuration.scout.batchSize,
     concurrency: configuration.scout.concurrency,

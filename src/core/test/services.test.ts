@@ -5,6 +5,7 @@ import { DomainValidationError,MutationError,OptimisticConcurrencyError } from "
 import type { ArtifactPort,ArtifactVerification,AuditPort,DocumentWriteRepository,Persistence,ReadRepository,UnitOfWork } from "../ports";
 import type { ChangeContext,EntityRecord,GigData,GigPersonData,InteractionData,InteractionParticipantData,PersonData,TaskData } from "../models";
 import { documentDisplayName,type DocumentLinkEntityType,type ManagedDocumentData,type ManagedDocumentRecord,type ManagedDocumentVersionData } from "../documents";
+import { gigInputSchema } from "../gigs";
 
 const metadata={revision:1,isDeleted:false,createdAt:"2026-07-22T12:00:00-07:00",updatedAt:"2026-07-22T12:00:00-07:00"};
 class Repo<T extends{id:string}> implements ReadRepository<T>{rows=new Map<string,EntityRecord<T>>();get(id:string){return this.rows.get(id)??null}list(){return[...this.rows.values()]}create(record:T){const value={...record,...metadata};this.rows.set(record.id,value);return value}update(id:string,revision:number,patch:Partial<Omit<T,"id">>){const current=this.get(id)!;const value={...current,...patch,revision:revision+1,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(id,value);return value}touch(id:string,revision:number){return this.update(id,revision,{})}delete(id:string){return this.rows.get(id)!}restore(id:string){return this.rows.get(id)!}}
@@ -20,7 +21,8 @@ class DocumentRepo implements DocumentWriteRepository {
   addVersion(input:{documentId:string;expectedVersion:number;content:string;contentHash:string;changeSummary:string}){const current=this.get(input.documentId)!;const version=input.expectedVersion+1;const record={...current,currentVersion:version,content:input.content,contentHash:input.contentHash,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version,parentVersion:input.expectedVersion,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:input.changeSummary,createdAt:record.updatedAt,createdBy:"test"},...(this.histories.get(record.id)??[])]);return record}
 }
 const documents=new DocumentRepo();
-const persistence:Persistence={gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:()=>false,creationFingerprint:()=>null,change:(context,action)=>({changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,recordCreationFingerprint:()=>undefined} as UnitOfWork)}),revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
+let auditedChangeCount=0;
+const persistence:Persistence={gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:()=>false,creationFingerprint:()=>null,change:(context,action)=>{auditedChangeCount++;return{changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,recordCreationFingerprint:()=>undefined} as UnitOfWork)}},revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
 const artifacts:ArtifactPort={jobDescription:async()=>"description",interviewPrep:async()=>[{name:"general.md",content:"prep"}],jobDescriptionExists:async()=>true,interviewPrepExists:async()=>true,verify:async():Promise<ArtifactVerification>=>({ok:true,errors:[],unregistered:[]})};
 const audit:AuditPort={query:query=>({query})};const app=new GigFinderApplication(persistence,audit,artifacts);const context:ChangeContext={actor:"test",source:"test",summary:"change"};
 describe("application services",()=>{
@@ -35,6 +37,26 @@ describe("application services",()=>{
   expect(()=>app.gigPeople.createNew(context,"missing-relationship",{gigId:"missing",personId:"contract-person",relationship:"recruiter",notes:null})).toThrow("Gig not found");
  });
  test("gig service reads, writes, and loads artifacts",async()=>{app.gigs.create(context,{id:"gig",company:"Company",title:"VP",externalJobId:null,artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-07-22",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[],hasJobDescription:true,hasInterviewPrep:true});expect(app.gigs.get("gig")?.company).toBe("Company");expect(await app.gigs.description("gig")).toBe("description");expect(await app.gigs.prep("gig")).toHaveLength(1)});
+ test("Gig availability changes through an audited mutation and ignores an unchanged value",()=>{
+  app.gigs.create(context,{id:"gig-1",company:"Availability Company",title:"Director",externalJobId:null,artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-08-20",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[]});
+  const changed=app.gigs.setAvailability({actor:"Synthetic Scout",source:"automation",summary:"Observed official position availability",changeId:"scout-availability:run-1:gig-1",occurredAt:"2026-08-27T12:00:00Z"},"gig-1","available");
+  expect(changed).toMatchObject({changeId:"scout-availability:run-1:gig-1",record:{availability:"available",availabilityUpdatedAt:"2026-08-27T12:00:00Z",revision:2}});
+  expect(app.gigs.setAvailability({actor:"Synthetic Scout",source:"automation",summary:"Observed official position availability",changeId:"scout-availability:run-1:gig-1-repeat",occurredAt:"2026-08-27T12:00:00Z"},"gig-1","available")).toMatchObject({changeId:null,record:{revision:2}});
+ });
+ test("Gig availability rejects an invalid occurredAt before changing its record or audit",()=>{
+  app.gigs.create(context,{id:"gig-invalid-occurred-at",company:"Availability Company",title:"Director",externalJobId:null,artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-08-20",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[]});
+  const before=gigs.get("gig-invalid-occurred-at");
+  const auditedBefore=auditedChangeCount;
+
+  expect(()=>app.gigs.setAvailability({...context,changeId:"invalid-occurred-at",occurredAt:"not-a-datetime"},"gig-invalid-occurred-at","available")).toThrow();
+
+  expect(gigs.get("gig-invalid-occurred-at")).toEqual(before);
+  expect(auditedChangeCount).toBe(auditedBefore);
+ });
+ test("ordinary Gig input rejects domain-owned availability fields",()=>{
+  expect(gigInputSchema.safeParse({availability:"available"}).success).toBe(false);
+  expect(gigInputSchema.safeParse({availabilityUpdatedAt:"2026-08-27T12:00:00Z"}).success).toBe(false);
+ });
  test("people service stores canonical people with neutral relationship defaults",()=>{app.people.create(context,{id:"person",name:"Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null});expect(app.people.get("person")).toMatchObject({name:"Person",relationship:{type:"professional_contact",strength:"unknown"},priority:"unranked",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,notes:[],tags:[]});expect(people.get("person")).not.toHaveProperty("lastContacted")});
  test("people service includes relationship state",()=>{app.people.create(context,{id:"network-person",name:"Network Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:"colleague",relationshipStrength:"warm",priority:"high",status:"not_contacted"});expect(app.people.get("network-person")).toMatchObject({name:"Network Person",relationship:{type:"colleague",strength:"warm"},priority:"high"})});
  test("task service creates and updates tasks",()=>{const created=app.tasks.createNew({...context,occurredAt:"2026-07-22T12:00:00-07:00"},{id:"task",title:"Task",type:"other",dueDate:null,relatedEntity:{type:"general",id:null},notes:null});expect(app.tasks.complete(context,created.record.id,"2026-07-22").status).toBe("completed")});
