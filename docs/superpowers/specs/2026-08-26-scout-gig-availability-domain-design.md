@@ -1,7 +1,7 @@
 # Scout Gig Availability Domain Design
 
-**Issue:** #140  
-**Date:** 2026-08-26  
+**Issue:** #140
+**Date:** 2026-08-26
 **Status:** Approved in conversation; written review pending
 
 ## Problem
