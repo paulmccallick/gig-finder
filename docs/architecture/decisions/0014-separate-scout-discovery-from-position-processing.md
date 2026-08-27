@@ -19,9 +19,10 @@ progress must also remain separate from user-facing position state.
 Split Scout into two durable job boundaries:
 
 - **Company discovery:** Keep the existing company queue and position upsert.
-  A successful company job persists positions and observations, creates
-  downstream position work, reconciles company-level Gig availability, and
-  then finishes without waiting for position processing.
+  A successful company job persists positions and observations, then
+  `ScoutRunService` requests required tracked-position availability changes
+  from the Gig domain before marking the company result complete. It creates
+  downstream position work without waiting for position processing.
 - **Position processing:** Add a separate BunQueue whose jobs process one
   logical position and stage. The initial stage is `reconcile_gig`; #121 may
   add description retrieval and agent review.
