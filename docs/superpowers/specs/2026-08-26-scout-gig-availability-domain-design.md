@@ -220,7 +220,8 @@ Use strict red-green-refactor TDD.
 - Add a new ADR requiring mutations of domain-owned tables to go through the
   owning domain service. Cross-domain callers request capabilities from that
   service; persistence adapters may not duplicate or bypass its mutation,
-  revision, history, and audit behavior.
+  revision, history, and audit behavior. Explicitly list the currently owned
+  domains in this ADR.
 - Link the new ADR from the architecture overview.
 - Amend FRR-006 to document the trustworthy-result availability behavior and
   clarify that availability does not close or otherwise change a Gig.
