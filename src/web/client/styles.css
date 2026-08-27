@@ -149,6 +149,40 @@ h1, h2, h3, p { margin-top: 0; }
 .task-priority[data-priority="low"] { color: var(--cyan); }
 .task-drawer-header { background: linear-gradient(155deg, rgba(240,184,107,.075), transparent 58%); }
 .read-only-note { color: var(--amber); text-transform: uppercase; font: 8px/1.4 "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+
+.scout-review-controls { margin-bottom: 20px; }
+.scout-review-company-control { min-width: 150px; flex: 0 1 190px; }
+.scout-review-company-control input { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.scout-review-ledger { overflow-x: auto; border-top: 1px solid var(--line-bright); margin-bottom: 24px; }
+.scout-review-ledger > header, .scout-review-row { display: grid; grid-template-columns: 86px minmax(290px, 2.3fr) minmax(170px, 1fr) 118px; align-items: center; gap: 16px; }
+.scout-review-ledger > header { min-height: 38px; color: var(--dim); border-bottom: 1px solid var(--line); text-transform: uppercase; font: 8px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; }
+.scout-review-row { width: 100%; min-height: 84px; padding: 13px 0; color: var(--muted); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; font-size: 11px; animation: column-arrival .35s ease-out both; animation-delay: calc(var(--scout-review-index) * 32ms); transition: background .16s ease, padding .16s ease; }
+.scout-review-row:hover { padding-left: 9px; padding-right: 9px; background: rgba(23,108,85,.045); }
+.scout-review-score, .scout-review-score-chip { display: inline-flex; width: fit-content; min-height: 21px; padding: 0 7px; align-items: center; color: var(--signal); border: 1px solid var(--line-bright); text-transform: uppercase; font: 8px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; }
+.scout-review-title-cell, .scout-review-company { min-width: 0; display: grid; gap: 7px; }
+.scout-review-title-cell strong { color: var(--ink); font: 400 17px/1.2 Baskerville, "Iowan Old Style", serif; }
+.scout-review-company strong { color: var(--muted); font-size: 11px; font-weight: 600; }
+.scout-review-title-cell small, .scout-review-company small { color: var(--dim); font-size: 9px; line-height: 1.35; }
+.scout-review-explanation { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scout-review-first-seen { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font: 9px/1 "SFMono-Regular", Consolas, monospace; }
+.scout-review-first-seen b { color: var(--signal); font-size: 17px; font-weight: 400; }
+.scout-review-pagination { display: flex; align-items: center; gap: 12px; color: var(--muted); font: 9px/1 "SFMono-Regular", Consolas, monospace; }
+.scout-review-pagination button, .scout-review-decision-actions button, .scout-review-promotion-error button { min-height: 34px; padding: 0 11px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 10px; }
+.scout-review-pagination button:disabled { color: var(--dim); cursor: default; }
+.scout-review-drawer-header { background: linear-gradient(155deg, rgba(23,108,85,.08), transparent 58%); }
+.scout-review-decision-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 13px 0; }
+.scout-review-decision-actions button:first-child { color: #fff; border-color: var(--signal); background: var(--signal); }
+.scout-review-note, .scout-review-defer { display: grid; gap: 7px; color: var(--muted); font: 8px/1 "SFMono-Regular", Consolas, monospace; text-transform: uppercase; letter-spacing: .08em; }
+.scout-review-note textarea, .scout-review-defer input { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 12px/1.45 "Avenir Next", Avenir, sans-serif; }
+.scout-review-note textarea { min-height: 88px; padding: 10px; resize: vertical; }
+.scout-review-defer { margin: 17px 0 8px; }
+.scout-review-defer input { height: 36px; padding: 0 9px; }
+.scout-review-promotion-error { margin-top: 14px; color: var(--red); }
+.scout-review-description { max-height: 360px; overflow: auto; margin: 0 0 13px; padding: 16px; border: 1px solid var(--line); background: #f8faf7; color: var(--ink); font: 11px/1.6 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-color: var(--line-bright) transparent; }
+.scout-review-description.is-expanded { max-height: none; }
+.scout-review-document-link { color: var(--signal); font: 9px/1 "SFMono-Regular", Consolas, monospace; text-transform: uppercase; letter-spacing: .08em; }
+.scout-review-diagnostics summary { color: var(--muted); cursor: pointer; font: 9px/1 "SFMono-Regular", Consolas, monospace; text-transform: uppercase; letter-spacing: .1em; }
+.scout-review-diagnostics ul { padding-left: 18px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .card-signal { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--muted); }
 .card-signal[data-fit="strong"] { background: var(--signal); box-shadow: 0 0 14px var(--signal); }
 .card-signal[data-fit="good"] { background: var(--cyan); }
@@ -417,6 +451,7 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
   .search-control { flex-basis: calc(100% - 220px); }
   .task-ledger { overflow-x: auto; }
   .task-ledger > header, .task-row { width: 1040px; }
+  .scout-review-ledger > header, .scout-review-row { width: 760px; }
 }
 
 @media (max-width: 620px) {
@@ -442,6 +477,7 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
   .view-tabs { width: 100%; margin: 0; border-bottom: 1px solid var(--line); }
   .view-tabs button { flex: 1; }
   .search-control { min-width: 100%; flex-basis: 100%; }
+  .scout-review-company-control { min-width: 100%; flex-basis: 100%; }
   .select-control { flex: 1; }
   .select-control select { width: 100%; margin: 6px 0 0; }
   .agent-panel-header { min-height: 78px; padding: 12px 14px; }

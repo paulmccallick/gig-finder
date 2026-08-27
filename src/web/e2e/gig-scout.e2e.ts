@@ -100,22 +100,27 @@ test("discovers and processes positions from a full Scout run", async ({
     ]);
 
   await page.getByRole("button", { name: "Positions", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Head of Orchard Technology" }),
-  ).toBeVisible();
-  await expect(page.getByText("Director of Synthetic Systems")).toHaveCount(0);
-  await expect(page.getByText("score candidate match · completed")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "8", exact: true })).toBeVisible();
-  await expect(page.getByText("Available", { exact: true })).toBeVisible();
+  const ledger = page.getByRole("region", { name: "Positions for review" });
+  await expect(ledger.getByText("Head of Orchard Technology")).toBeVisible();
+  await expect(ledger.getByText("8/10")).toBeVisible();
+  await expect(ledger.getByText(/synthetic profile aligns/)).toBeVisible();
+  await expect(ledger.getByText("First seen", { exact: true })).toBeVisible();
+  await expect(ledger.getByText("Processing", { exact: true })).toHaveCount(0);
+  await expect(ledger.getByText("Description", { exact: true })).toHaveCount(0);
+  await expect(ledger.getByText("Observations", { exact: true })).toHaveCount(0);
 
-  await page
-    .getByRole("button", { name: "Head of Orchard Technology" })
-    .click();
-  await expect(page.getByText("Candidate-match score:")).toBeVisible();
-  await expect(page.getByText(/synthetic profile aligns/)).toBeVisible();
-  await page.getByText("Processing diagnostics and observation history").click();
-  await expect(page.getByText(/succeeded_with_results/)).toBeVisible();
-  await page.getByRole("button", { name: "Pursue" }).click();
+  await ledger.getByRole("button", {
+    name: /Head of Orchard Technology/,
+  }).click();
+  const drawer = page.getByRole("dialog", { name: "Head of Orchard Technology" });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText("8 / 10 match")).toBeVisible();
+  await expect(drawer.getByText(/synthetic profile aligns/)).toBeVisible();
+  await expect(drawer.getByLabel("Private note (optional)")).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Pursue position" })).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Mark irrelevant" })).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Defer review" })).toBeVisible();
+  await drawer.getByRole("button", { name: "Pursue position" }).click();
   await expect(page.getByRole("heading", { name: "Positions", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Head of Orchard Technology" })).toHaveCount(0);
   await expect.poll(async()=>{const response=await page.request.get("/api/gig-scout/positions");const body=await response.json() as {items:Array<{id:string}>};return body.items.length;}).toBe(0);
