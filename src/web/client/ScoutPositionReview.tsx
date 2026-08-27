@@ -144,6 +144,8 @@ function PositionReviewDrawer({
   const closeRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const canClose = submittingAction === null;
+  const canCloseRef = useRef(canClose);
+  canCloseRef.current = canClose;
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const descriptionPath = `/gig-scout/positions/${encodeURIComponent(detail.id)}/description`;
   const descriptionHref = parseScoutDescriptionViewerPath(descriptionPath)
@@ -154,11 +156,11 @@ function PositionReviewDrawer({
     const previousFocus = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && canClose) onClose();
+      if (event.key === "Escape" && canCloseRef.current) onClose();
       if (event.key !== "Tab") return;
       const focusable = Array.from(drawerRef.current?.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ) ?? []);
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter(element => element.getClientRects().length > 0);
       const first = focusable.at(0);
       const last = focusable.at(-1);
       if (!first || !last) return;
@@ -175,7 +177,7 @@ function PositionReviewDrawer({
       document.removeEventListener("keydown", onKeyDown);
       previousFocus?.focus();
     };
-  }, [canClose, onClose]);
+  }, [onClose]);
 
   return <div className="drawer-layer">
     <button className="drawer-scrim" aria-label="Close position review" disabled={!canClose} onClick={onClose} />
@@ -372,9 +374,16 @@ export function ScoutPositionReview({
         return response.json() as Promise<PromotionDetail>;
       })
       .then(value => { if (active) setDetail(value); })
-      .catch(() => { if (active) setDrawerError("Could not load position history."); });
+      .catch(() => {
+        if (!active) return;
+        selectedRef.current = null;
+        setSelected(null);
+        setDetail(null);
+        setListError("Could not open that position. Select it to try again.");
+        onPositionOpenChange(false);
+      });
     return () => { active = false; };
-  }, [selected]);
+  }, [onPositionOpenChange, selected]);
 
   const closeDrawer = useCallback(() => {
     selectedRef.current = null;

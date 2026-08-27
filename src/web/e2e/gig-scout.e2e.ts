@@ -115,6 +115,30 @@ test("discovers and processes positions from a full Scout run", async ({
     await agentLauncher.click();
   }
   await expect(agentPanel).toBeVisible();
+  const detailPattern = "**/api/gig-scout/positions/*";
+  await page.route(detailPattern, async route => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Synthetic detail failure." }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await ledger.getByRole("button", {
+    name: /Head of Orchard Technology/,
+  }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Could not open that position. Select it to try again.",
+  );
+  await expect(agentPanel).toBeHidden();
+  await expect(agentLauncher).toBeVisible();
+  await page.unroute(detailPattern);
+
+  await agentLauncher.click();
+  await expect(agentPanel).toBeVisible();
   await ledger.getByRole("button", {
     name: /Head of Orchard Technology/,
   }).click();
