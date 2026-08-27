@@ -21,7 +21,8 @@ class DocumentRepo implements DocumentWriteRepository {
   addVersion(input:{documentId:string;expectedVersion:number;content:string;contentHash:string;changeSummary:string}){const current=this.get(input.documentId)!;const version=input.expectedVersion+1;const record={...current,currentVersion:version,content:input.content,contentHash:input.contentHash,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version,parentVersion:input.expectedVersion,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:input.changeSummary,createdAt:record.updatedAt,createdBy:"test"},...(this.histories.get(record.id)??[])]);return record}
 }
 const documents=new DocumentRepo();
-const persistence:Persistence={gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:()=>false,creationFingerprint:()=>null,change:(context,action)=>({changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,recordCreationFingerprint:()=>undefined} as UnitOfWork)}),revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
+let auditedChangeCount=0;
+const persistence:Persistence={gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:()=>false,creationFingerprint:()=>null,change:(context,action)=>{auditedChangeCount++;return{changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,recordCreationFingerprint:()=>undefined} as UnitOfWork)}},revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
 const artifacts:ArtifactPort={jobDescription:async()=>"description",interviewPrep:async()=>[{name:"general.md",content:"prep"}],jobDescriptionExists:async()=>true,interviewPrepExists:async()=>true,verify:async():Promise<ArtifactVerification>=>({ok:true,errors:[],unregistered:[]})};
 const audit:AuditPort={query:query=>({query})};const app=new GigFinderApplication(persistence,audit,artifacts);const context:ChangeContext={actor:"test",source:"test",summary:"change"};
 describe("application services",()=>{
@@ -41,6 +42,16 @@ describe("application services",()=>{
   const changed=app.gigs.setAvailability({actor:"Synthetic Scout",source:"automation",summary:"Observed official position availability",changeId:"scout-availability:run-1:gig-1",occurredAt:"2026-08-27T12:00:00Z"},"gig-1","available");
   expect(changed).toMatchObject({changeId:"scout-availability:run-1:gig-1",record:{availability:"available",availabilityUpdatedAt:"2026-08-27T12:00:00Z",revision:2}});
   expect(app.gigs.setAvailability({actor:"Synthetic Scout",source:"automation",summary:"Observed official position availability",changeId:"scout-availability:run-1:gig-1-repeat",occurredAt:"2026-08-27T12:00:00Z"},"gig-1","available")).toMatchObject({changeId:null,record:{revision:2}});
+ });
+ test("Gig availability rejects an invalid occurredAt before changing its record or audit",()=>{
+  app.gigs.create(context,{id:"gig-invalid-occurred-at",company:"Availability Company",title:"Director",externalJobId:null,artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-08-20",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[]});
+  const before=gigs.get("gig-invalid-occurred-at");
+  const auditedBefore=auditedChangeCount;
+
+  expect(()=>app.gigs.setAvailability({...context,changeId:"invalid-occurred-at",occurredAt:"not-a-datetime"},"gig-invalid-occurred-at","available")).toThrow();
+
+  expect(gigs.get("gig-invalid-occurred-at")).toEqual(before);
+  expect(auditedChangeCount).toBe(auditedBefore);
  });
  test("ordinary Gig input rejects domain-owned availability fields",()=>{
   expect(gigInputSchema.safeParse({availability:"available"}).success).toBe(false);

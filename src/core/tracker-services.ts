@@ -1,7 +1,7 @@
 import type { ArtifactPort, Persistence } from "./ports";
 import { z } from "zod";
 import type { ChangeContext, EntityRecord, GigData, TaskData } from "./models";
-import { fitRatings, gigAvailabilities, gigEntitySchema, gigInputSchema, outcomes, pipelineStages, type Gig, type GigAvailability, type GigInput, type GigRecord, type GigSummary } from "./gigs";
+import { fitRatings, gigAvailabilities, gigAvailabilityTimestampSchema, gigEntitySchema, gigInputSchema, outcomes, pipelineStages, type Gig, type GigAvailability, type GigInput, type GigRecord, type GigSummary } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
 import { compareTasks, taskInputSchema, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskInput, type TaskRecord, type TaskRelatedEntityInput } from "./tasks";
 import { ChangeExecutor, creationPayloadHash, type MutationOptions, type MutationResult } from "./changes";
@@ -148,7 +148,7 @@ export class GigDomainService {
     const current=this.get(id);
     if(!current)throw new Error(`Gig not found: ${id}`);
     if(current.availability===requested)return{record:current,changeId:null};
-    const occurredAt=context.occurredAt??new Date().toISOString();
+    const occurredAt=gigAvailabilityTimestampSchema.parse(context.occurredAt??new Date().toISOString());
     const raw=this.p.gigs.get(id)!;
     const candidate={...current,availability:requested,availabilityUpdatedAt:occurredAt};
     return this.changes.execute({...context,occurredAt},candidate,{},transaction=>this.record(transaction.gigs.update(id,raw.revision,{availability:requested,availabilityUpdatedAt:occurredAt})));
