@@ -117,6 +117,26 @@ renames the existing `scout_availability` columns to domain-owned
 `availability` names and removes the obsolete `scout_gig_availability_history`
 table. Production has already removed every row produced by the invalid path.
 
+### Domain services own domain-table mutations
+
+Add a short repository-wide ADR establishing that a table owned by a domain
+may be mutated only through that domain's service. Other domains may request a
+capability through the owning service, but may not reproduce its SQL,
+repository transaction, revision, history, or audit behavior in their own
+service or persistence adapter.
+
+Persistence adapters may implement repositories and transactions for their
+own domain. The composition root may wire services to ports. Neither role is
+permission to bypass the service that owns another domain's mutation. Read-only
+cross-domain queries must use an explicit read contract and do not grant write
+ownership.
+
+Dependency-cruiser should enforce the module boundary where imports can prove
+it. Tests and code review must cover semantic bypasses that static dependency
+rules cannot identify, such as duplicated SQL against another domain's tables.
+This general rule explains why Scout must call `GigDomainService` rather than
+updating `gigs` directly.
+
 ### Retry and failure behavior
 
 The company queue job remains retryable until all required Gig availability
@@ -194,13 +214,16 @@ Use strict red-green-refactor TDD.
 
 ## Documentation changes
 
-- Amend ADR 0014: company discovery owns the reconciliation timing boundary;
-  core orchestration invokes the Gig domain, which exclusively owns Gig
-  mutation and audit invariants.
+- Amend ADR 0014 minimally: company discovery owns the reconciliation timing
+  boundary, and `ScoutRunService` invokes the Gig domain before marking the
+  company result complete.
+- Add a new ADR requiring mutations of domain-owned tables to go through the
+  owning domain service. Cross-domain callers request capabilities from that
+  service; persistence adapters may not duplicate or bypass its mutation,
+  revision, history, and audit behavior.
+- Link the new ADR from the architecture overview.
 - Amend FRR-006 to document the trustworthy-result availability behavior and
   clarify that availability does not close or otherwise change a Gig.
-- No new ADR is required because ADR 0005, ADR 0014, and ADR 0015 already decide
-  the relevant ownership boundaries.
 
 ## Release
 
