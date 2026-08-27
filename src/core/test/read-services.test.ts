@@ -165,6 +165,8 @@ const gig = (id: string, company: string, stage: GigData["stage"] = "applied"): 
   tagsJson: "[]",
   hasJobDescription: false,
   hasInterviewPrep: false,
+  availability: "unknown",
+  availabilityUpdatedAt: null,
 });
 
 const interaction = (

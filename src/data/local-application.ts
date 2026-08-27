@@ -41,7 +41,7 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
   return {
     application,
     conversations:new SqliteConversationRepository(database),
-    scout:new ScoutRunService(scoutStore,options.scoutDefaults),
+    scout:new ScoutRunService(scoutStore,application.gigs,options.scoutDefaults),
     scoutPositions:new ScoutPositionService(scoutStore,application.gigs,application.documents),
     scoutStore,
     scoutCompanyImportStore:new SqliteScoutCompanyImportStore(database),

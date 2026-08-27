@@ -4,6 +4,9 @@ import type {
   SourceConfiguration,
 } from "../sourcing/contracts";
 import { resolveScoutSearchProfile } from "../sourcing/contracts";
+import type { ChangeContext } from "../../models";
+import type { MutationResult } from "../../changes";
+import type { GigRecord } from "../../gigs";
 
 export type ScoutRunStatus =
   | "queued"
@@ -18,6 +21,15 @@ export interface ScoutCompanyJob {
   configurationVersionId: string;
   sources: SourceConfiguration[];
   searchProfile: ScoutSearchProfile;
+}
+export type ScoutCompanyResultStatus = "succeeded" | "partial" | "failed";
+export interface PreparedScoutCompanyResult {
+  companyName: string;
+  status: ScoutCompanyResultStatus;
+  observedPositions: Array<{
+    canonicalUrl: string;
+    externalId: string | null;
+  }>;
 }
 export interface ScoutRunSummary {
   id: string;
@@ -100,9 +112,14 @@ export interface ScoutRunStore {
   pendingJobs(limit: number): ScoutCompanyJob[];
   nonterminalJobs(limit: number): ScoutCompanyJob[];
   markDispatched(runCompanyIds: string[], now: string): void;
-  commitResult(
+  prepareCompanyResult(
     job: ScoutCompanyJob,
     result: CompanyScanResult,
+    now: string,
+  ): PreparedScoutCompanyResult;
+  completeCompanyResult(
+    job: ScoutCompanyJob,
+    result: PreparedScoutCompanyResult,
     now: string,
   ): void;
   commitInfrastructureFailure(
@@ -116,11 +133,56 @@ export interface ScoutRunStore {
     input: { company?: string; text?: string; offset: number; limit: number },
   ): ScoutPositionPage;
 }
+export interface ScoutGigAvailabilityPort {
+  list(): GigRecord[];
+  setAvailability(
+    context: ChangeContext,
+    gigId: string,
+    availability: "available" | "unavailable",
+  ): MutationResult<GigRecord>;
+}
 export class ScoutRunService {
   constructor(
     private readonly store: ScoutRunStore,
+    private readonly gigs: ScoutGigAvailabilityPort,
     private readonly defaults = { batchSize: 20, concurrency: 5 },
   ) {}
+  commitCompanyResult(
+    job: ScoutCompanyJob,
+    result: CompanyScanResult,
+    now: string,
+  ): void {
+    const prepared = this.store.prepareCompanyResult(job, result, now);
+    if (prepared.status === "succeeded") {
+      for (const gig of this.gigs.list()) {
+        if (
+          gig.company.trim().toLocaleLowerCase() !==
+          prepared.companyName.trim().toLocaleLowerCase()
+        )
+          continue;
+        if (!gig.sourceUrl && !gig.externalJobId) continue;
+        const available = prepared.observedPositions.some(
+          (position) =>
+            (gig.sourceUrl !== null &&
+              position.canonicalUrl === gig.sourceUrl) ||
+            (gig.externalJobId !== null &&
+              position.externalId === gig.externalJobId),
+        );
+        this.gigs.setAvailability(
+          {
+            actor: "Gig Scout",
+            source: "automation",
+            summary: "Observed official position availability",
+            changeId: `scout-availability:${job.runId}:${gig.id}`,
+            occurredAt: now,
+          },
+          gig.id,
+          available ? "available" : "unavailable",
+        );
+      }
+    }
+    this.store.completeCompanyResult(job, prepared, now);
+  }
   startFull(
     settings: Partial<{
       batchSize: number;

@@ -8,6 +8,7 @@ import type {
   ScoutCompanyJob,
   ScoutRunStore,
 } from "../core/scout/engine/runs";
+import type { ScoutRunService } from "../core/scout/engine/runs";
 import { scoutTemplateCatalog } from "./scout-template-catalog";
 import {
   LoggingScoutHttpPort,
@@ -28,7 +29,14 @@ export class ScoutRuntime {
   private bootstrapPromise: Promise<void> | null = null;
   private readonly logger?: ScoutLogger;
   constructor(
-    private readonly store: ScoutRunStore,
+    private readonly jobs: Pick<
+      ScoutRunStore,
+      | "pendingJobs"
+      | "nonterminalJobs"
+      | "markDispatched"
+      | "commitInfrastructureFailure"
+    >,
+    private readonly runs: Pick<ScoutRunService, "commitCompanyResult">,
     options: {
       dataPath: string;
       batchSize: number;
@@ -101,7 +109,11 @@ export class ScoutRuntime {
             },
             { http, templates: scoutTemplateCatalog },
           );
-          this.store.commitResult(payload, result, new Date().toISOString());
+          this.runs.commitCompanyResult(
+            payload,
+            result,
+            new Date().toISOString(),
+          );
           safeScoutLog(
             logger,
             "info",
@@ -183,7 +195,7 @@ export class ScoutRuntime {
             "Scout queue job failed",
           );
           if (job.attemptsMade + 1 >= 3)
-            this.store.commitInfrastructureFailure(
+            this.jobs.commitInfrastructureFailure(
               payload,
               "worker_retry_exhausted",
               error instanceof Error ? error.message : "Worker failed.",
@@ -291,7 +303,7 @@ export class ScoutRuntime {
   }
   async dispatch() {
     await this.queue.waitUntilReady();
-    const jobs = this.store.nonterminalJobs(1000);
+    const jobs = this.jobs.nonterminalJobs(1000);
     if (!jobs.length) return;
     const runIds = [...new Set(jobs.map((job) => job.runId))];
     const existing = await Promise.all(
@@ -305,7 +317,7 @@ export class ScoutRuntime {
       ({ queued, state }) => queued !== null && state === "failed",
     );
     for (const { job, queued } of exhausted)
-      this.store.commitInfrastructureFailure(
+      this.jobs.commitInfrastructureFailure(
         job,
         "worker_retry_exhausted",
         queued?.failedReason ?? "Worker retry budget was exhausted.",
@@ -362,7 +374,7 @@ export class ScoutRuntime {
       );
       throw error;
     }
-    this.store.markDispatched(
+    this.jobs.markDispatched(
       jobs.map((job) => job.runCompanyId),
       new Date().toISOString(),
     );
@@ -420,7 +432,7 @@ export class ScoutRuntime {
           "info",
           {
             event: "scout.queue.startup_reconciliation_completed",
-            nonterminalJobCount: this.store.nonterminalJobs(1_000).length,
+            nonterminalJobCount: this.jobs.nonterminalJobs(1_000).length,
           },
           "Scout queue startup reconciliation completed",
         );

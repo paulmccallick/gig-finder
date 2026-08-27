@@ -6,6 +6,8 @@ import {DataStore} from "../store";
 import {AuditReader} from "../audit";
 import {GigFinderApplication} from "../../core/application";
 import { importScoutCompany } from "../../core/scout/engine/company-import";
+import type { CompanyScanResult } from "../../core/scout/engine";
+import type { ScoutCompanyJob } from "../../core/scout/engine/runs";
 import { ScoutPositionProcessor, type ScoutScreeningModel } from "../../core/scout/engine/screening";
 import { ScoutPositionService } from "../../core/scout/engine/scout-position-service";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -36,6 +38,200 @@ function setup() {
   );
   return new SqliteScoutRunStore(db);
 }
+
+const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
+  const position = {
+    sourceKey: "official",
+    externalId: "job-1",
+    canonicalUrl: "https://careers.example.test/jobs/1",
+    title: "Synthetic Systems Gardener",
+    location: "Remote",
+    description: null,
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "none" as const,
+      descriptionUrl: "https://careers.example.test/jobs/1",
+    },
+  };
+  return {
+    companyId: job.companyId,
+    configurationVersionId: job.configurationVersionId,
+    positions: [position],
+    sources: [
+      {
+        sourceKey: "official",
+        status: "succeeded_with_results",
+        positions: [position],
+        attempts: [
+          {
+            sourceMethod: "json",
+            stage: "listing",
+            requestCount: 1,
+            responseCount: 1,
+            candidateCount: 1,
+            acceptedCount: 1,
+            rejectedCount: 0,
+            validationStatus: "verified",
+            startedAt: "2026-08-27T12:00:00Z",
+            completedAt: "2026-08-27T12:00:01Z",
+            diagnostics: [],
+          },
+        ],
+      },
+    ],
+  };
+};
+
+test("company result preparation remains nonterminal and is replay safe", () => {
+  const store = setup();
+  const database = databases.at(-1)!;
+  const run = store.startOrReuse(20, 5, "2026-08-27T12:00:00Z").run;
+  const job = store.pendingJobs(1)[0]!;
+  const result = successfulResult(job);
+
+  const prepared = store.prepareCompanyResult(
+    job,
+    result,
+    "2026-08-27T12:00:01Z",
+  );
+
+  expect(prepared).toEqual({
+    companyName: "Example Company",
+    status: "succeeded",
+    observedPositions: [
+      {
+        canonicalUrl: "https://careers.example.test/jobs/1",
+        externalId: "job-1",
+      },
+    ],
+  });
+  expect(
+    database
+      .query("SELECT status FROM scout_run_companies WHERE id=?")
+      .get(job.runCompanyId),
+  ).toEqual({ status: "queued" });
+  expect(store.get(run.id)?.status).toBe("queued");
+
+  store.prepareCompanyResult(job, result, "2026-08-27T12:00:02Z");
+
+  expect(
+    database
+      .query(
+        `SELECT
+          (SELECT count(*) FROM scout_source_attempts) attempts,
+          (SELECT count(*) FROM scout_position_observations) observations,
+          (SELECT count(*) FROM scout_position_processing) processing,
+          (SELECT count(*) FROM scout_position_processing_outbox) outbox`,
+      )
+      .get(),
+  ).toEqual({ attempts: 1, observations: 1, processing: 1, outbox: 1 });
+
+  store.completeCompanyResult(job, prepared, "2026-08-27T12:00:03Z");
+
+  expect(
+    database
+      .query("SELECT status FROM scout_run_companies WHERE id=?")
+      .get(job.runCompanyId),
+  ).toEqual({ status: "succeeded" });
+  expect(store.get(run.id)?.status).toBe("completed");
+});
+
+test("Scout result persistence never mutates tracked Gig availability", () => {
+  const store = setup();
+  const database = databases.at(-1)!;
+  const application = new GigFinderApplication(
+    new DataStore(database),
+    new AuditReader(database),
+    {
+      jobDescription: async () => "",
+      interviewPrep: async () => [],
+      jobDescriptionExists: async () => false,
+      interviewPrepExists: async () => false,
+      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+    },
+  );
+  application.gigs.create(
+    {
+      actor: "Synthetic test",
+      source: "test",
+      summary: "Create tracked Gig",
+      changeId: "create-gig-1",
+      occurredAt: "2026-08-27T11:00:00Z",
+    },
+    {
+      id: "gig-1",
+      company: "Example Company",
+      title: "Synthetic Systems Gardener",
+      externalJobId: "job-1",
+      artifactDirectory: null,
+      stage: "identified",
+      outcome: "pending",
+      statusSummary: "Tracked",
+      lastActivity: "2026-08-27",
+      nextAction: null,
+      fit: { rating: "good", summary: null },
+      payRange: null,
+      sourceUrl: "https://careers.example.test/jobs/1",
+      tags: [],
+    },
+  );
+  const before = database
+    .query(
+      `SELECT availability,availability_updated_at availabilityUpdatedAt,revision
+       FROM gigs WHERE id='gig-1'`,
+    )
+    .get();
+  const beforeCounts = database
+    .query(
+      `SELECT
+        (SELECT count(*) FROM changes
+         WHERE summary IN (
+           'Reconciled tracked Gig availability',
+           'Observed official position availability'
+         )) changes,
+        (SELECT count(*) FROM gig_history) history`,
+    )
+    .get();
+  store.startOrReuse(20, 5, "2026-08-27T12:00:00Z");
+  const job = store.pendingJobs(1)[0]!;
+  const prepared = store.prepareCompanyResult(
+    job,
+    successfulResult(job),
+    "2026-08-27T12:00:01Z",
+  );
+
+  expect(
+    database
+      .query(
+        `SELECT availability,availability_updated_at availabilityUpdatedAt,revision
+         FROM gigs WHERE id='gig-1'`,
+      )
+      .get(),
+  ).toEqual(before);
+  store.completeCompanyResult(job, prepared, "2026-08-27T12:00:02Z");
+  expect(
+    database
+      .query(
+        `SELECT availability,availability_updated_at availabilityUpdatedAt,revision
+         FROM gigs WHERE id='gig-1'`,
+      )
+      .get(),
+  ).toEqual(before);
+  expect(
+    database
+      .query(
+        `SELECT
+          (SELECT count(*) FROM changes
+           WHERE summary IN (
+             'Reconciled tracked Gig availability',
+             'Observed official position availability'
+           )) changes,
+          (SELECT count(*) FROM gig_history) history`,
+      )
+      .get(),
+  ).toEqual(beforeCounts);
+});
 test("full-run creation is singleton guarded and outbox jobs carry immutable configuration", () => {
   const store = setup();
   const first = store.startOrReuse(20, 5, "2026-01-01T00:00:00Z");
@@ -154,8 +350,8 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
     ],
   };
   result.sources[0]!.positions = result.positions as never[];
-  store.commitResult(job, result, "2026-01-01T00:00:01Z");
-  store.commitResult(job, result, "2026-01-01T00:00:02Z");
+  prepareAndComplete(store,job, result, "2026-01-01T00:00:01Z");
+  prepareAndComplete(store,job, result, "2026-01-01T00:00:02Z");
   const detail = store.get(run.id)!;
   expect(detail.status).toBe("completed");
   expect(detail.companies[0]?.sources[0]).toMatchObject({
@@ -195,7 +391,7 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
   const position=store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).items[0]!;
   expect(store.positionDetail(position.id)?.observations).toHaveLength(1);
   expect(store.workspace({text:"does not match",state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).counts).toEqual({actionable:0,processing:0,needs_user_review:0,irrelevant:0,deferred:0});
-  new DataStore(databases.at(-1)!).change({actor:"Synthetic test",source:"test",summary:"Create exact Gig"},transaction=>transaction.gigs.create({id:"gig-exact",company:"Example Company",title:"Systems Gardener",externalJobId:"role-1",stage:"identified",outcome:"pending",statusSummary:"Tracked",lastActivity:"2026-01-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false}));
+  new DataStore(databases.at(-1)!).change({actor:"Synthetic test",source:"test",summary:"Create exact Gig"},transaction=>transaction.gigs.create({id:"gig-exact",company:"Example Company",title:"Systems Gardener",externalJobId:"role-1",stage:"identified",outcome:"pending",statusSummary:"Tracked",lastActivity:"2026-01-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false,availability:"unknown",availabilityUpdatedAt:null}));
   expect(store.backfillPositions(run.id,20,"2026-01-01T00:00:05Z")).toMatchObject({sourceRunId:run.id,selection:{selected:1,complete:true}});
   store.reconcileGig(store.pendingPositionJobs(20)[0]!,"2026-01-01T00:00:06Z");
   expect(store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).total).toBe(0);
@@ -205,7 +401,7 @@ test("backfill binds failed description recovery to a newly imported source conf
   const store=setup(),database=databases.at(-1)!;
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run,job=store.pendingJobs(1)[0]!;
   const position={sourceKey:"official",externalId:"role-transition",canonicalUrl:"https://careers.example.test/jobs/role-transition",title:"Synthetic Transition Lead",location:"Remote",description:null,provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"none" as const,descriptionUrl:"https://careers.example.test/jobs/role-transition"}};
-  store.commitResult(job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]},"2026-01-01T00:00:01Z");
+  prepareAndComplete(store,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]},"2026-01-01T00:00:01Z");
   store.reconcileGig(store.pendingPositionJobs(1)[0]!,"2026-01-01T00:00:02Z");
   const failed=store.pendingPositionJobs(1)[0]!;
   store.failPositionProcessing(failed,"description_too_large","Synthetic historical failure","2026-01-01T00:00:03Z");
@@ -225,7 +421,7 @@ test("partial source outcomes roll up explicitly", () => {
   const store = setup();
   const run = store.startOrReuse(20, 5, "2026-01-01T00:00:00Z").run;
   const job = store.pendingJobs(1)[0]!;
-  store.commitResult(
+  prepareAndComplete(store,
     job,
     {
       companyId: job.companyId,
@@ -275,12 +471,12 @@ test("screening persists bounded comments and exposes only the score explanation
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run;
   const job=store.pendingJobs(1)[0]!;
   const position={sourceKey:"official",externalId:"screen-1",canonicalUrl:"https://careers.example.test/jobs/screen-1",title:"Director of Synthetic Technology",location:"Remote",description:"Lead the synthetic technology organization.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/screen-1"}};
-  store.commitResult(job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[{sourceMethod:"json",stage:"listing",requestCount:1,responseCount:1,candidateCount:1,acceptedCount:1,rejectedCount:0,validationStatus:"verified",startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:00:01Z",diagnostics:[]}]}]},"2026-01-01T00:00:01Z");
+  prepareAndComplete(store,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[{sourceMethod:"json",stage:"listing",requestCount:1,responseCount:1,candidateCount:1,acceptedCount:1,rejectedCount:0,validationStatus:"verified",startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:00:01Z",diagnostics:[]}]}]},"2026-01-01T00:00:01Z");
   expect(database.query(`SELECT count(*) count FROM scout_position_descriptions`).get()).toEqual({count:1});
   const laterStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Later Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
   const laterRun=laterStore.startOrReuse(20,5,"2026-01-01T00:00:01.100Z").run,laterJob=laterStore.pendingJobs(1)[0]!;
   const laterPosition={...position,title:"Later mutable title",location:"Later location",canonicalUrl:"https://careers.example.test/jobs/screen-1-later",provenance:{...position.provenance,descriptionUrl:"https://careers.example.test/jobs/screen-1-later"}};
-  laterStore.commitResult(laterJob,{companyId:laterJob.companyId,configurationVersionId:laterJob.configurationVersionId,positions:[laterPosition],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[laterPosition],attempts:[]}]} ,"2026-01-01T00:00:01.200Z");
+  prepareAndComplete(laterStore,laterJob,{companyId:laterJob.companyId,configurationVersionId:laterJob.configurationVersionId,positions:[laterPosition],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[laterPosition],attempts:[]}]} ,"2026-01-01T00:00:01.200Z");
   expect(laterRun.id).not.toBe(run.id);
   database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-later-only','Example Company','Later tracked role','identified','pending','Tracked','2026-01-01','good',?,'[]',0,0,1,0,'2026-01-01','2026-01-01')`).run(laterPosition.canonicalUrl);
   database.query(`UPDATE scout_runs SET screening_cache_key=NULL,candidate_profile_json=NULL,candidate_profile_version=NULL,candidate_profile_artifact_id=NULL,candidate_profile_hash=NULL WHERE id=?`).run(run.id);
@@ -385,7 +581,7 @@ test("Gig identity changes restart an incomplete bounded position backfill",()=>
   const store=setup(),database=databases.at(-1)!;
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run;
   const sourceJob=store.pendingJobs(1)[0]!;
-  store.commitResult(sourceJob,{companyId:sourceJob.companyId,configurationVersionId:sourceJob.configurationVersionId,positions:[],sources:[{sourceKey:"official",status:"succeeded_empty_verified",positions:[],attempts:[]}]} ,"2026-01-01T00:00:00.500Z");
+  prepareAndComplete(store,sourceJob,{companyId:sourceJob.companyId,configurationVersionId:sourceJob.configurationVersionId,positions:[],sources:[{sourceKey:"official",status:"succeeded_empty_verified",positions:[],attempts:[]}]} ,"2026-01-01T00:00:00.500Z");
   const runSourceId=(database.query(`SELECT rs.id FROM scout_run_sources rs JOIN scout_run_companies rc ON rc.id=rs.run_company_id WHERE rc.run_id=?`).get(run.id) as {id:string}).id;
   const insert=database.query(`INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,external_id,canonical_url,title,first_seen_at,last_seen_at) VALUES(?,'company-1','official','external_id',?,?,?,'Synthetic Role','2026-01-01','2026-01-01')`);
   insert.run("position-a","external-a","external-a","https://careers.example.test/a");
@@ -401,3 +597,14 @@ test("Gig identity changes restart an incomplete bounded position backfill",()=>
   expect(database.query(`SELECT 1 FROM scout_position_states WHERE position_id='position-outside'`).get()).toBeNull();
   expect(database.query(`SELECT source_run_id sourceRunId FROM scout_position_backfill`).get()).toEqual({sourceRunId:run.id});
 });
+const prepareAndComplete = (
+  store: SqliteScoutRunStore,
+  job: Parameters<SqliteScoutRunStore["prepareCompanyResult"]>[0],
+  result: Parameters<SqliteScoutRunStore["prepareCompanyResult"]>[1],
+  now: string,
+) =>
+  store.completeCompanyResult(
+    job,
+    store.prepareCompanyResult(job, result, now),
+    now,
+  );

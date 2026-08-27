@@ -92,7 +92,7 @@ const gigs: GigData[] = [
     sourceUrl: "https://example.com/jobs/1", location: "Seattle", workArrangement: "hybrid",
     postedDate: "2026-07-15", businessUnitTeam: "Product", recruiterSource: "Referral",
     bonus: null, equity: null, otherCompensation: null, tagsJson: "[]",
-    hasJobDescription: false, hasInterviewPrep: false,
+    hasJobDescription: false, hasInterviewPrep: false, availability: "unknown", availabilityUpdatedAt: null,
   },
   {
     id: "gig-archive", company: "Sample Systems", title: "VP Product",
@@ -103,7 +103,7 @@ const gigs: GigData[] = [
     payPeriod: null, payNotes: null, sourceUrl: null, location: null,
     workArrangement: null, postedDate: null, businessUnitTeam: null,
     recruiterSource: null, bonus: null, equity: null, otherCompensation: null,
-    tagsJson: "[]", hasJobDescription: false, hasInterviewPrep: false,
+    tagsJson: "[]", hasJobDescription: false, hasInterviewPrep: false, availability: "unknown", availabilityUpdatedAt: null,
   },
 ];
 const person: PersonData = {

@@ -7,7 +7,11 @@ import { migrateDatabase, openDatabase } from "../../data/database";
 import { SqliteScoutCompanyImportStore } from "../../data/scout-company-import-store";
 import { SqliteScoutRunStore } from "../../data/scout-run-store";
 import type { GigScoutHttpPort } from "../../core/scout/engine";
-import type { ScoutCompanyJob } from "../../core/scout/engine/runs";
+import {
+  ScoutRunService,
+  type ScoutCompanyJob,
+  type ScoutRunStore,
+} from "../../core/scout/engine/runs";
 import { ScoutRuntime } from "../scout-runtime";
 import {ScoutPositionRuntime} from "../scout-position-runtime";
 import type {ScoutPositionProcessingJob,ScoutPositionStore} from "../../core/scout/engine/positions";
@@ -16,6 +20,14 @@ mkdirSync("tmp",{recursive:true});
 const root = mkdtempSync(path.join("tmp/", "scout-runtime-"));
 const queueDataPath = path.join(root, "queue.sqlite");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+const runService = (store: ScoutRunStore) =>
+  new ScoutRunService(store, {
+    list: () => [],
+    setAvailability: () => {
+      throw new Error("No tracked Gigs are expected in this runtime test.");
+    },
+  });
 
 test("real embedded queue heartbeats beyond its configured ownership boundary", async () => {
   const database = openDatabase(path.join(root, "app.sqlite"));
@@ -64,7 +76,7 @@ test("real embedded queue heartbeats beyond its configured ownership boundary", 
       };
     },
   };
-  const runtime = new ScoutRuntime(store, {
+  const runtime = new ScoutRuntime(store, runService(store), {
     dataPath: queueDataPath,
     batchSize: 20,
     concurrency: 1,
@@ -148,7 +160,7 @@ test("restart reconciliation reuses a durably dispatched embedded job", async ()
   const store = new SqliteScoutRunStore(database);
   const run = store.startOrReuse(20, 1, new Date().toISOString()).run;
   const recoveryQueuePath = path.join(root, "recovery-queue.sqlite");
-  const dispatcher = new ScoutRuntime(store, {
+  const dispatcher = new ScoutRuntime(store, runService(store), {
     dataPath: recoveryQueuePath,
     batchSize: 20,
     concurrency: 1,
@@ -157,7 +169,7 @@ test("restart reconciliation reuses a durably dispatched embedded job", async ()
   await dispatcher.close();
 
   let calls = 0;
-  const runtime = new ScoutRuntime(store, {
+  const runtime = new ScoutRuntime(store, runService(store), {
     dataPath: recoveryQueuePath,
     batchSize: 20,
     concurrency: 1,
@@ -224,7 +236,7 @@ test("restart reconciliation rebuilds missing queue state from authoritative wor
   );
   const store = new SqliteScoutRunStore(database);
   const run = store.startOrReuse(20, 1, new Date().toISOString()).run;
-  const dispatcher = new ScoutRuntime(store, {
+  const dispatcher = new ScoutRuntime(store, runService(store), {
     dataPath: path.join(root, "discarded-queue.sqlite"),
     batchSize: 20,
     concurrency: 1,
@@ -233,7 +245,7 @@ test("restart reconciliation rebuilds missing queue state from authoritative wor
   await dispatcher.close();
 
   let calls = 0;
-  const runtime = new ScoutRuntime(store, {
+  const runtime = new ScoutRuntime(store, runService(store), {
     dataPath: path.join(root, "replacement-queue.sqlite"),
     batchSize: 20,
     concurrency: 1,
@@ -270,6 +282,90 @@ test("restart reconciliation rebuilds missing queue state from authoritative wor
       succeededCount: 1,
     });
     expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    database.close();
+  }
+});
+
+test("company completion retries after a Gig-side failure before becoming terminal", async () => {
+  const database = openDatabase(path.join(root, "completion-retry-app.sqlite"));
+  migrateDatabase(database);
+  importScoutCompany(
+    {
+      id: "completion-retry-company",
+      name: "Completion Retry Company",
+      active: true,
+      sources: [
+        {
+          key: "official",
+          type: "json",
+          url: "https://careers.example.test/completion-retry",
+          active: true,
+          method: "GET",
+          recordsPath: "jobs",
+          fields: { id: "id", title: "title", url: "url" },
+        },
+      ],
+    },
+    new SqliteScoutCompanyImportStore(database),
+  );
+  const store = new SqliteScoutRunStore(database);
+  const run = store.startOrReuse(20, 1, new Date().toISOString()).run;
+  let attempts = 0;
+  const gigSideEffects: string[] = [];
+  const runtime = new ScoutRuntime(
+    store,
+    {
+      commitCompanyResult(job, result, now) {
+        attempts++;
+        const prepared = store.prepareCompanyResult(job, result, now);
+        gigSideEffects.push("gig-1");
+        expect(store.get(run.id)?.companies[0]?.status).toBe("queued");
+        if (attempts === 1) throw new Error("synthetic Gig-side failure");
+        gigSideEffects.push("gig-2");
+        store.completeCompanyResult(job, prepared, now);
+      },
+    },
+    {
+      dataPath: path.join(root, "completion-retry-queue.sqlite"),
+      batchSize: 20,
+      concurrency: 1,
+      http: {
+        async request(input) {
+          return {
+            status: 200,
+            url: input.url,
+            headers: {},
+            body: JSON.stringify({
+              jobs: [
+                {
+                  id: "completion-retry-role",
+                  title: "Completion Retry Gardener",
+                  url: "https://careers.example.test/completion-retry/role",
+                },
+              ],
+            }),
+          };
+        },
+      },
+    },
+  );
+  try {
+    runtime.start();
+    const deadline = Date.now() + 5_000;
+    while (
+      ["queued", "running"].includes(store.get(run.id)?.status ?? "") &&
+      Date.now() < deadline
+    )
+      await Bun.sleep(25);
+
+    expect(store.get(run.id)).toMatchObject({
+      status: "completed",
+      succeededCount: 1,
+    });
+    expect(attempts).toBe(2);
+    expect(gigSideEffects).toEqual(["gig-1", "gig-1", "gig-2"]);
   } finally {
     await runtime.close();
     database.close();
@@ -327,7 +423,7 @@ test("restart reconciliation projects an exhausted queue job terminally", async 
   await worker.close();
   await queue.close();
 
-  const runtime = new ScoutRuntime(store, {
+  const runtime = new ScoutRuntime(store, runService(store), {
     dataPath: exhaustedQueuePath,
     batchSize: 20,
     concurrency: 1,

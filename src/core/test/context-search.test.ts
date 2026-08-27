@@ -24,6 +24,8 @@ const gig = (company: string, id = "gig-1"): GigRecord => ({
   tags: [],
   hasJobDescription: false,
   hasInterviewPrep: false,
+  availability: "unknown",
+  availabilityUpdatedAt: null,
   postedDate: null,
   businessUnitTeam: null,
   recruiterSource: null,

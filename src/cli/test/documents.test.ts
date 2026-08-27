@@ -42,6 +42,8 @@ const gig: GigData = {
   tagsJson: "[]",
   hasJobDescription: false,
   hasInterviewPrep: false,
+  availability: "unknown",
+  availabilityUpdatedAt: null,
 };
 
 const person: PersonData = {
