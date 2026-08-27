@@ -142,6 +142,9 @@ test("discovers and processes positions from a full Scout run", async ({
   await ledger.getByRole("button", {
     name: /Head of Orchard Technology/,
   }).click();
+  await expect(page.getByRole("alert").filter({
+    hasText: "Could not open that position",
+  })).toHaveCount(0);
   await expect(agentPanel).toBeHidden();
   await expect(agentLauncher).toBeHidden();
   const drawer = page.getByRole("dialog", { name: "Head of Orchard Technology" });
@@ -254,4 +257,137 @@ test("discovers and processes positions from a full Scout run", async ({
   await expect(page.getByRole("combobox", { name: "View", exact: true }))
     .toHaveValue("needs_user_review");
   await expect.poll(async()=>{const response=await page.request.get("/api/gig-scout/positions");const body=await response.json() as {items:Array<{id:string}>};return body.items.length;}).toBe(0);
+});
+
+test("review decisions keep the ledger context and retry a failed promotion", async ({ page }) => {
+  const makePosition = (suffix: string, title: string, promotionFailed = false) => ({
+    id: `spos_${suffix}`,
+    title,
+    company: "Synthetic Review Company",
+    location: "Remote",
+    canonicalUrl: `https://example.test/jobs/${suffix}`,
+    state: "needs_user_review",
+    stateRevision: 1,
+    processingStage: "candidate_match",
+    processingStatus: "completed",
+    processingFailureMessage: null,
+    descriptionAvailable: true,
+    firstSeenAt: "2026-08-01T12:00:00.000Z",
+    lastSeenAt: "2026-08-02T12:00:00.000Z",
+    observationCount: 1,
+    score: 7,
+    scoreExplanation: "The synthetic role matches the candidate profile.",
+    criteriaVersion: 1,
+    rubricVersion: 1,
+    profileVersion: "profile-v1",
+    model: "synthetic-model",
+    provider: "synthetic-provider",
+    descriptionId: `sdesc_${suffix}`,
+    descriptionMarkdown: "# Synthetic role\n\nLead a synthetic team.",
+    descriptionSourceUrl: `https://example.test/jobs/${suffix}`,
+    descriptionRetrievedAt: "2026-08-02T12:00:00.000Z",
+    descriptionProvenance: {},
+    relevanceEvaluationId: `srel_${suffix}`,
+    relevanceReason: "Synthetic relevance reason.",
+    candidateMatchEvaluationId: `smatch_${suffix}`,
+    observations: [],
+    ...(promotionFailed ? {
+      promotionStatus: "failed",
+      promotionFailureMessage: "Synthetic promotion failure.",
+    } : {}),
+  });
+  const reviewPositions = [
+    makePosition("a1", "Deferred Director"),
+    makePosition("b2", "Irrelevant Director"),
+    makePosition("c3", "Retry Director", true),
+  ];
+  const positions = [
+    ...Array.from({ length: 20 }, (_, index) => makePosition(
+      `d${index.toString(16).padStart(2, "0")}`,
+      `Earlier review position ${index + 1}`,
+    )),
+    ...reviewPositions,
+  ];
+  const decisions: Array<{ action: string; note?: string }> = [];
+  const listQueries: URLSearchParams[] = [];
+
+  await page.route("**/api/gig-scout/positions?*", async route => {
+    const query = new URL(route.request().url()).searchParams;
+    listQueries.push(query);
+    const offset = Number(query.get("offset") ?? 0);
+    const limit = Number(query.get("limit") ?? 20);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: positions.slice(offset, offset + limit),
+        total: positions.length,
+        counts: { needs_user_review: positions.length, actionable: positions.length },
+      }),
+    });
+  });
+  await page.route("**/api/gig-scout/positions/**", async route => {
+    const url = new URL(route.request().url());
+    const positionId = url.pathname.split("/").at(4) ?? "";
+    const index = positions.findIndex(position => position.id === positionId);
+    if (route.request().method() === "POST" && url.pathname.endsWith("/decision")) {
+      const decision = route.request().postDataJSON() as { action: string; note?: string };
+      decisions.push(decision);
+      positions.splice(index, 1);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    if (route.request().method() === "POST" && url.pathname.endsWith("/promotion/retry")) {
+      positions.splice(index, 1);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    const position = positions[index];
+    await route.fulfill({
+      status: position ? 200 : 404,
+      contentType: "application/json",
+      body: JSON.stringify(position ?? { error: "Not found" }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Gig Scout/ }).click();
+  const ledger = page.getByRole("region", { name: "Positions for review" });
+  await page.getByRole("combobox", { name: "Sort" }).selectOption("score");
+  await page.getByPlaceholder("Company").fill("Synthetic Review Company");
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(page.getByText("21–23 of 23")).toBeVisible();
+
+  await ledger.getByRole("button", { name: /Deferred Director/ }).click();
+  let drawer = page.getByRole("dialog", { name: "Deferred Director" });
+  await drawer.getByLabel("Private note (optional)").fill("Review after planning.");
+  await drawer.getByLabel("Review again at").fill("2026-09-01T09:00");
+  await drawer.getByRole("button", { name: "Defer review" }).click();
+  await expect.poll(() => decisions.length).toBe(1);
+  await expect(ledger.getByText("Deferred Director")).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Sort" })).toHaveValue("score");
+  await expect(page.getByPlaceholder("Company")).toHaveValue("Synthetic Review Company");
+  expect(decisions.at(0)).toMatchObject({ action: "defer", note: "Review after planning." });
+
+  await ledger.getByRole("button", { name: /Irrelevant Director/ }).click();
+  drawer = page.getByRole("dialog", { name: "Irrelevant Director" });
+  await drawer.getByLabel("Private note (optional)").fill("Outside my leadership scope.");
+  await drawer.getByRole("button", { name: "Mark irrelevant" }).click();
+  await expect(ledger.getByText("Irrelevant Director")).toHaveCount(0);
+  expect(decisions.at(1)).toMatchObject({
+    action: "irrelevant",
+    note: "Outside my leadership scope.",
+  });
+
+  await ledger.getByRole("button", { name: /Retry Director/ }).click();
+  drawer = page.getByRole("dialog", { name: "Retry Director" });
+  await expect(drawer.getByText("Synthetic promotion failure.")).toBeVisible();
+  await drawer.getByRole("button", { name: "Retry promotion" }).click();
+  await expect(ledger.getByText("Retry Director")).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "View" }))
+    .toContainText("needs user review (20)");
+  await expect(page.getByText("1–20 of 20")).toBeVisible();
+  expect(listQueries.at(-1)?.get("offset")).toBe("0");
+  expect(listQueries.at(-1)?.get("sort")).toBe("score");
+  expect(listQueries.at(-1)?.get("company")).toBe("Synthetic Review Company");
 });

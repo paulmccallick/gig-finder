@@ -164,6 +164,11 @@ function PositionReviewDrawer({
       const first = focusable.at(0);
       const last = focusable.at(-1);
       if (!first || !last) return;
+      if (!focusable.includes(document.activeElement as HTMLElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -373,7 +378,11 @@ export function ScoutPositionReview({
         if (!response.ok) throw new Error("Could not load position history.");
         return response.json() as Promise<PromotionDetail>;
       })
-      .then(value => { if (active) setDetail(value); })
+      .then(value => {
+        if (!active) return;
+        setDetail(value);
+        setListError(null);
+      })
       .catch(() => {
         if (!active) return;
         selectedRef.current = null;
