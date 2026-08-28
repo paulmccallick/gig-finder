@@ -10,7 +10,8 @@ const DocumentViewerRoute = lazy(async () => {
 });
 
 try {
-  const documentRoute = window.location.pathname.startsWith("/documents/");
+  const documentRoute = window.location.pathname.startsWith("/documents/")
+    || window.location.pathname.startsWith("/gig-scout/positions/");
   root.render(
     <StrictMode>
       {documentRoute

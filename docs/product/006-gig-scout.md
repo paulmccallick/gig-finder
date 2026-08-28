@@ -22,6 +22,7 @@
   - A source is verified empty -> Record success only when the source's explicit semantics and reconciliation support that conclusion.
   - A page fails, repeats prior results, or cannot be parsed reliably -> Preserve diagnostics and report a non-success outcome rather than silently omitting jobs.
   - The browser or application restarts -> Reconcile unfinished work without duplicating the logical run or its results.
+- **Position Review**: The Positions workspace is a review-first ledger. Each row surfaces the candidate-match score, position, company/location, and first-seen date. Opening a row closes the Agent panel and uses the standard record drawer for an optional note and Pursue, Mark irrelevant, or Defer. Job descriptions and Scout processing diagnostics remain available as supporting detail; stored Scout Markdown can expand in the drawer or open in GigFinder's document view.
 
 ## 🛡️ Acceptance Criteria & Guardrails
 
@@ -34,6 +35,8 @@
   - **Given** a trustworthy successful company result, **When** it is completed, **Then** Scout updates tracked Gig availability through the Gig domain.
   - **Given** a partial, failed, unsupported, or suspiciously empty company result, **When** it is completed, **Then** Scout does not update tracked Gig availability.
   - **Given** a Gig availability update, **When** Scout records it, **Then** it does not close the Gig or alter its pipeline stage or outcome.
+  - **Given** a position awaiting review, **When** the user records a decision, **Then** only that row leaves the ledger, scroll position and active controls remain stable, and the list and counts refresh from authoritative state.
+  - **Given** a position decision fails, **When** the server reports the failure, **Then** the row, drawer, optional note, and actionable error remain available.
 - **Error Boundaries**: One company's exhaustion or unsupported source becomes an explicit company outcome and does not erase other companies' completed results.
 - **Data Validation**: Only official configured sources are scanned; private targeting stays outside tracked adapters; accepted postings have real posting identity and application semantics. Remote, Work at Home, Work from Home, and home-based labels normalize to remote; hybrid and on-site require explicit source evidence, and a country label alone never implies remote. Attempt diagnostics retain normalized title, locations, arrangements, and title/location decisions. Accepted observation provenance binds both display and structured location values. Temporary default title terms are Director, Senior Director, Sr. Director, Senior Vice President, SVP, Vice President, VP Engineering, Head of Engineering, and Head of Technology. Default locations are Seattle, Bellevue, Redmond, Remote, and Washington.
 
@@ -44,7 +47,7 @@
 
 ## 📈 Consequences & Impact
 
-- **UX/UI Impact**: Gig Scout provides one launch point, durable run status, paged results, and actionable diagnostics rather than a synchronous scrape response.
+- **UX/UI Impact**: Gig Scout provides one launch point, durable run status, and a paged review ledger. Review decisions use the standard record drawer; operational diagnostics remain accessible without dominating the ledger.
 - **Data Model Changes**: Source attempts persist normalized filter inputs and title/location decisions. Position observations preserve display and structured authoritative locations with normalized work arrangements.
 - **Performance Targets**: Scans run outside request lifetime with bounded per-source work and host-safe concurrency; interactive progress reads remain responsive.
 

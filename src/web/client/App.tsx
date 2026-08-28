@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   activeStageOrder,
   archiveGroup,
@@ -29,6 +29,12 @@ import {
 } from "./agent/agent-workspace";
 
 type WorkspaceView = "gigs" | "network" | "tasks" | "scout";
+
+export function initialWorkspaceView(search: string): WorkspaceView {
+  return new URLSearchParams(search).get("workspace") === "scout"
+    ? "scout"
+    : "gigs";
+}
 
 interface GigArtifacts {
   jobDescription: string | null;
@@ -279,12 +285,13 @@ function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: Works
 }
 
 export function App() {
-  const [view, setView] = useState<WorkspaceView>("gigs");
+  const [view, setView] = useState<WorkspaceView>(() => initialWorkspaceView(window.location.search));
   const [agentWorkspace, dispatchAgentWorkspace] = useReducer(
     updateAgentWorkspace,
     initialAgentWorkspace,
   );
   const [agentPanelWidth, setAgentPanelWidth] = useState(defaultAgentPanelWidth);
+  const [scoutPositionOpen, setScoutPositionOpen] = useState(false);
   const [result, setResult] = useState<GigsResult | null>(null);
   const [peopleResult, setPeopleResult] = useState<PeopleResult | null>(null);
   const [taskResult, setTaskResult] = useState<TasksResult | null>(null);
@@ -295,6 +302,10 @@ export function App() {
       loadTasks().then(setTaskResult),
     ]);
   };
+  const handleScoutPositionOpenChange = useCallback((open: boolean) => {
+    setScoutPositionOpen(open);
+    if (open) dispatchAgentWorkspace({ type: "close" });
+  }, []);
   useEffect(refreshDashboard, []);
   useEffect(() => { window.scrollTo({ top: 0, left: 0 }); }, [view]);
   if (!result || !peopleResult || !taskResult) return <main className="loading-screen"><span /><p>Loading search operations…</p></main>;
@@ -307,7 +318,7 @@ export function App() {
       ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard people={peopleResult.data} /></main>
       : view === "tasks"
         ? <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>
-        : <main className="app-shell"><Masthead today={todayInPacific()} active="scout" onChange={setView} /><GigScoutPage /></main>;
+        : <main className="app-shell"><Masthead today={todayInPacific()} active="scout" onChange={setView} /><GigScoutPage onPositionOpenChange={handleScoutPositionOpenChange} /></main>;
   return (
     <>
       <div
@@ -315,11 +326,11 @@ export function App() {
         data-agent-layout={agentWorkspace.open ? agentWorkspace.layout : undefined}
         style={{ "--agent-panel-width": `${agentPanelWidth}px` } as React.CSSProperties}
       >{dashboard}</div>
-      <AgentLauncher
+      {!scoutPositionOpen && <AgentLauncher
         open={agentWorkspace.open}
         layout={agentWorkspace.layout}
         onClick={() => dispatchAgentWorkspace({ type: "toggle" })}
-      />
+      />}
       <div id="gig-finder-agent">
         <AgentPanel
           open={agentWorkspace.open}
