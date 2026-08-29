@@ -24,18 +24,18 @@ The #143 production backfill will include affected positions currently requiring
 
 ## Configured conversion
 
-Description extraction definitions gain an explicit content-encoding setting. The Greenhouse template declares entity-encoded HTML; company configurations inherit that immutable template behavior and may use the existing override mechanism only for a genuine company-specific exception.
+JSON description extraction definitions gain content-format and content-encoding settings with backward-compatible defaults. `contentFormat` is `auto`, `html`, or `plain-text` and defaults to `auto`, preserving the current literal-tag detection. `contentEncoding` is `none` or `html-entities` and defaults to `none`. `html-entities` is valid only with `contentFormat: html`. The Greenhouse template declares entity-encoded HTML. Company configurations inherit that immutable template behavior by selecting the template version; the existing string override map does not alter structural description semantics. A genuine company-specific exception requires a separate immutable template version or an explicit custom JSON source definition.
 
 At runtime, the canonical converter performs these steps:
 
-1. Accept the extracted description value and its configured media/encoding semantics.
+1. Accept the extracted description value and its configured format/encoding semantics.
 2. Decode HTML entities only when configuration declares entity-encoded HTML.
 3. Decode to a maximum documented depth of two passes, stopping when a pass makes no change.
-4. Convert the decoded HTML to Markdown through the existing Turndown path.
+4. Convert the decoded value through Turndown when `contentFormat` is `html`, preserve it as text when `contentFormat` is `plain-text`, or apply the existing literal-tag detection when it is `auto`.
 5. Enforce the existing normalized-description size policy.
 6. Identify the result with a new immutable converter version.
 
-Plain text and literal encoded examples are not decoded unless their source configuration declares entity-encoded HTML. Direct HTML responses continue to use their authoritative HTTP media type and do not require an encoding override.
+Existing JSON descriptions that omit both settings preserve today's inference and no-decoding behavior through the defaults. Plain text and literal encoded examples are not decoded unless their source configuration explicitly declares entity-encoded HTML. Direct HTTP description responses continue to use their authoritative HTTP media type and do not require a JSON-field format declaration.
 
 The raw or encoded description is not stored. Acquisition retains only bounded provenance such as the official URL, retrieval time, source-content hash, template/configuration identity, extraction strategy, and converter version. The file artifact contains readable normalized Markdown.
 
@@ -83,9 +83,9 @@ Backfill status reports:
 
 ## Verification and rollout
 
-Deterministic coverage includes configured single- and double-encoded HTML, literal entity text, raw/encoded HTML equivalence, converter identity, template inheritance, immutable reruns, current-projection replacement, retry idempotency, linked-Gig continuation, agent-irrelevant reevaluation, and managed-document versioning through core services.
+Deterministic coverage includes default-auto JSON plain text, default-auto JSON literal HTML, explicit plain text, explicit literal HTML, configured single- and double-entity-encoded JSON HTML, literal entity examples that must remain text, raw/encoded HTML equivalence, direct HTML response handling, invalid format/encoding combinations, converter identity, template inheritance, immutable reruns, current-projection replacement, retry idempotency, linked-Gig continuation, agent-irrelevant reevaluation, and managed-document versioning through core services.
 
-HTTP coverage verifies explicit IDs, operator reason, validation, bounded batch size, preview behavior, and stable status. A full synthetic Scout flow covers malformed acquisition through corrected review or promoted-Gig document update. A bounded live Greenhouse lane verifies official content without storing or emitting description text.
+HTTP coverage verifies explicit IDs, operator reason, validation, bounded batch size, preview behavior, and stable status. A full synthetic Scout flow covers malformed acquisition through corrected review or promoted-Gig document update. A bounded read-only live lane uses ignored private canary configuration to verify multiple current official sites: Greenhouse entity-encoded HTML, a JSON source returning literal HTML, and a JSON source exercising the default/plain behavior. It also verifies a direct HTML response path when an active configured canary exists. Deterministic tests, rather than provider availability, cover the complete semantic matrix. The lane reports only company/source, template/version, resolved format/encoding, extraction strategy, converter version, outcome, failure code, and duration; it never stores or emits description content.
 
 Rollout is deliberately two-phase:
 

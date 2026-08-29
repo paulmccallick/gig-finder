@@ -4,7 +4,7 @@
 
 **Goal:** Decode template-declared entity-encoded descriptions into canonical Markdown and generalize position backfill so explicit positions rerun from reconciliation through screening while preserving immutable history and updating linked Gig documents.
 
-**Architecture:** Description encoding is an immutable source/template contract consumed by the canonical converter. Generic backfill creates a durable `position_backfill` run for explicit position IDs, binds the latest authoritative observation and current configuration, and creates new stage identities without mutating completed history. Core position processing coordinates managed-document updates for linked Gigs; SQLite remains the durable processing authority and BunQueue continues transporting processing IDs only.
+**Architecture:** JSON description format and encoding are source/template contracts consumed by the canonical converter, with defaults that preserve today's literal-tag detection and no-decoding behavior. Generic backfill creates a durable `position_backfill` run for explicit position IDs, binds the latest authoritative observation and current configuration, and creates new stage identities without mutating completed history. Core position processing coordinates managed-document updates for linked Gigs; SQLite remains the durable processing authority and BunQueue continues transporting processing IDs only.
 
 **Tech Stack:** Bun, TypeScript, Zod, Turndown, `html-entities`, SQLite/Drizzle, BunQueue, React HTTP adapters, Playwright
 
@@ -14,7 +14,8 @@
 
 - Store only decoded, normalized Markdown in Scout description artifact files; never store raw or entity-encoded provider descriptions.
 - Retain only bounded acquisition provenance and hashes for raw/extracted source values.
-- Decode entities only when immutable source/template configuration declares `html-entities`; do not infer this from arbitrary text.
+- Resolve omitted JSON description semantics as `contentFormat: "auto"` and `contentEncoding: "none"`.
+- Decode entities only when configuration declares `contentFormat: "html"` and `contentEncoding: "html-entities"`.
 - Bound decoding to two passes and stop when a pass makes no change.
 - Preserve completed processing, descriptions, evaluations, decisions, and managed-document versions as immutable history.
 - Backfill accepts exact position IDs and an operator reason; it never selects positions implicitly during execution.
@@ -30,11 +31,11 @@
 
 ## File Structure
 
-- `src/core/scout/sourcing/descriptions.ts` — configured bounded entity decoding and converter-v2 normalization.
-- `src/core/scout/sourcing/contracts.ts` — inline source encoding contract.
-- `src/core/scout/sourcing/adapters/templates/definitions.ts` — reusable template encoding contract.
-- `src/core/scout/sourcing/adapters/templates/support.ts` and `extractors/json.ts` — pass declared encoding into listing normalization.
-- `src/core/scout/sourcing/detail-descriptions.ts` — pass declared encoding into detail normalization and provenance.
+- `src/core/scout/sourcing/descriptions.ts` — explicit JSON format handling, configured bounded entity decoding, and converter-v2 normalization.
+- `src/core/scout/sourcing/contracts.ts` — defaulted inline source format/encoding contract.
+- `src/core/scout/sourcing/adapters/templates/definitions.ts` — defaulted reusable template format/encoding contract.
+- `src/core/scout/sourcing/adapters/templates/support.ts` and `extractors/json.ts` — pass resolved semantics into listing normalization.
+- `src/core/scout/sourcing/detail-descriptions.ts` — pass resolved semantics into detail normalization and provenance.
 - `config/scout/templates/greenhouse.v3.json` — immutable Greenhouse template declaring entity-encoded description fields.
 - `src/operations/scout-template-catalog.ts` — register Greenhouse v3 without removing v1/v2.
 - `src/core/scout/engine/positions.ts` — generic preview/start/status and promoted-description work contracts.
@@ -51,7 +52,7 @@
 
 ---
 
-### Task 1: Configured Entity Decoding and Greenhouse v3
+### Task 1: Explicit Description Semantics and Greenhouse v3
 
 **Files:**
 - Modify: `package.json`
@@ -69,10 +70,11 @@
 - Test: `src/core/scout/engine/test/detail-descriptions.test.ts`
 
 **Interfaces:**
-- Produces: `DescriptionContentEncoding = "html-entities" | null`
-- Produces: `descriptionToMarkdown(value, { mediaType, contentEncoding }): string | null`
-- Produces: `normalizeDescription(value, contentEncoding?): string | null`
-- Produces: `DetailDescriptionPlan.contentEncoding`
+- Produces: `DescriptionContentFormat = "auto" | "html" | "plain-text"`
+- Produces: `DescriptionContentEncoding = "none" | "html-entities"`
+- Produces: `normalizeExtractedDescription(value, { contentFormat, contentEncoding }): string | null`
+- Preserves: `descriptionToMarkdown(value, mediaType)` for direct HTTP response bodies whose media type is authoritative.
+- Produces: `DetailDescriptionPlan.contentFormat` and `DetailDescriptionPlan.contentEncoding`
 - Consumes: existing Turndown conversion, source/template parsing, listing and detail extraction.
 
 - [ ] **Step 1: Add the direct entity-decoding dependency**
@@ -93,24 +95,43 @@ Add literal expectations:
 test("configured entity-encoded HTML matches literal HTML", () => {
   const literal = "<h2>Scope &amp; impact</h2><ul><li>Lead teams.</li></ul>";
   const encoded = "&lt;h2&gt;Scope &amp;amp; impact&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;Lead teams.&lt;/li&gt;&lt;/ul&gt;";
-  expect(descriptionToMarkdown(encoded, {
-    mediaType: "text/html",
+  expect(normalizeExtractedDescription(encoded, {
+    contentFormat: "html",
     contentEncoding: "html-entities",
-  })).toBe(descriptionToMarkdown(literal, { mediaType: "text/html" }));
+  })).toBe(normalizeExtractedDescription(literal, {
+    contentFormat: "html",
+    contentEncoding: "none",
+  }));
 });
 
 test("configured decoding stops after two passes", () => {
-  expect(descriptionToMarkdown(
+  expect(normalizeExtractedDescription(
     "&amp;lt;p&amp;gt;Lead systems.&amp;lt;/p&amp;gt;",
-    { mediaType: "text/html", contentEncoding: "html-entities" },
+    { contentFormat: "html", contentEncoding: "html-entities" },
   )).toBe("Lead systems.");
 });
 
 test("plain literal entity examples are unchanged", () => {
-  expect(descriptionToMarkdown(
+  expect(normalizeExtractedDescription(
     "Use &lt;div&gt; as a literal example.",
-    { mediaType: "text/plain" },
+    { contentFormat: "plain-text", contentEncoding: "none" },
   )).toBe("Use &lt;div&gt; as a literal example.");
+});
+
+test("literal JSON HTML is converted only when declared HTML", () => {
+  expect(normalizeExtractedDescription("<p>Lead teams.</p>", {
+    contentFormat: "html",
+    contentEncoding: "none",
+  })).toBe("Lead teams.");
+  expect(normalizeExtractedDescription("<p>Literal example.</p>", {
+    contentFormat: "plain-text",
+    contentEncoding: "none",
+  })).toBe("<p>Literal example.</p>");
+});
+
+test("omitted JSON semantics preserve current auto detection", () => {
+  expect(normalizeExtractedDescription("Plain text.", {})).toBe("Plain text.");
+  expect(normalizeExtractedDescription("<p>HTML text.</p>", {})).toBe("HTML text.");
 });
 ```
 
@@ -122,7 +143,7 @@ Run:
 bun test src/core/scout/engine/test/description-conversion.test.ts
 ```
 
-Expected: FAIL because the converter does not accept configured encoding and still exports `html-to-markdown-v1`.
+Expected: FAIL because the JSON normalizer does not accept explicit format/encoding semantics and still exports `html-to-markdown-v1`.
 
 - [ ] **Step 4: Implement bounded configured decoding**
 
@@ -131,7 +152,8 @@ Use the direct decoder before Turndown and change the immutable converter identi
 ```ts
 import { decode } from "html-entities";
 
-export type DescriptionContentEncoding = "html-entities" | null;
+export type DescriptionContentFormat = "auto" | "html" | "plain-text";
+export type DescriptionContentEncoding = "none" | "html-entities";
 export const scoutDescriptionConverterVersion = "html-to-markdown-v2";
 
 function decodeConfiguredHtml(value: string, encoding: DescriptionContentEncoding) {
@@ -146,15 +168,18 @@ function decodeConfiguredHtml(value: string, encoding: DescriptionContentEncodin
 }
 ```
 
-Make `descriptionToMarkdown` accept an options object, decode before HTML conversion, preserve the plain-text path when no encoding is declared, and keep the normalized 200,000-character limit.
+Add `normalizeExtractedDescription` as the only configured JSON-field normalization entry point. Resolve omitted options to `{ contentFormat: "auto", contentEncoding: "none" }`. Decode before conversion, call Turndown for `html`, preserve `plain-text` exactly, and retain the current literal-tag detection for `auto`, all subject to the normalized 200,000-character limit. Reject `html-entities` with either `auto` or `plain-text`. Keep `descriptionToMarkdown(value, mediaType)` for direct HTTP bodies, using their authoritative media type rather than JSON configuration.
 
 - [ ] **Step 5: Add encoding to inline and reusable description contracts**
 
-Add the same optional enum to reusable `fields.description`, reusable `detailDescription`, custom JSON description configuration, and inline JSON detail configuration:
+Add defaulted format and encoding fields to reusable `fields.description`, reusable `detailDescription`, custom JSON description configuration, and inline JSON detail configuration:
 
 ```ts
-contentEncoding: z.enum(["html-entities"]).optional(),
+contentFormat: z.enum(["auto", "html", "plain-text"]).default("auto"),
+contentEncoding: z.enum(["none", "html-entities"]).default("none"),
 ```
+
+Add schema refinement rejecting `html-entities` unless `contentFormat === "html"`. Leave existing immutable template artifacts unchanged; their resolved definitions receive the defaults. Regression fixtures must prove omitted settings resolve to `auto`/`none`.
 
 Thread the parsed value through listing normalization and `DetailDescriptionPlan`; do not inspect text to infer entity encoding.
 
@@ -165,6 +190,8 @@ Add tests proving:
 ```ts
 expect(catalog.resolve({ id: "greenhouse", version: 3 })
   .fields.description?.contentEncoding).toBe("html-entities");
+expect(catalog.resolve({ id: "greenhouse", version: 3 })
+  .fields.description?.contentFormat).toBe("html");
 
 expect(result.markdown).toContain("- Lead teams.");
 expect(result.markdown).not.toContain("&lt;li");
@@ -172,7 +199,7 @@ expect(result.extractedContentHash).toBe(expectedRawExtractedHash);
 expect(result.converterVersion).toBe("html-to-markdown-v2");
 ```
 
-Cover listing-provided and detail-fetched Greenhouse descriptions, links, attributes, single encoding, and double encoding. Assert Greenhouse v1 and v2 remain resolvable and unchanged.
+Cover default-auto JSON plain text, default-auto JSON literal HTML, explicit plain text, explicit literal HTML, listing-provided and detail-fetched Greenhouse descriptions, links, attributes, single encoding, double encoding, direct HTML responses, and invalid `auto`/`plain-text` plus `html-entities`. Assert Greenhouse v1 and v2 files remain unchanged and resolve to the defaults.
 
 - [ ] **Step 7: Verify RED for template propagation**
 
@@ -194,14 +221,21 @@ Copy the readable v2 artifact to `greenhouse.v3.json`, set `version` to `3`, and
 
 to both `fields.description` and `detailDescription`. Register v3 beside v1/v2 in `scout-template-catalog.ts`.
 
+The complete v3 declarations are:
+
+```json
+"contentFormat": "html",
+"contentEncoding": "html-entities"
+```
+
 - [ ] **Step 9: Pass encoding through every conversion boundary**
 
 Update generic JSON extraction, reusable template support, and detail acquisition to call:
 
 ```ts
-descriptionToMarkdown(extracted, {
-  mediaType: "text/html",
-  contentEncoding: plan.contentEncoding ?? null,
+normalizeExtractedDescription(extracted, {
+  contentFormat: plan.contentFormat,
+  contentEncoding: plan.contentEncoding,
 });
 ```
 
@@ -734,7 +768,7 @@ Document that configured descriptions are normalized to Markdown before storage/
 
 - [ ] **Step 2: Update architecture/configuration documentation**
 
-Document `contentEncoding: "html-entities"`, immutable template versioning, company inheritance/override rules, Greenhouse v3, exact-ID backfill, current observation/configuration binding, minimal queue payload, and core ownership of managed-document updates.
+Document the `auto`/`none` defaults, explicit `contentFormat` and `contentEncoding`, immutable template versioning, company inheritance/override rules, Greenhouse v3, exact-ID backfill, current observation/configuration binding, minimal queue payload, and core ownership of managed-document updates.
 
 Explicitly state that ordinary deployment does not select or start backfill and that production configuration upgrades are separate operator-authorized changes.
 
@@ -761,9 +795,16 @@ bun run test:e2e
 
 Expected: all commands PASS with no architecture violations, migration drift, warnings attributable to the change, or flaky retries.
 
-- [ ] **Step 5: Run bounded live Greenhouse verification**
+- [ ] **Step 5: Run the bounded live format/encoding matrix**
 
-Use a current official Greenhouse fixture through the configured v3 template. Report only company, template/version, extraction strategy, converter version, outcome, failure code, and duration. Do not store or print description content.
+Use ignored private canary configuration to run current official sources for these lanes:
+
+1. Greenhouse v3 JSON `html` with `html-entities`;
+2. a JSON source returning literal HTML with `none` encoding;
+3. a JSON source exercising default/plain behavior; and
+4. a direct HTML detail response using its authoritative HTTP media type when an active canary exists.
+
+Require at least three distinct current official sites and fail when a required canary does not produce non-empty normalized Markdown. The deterministic suite covers every supported semantic combination even when no live provider supplies one. Report only company, source URL origin, template/version, resolved format/encoding, extraction strategy, converter version, outcome, failure code, and duration. Do not store or print response bodies, extracted descriptions, or Markdown.
 
 - [ ] **Step 6: Commit documentation and verification**
 
