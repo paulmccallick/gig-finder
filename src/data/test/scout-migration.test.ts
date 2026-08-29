@@ -231,3 +231,67 @@ test("0034 renames Gig availability columns and removes the Scout-specific histo
   expect(database.query("SELECT availability,availability_updated_at FROM gig_history WHERE id='gig-1'").get()).toEqual({availability:"unavailable",availability_updated_at:"2026-08-19T12:00:00Z"});
   database.close();
 });
+
+test("0035 preserves durable Scout history while adding explicit position backfill storage",async()=>{
+  const database=new Database(":memory:");
+  database.exec("PRAGMA foreign_keys=ON");
+  database.exec(`
+    CREATE TABLE changes(id text PRIMARY KEY,occurred_at text NOT NULL,actor text NOT NULL,source text NOT NULL,summary text NOT NULL,status text NOT NULL);
+    CREATE TABLE gigs(id text PRIMARY KEY,company text NOT NULL,title text NOT NULL,stage text NOT NULL,outcome text NOT NULL,status_summary text NOT NULL,last_activity text NOT NULL,fit_rating text NOT NULL,tags_json text NOT NULL,has_job_description integer NOT NULL,has_interview_prep integer NOT NULL,revision integer NOT NULL,is_deleted integer NOT NULL,created_at text NOT NULL,updated_at text NOT NULL,external_job_id text,source_url text);
+    CREATE TABLE gig_history(history_id integer PRIMARY KEY,change_id text NOT NULL,operation text NOT NULL,recorded_at text NOT NULL,recorded_by text NOT NULL,id text NOT NULL,company text NOT NULL,title text NOT NULL,stage text NOT NULL,outcome text NOT NULL,status_summary text NOT NULL,last_activity text NOT NULL,fit_rating text NOT NULL,tags_json text NOT NULL,has_job_description integer NOT NULL,has_interview_prep integer NOT NULL,revision integer NOT NULL,is_deleted integer NOT NULL,created_at text NOT NULL,updated_at text NOT NULL,external_job_id text,source_url text);
+    CREATE TABLE managed_documents(id text PRIMARY KEY,document_type text NOT NULL,title text,description text,media_type text NOT NULL,source_description text,file_path text,materialized_version integer,upload_provenance_json text,current_version integer NOT NULL,created_at text NOT NULL,updated_at text NOT NULL);
+    CREATE TABLE managed_document_links(id integer PRIMARY KEY AUTOINCREMENT,document_id text NOT NULL REFERENCES managed_documents(id),gig_id text REFERENCES gigs(id));
+    CREATE TABLE managed_document_versions(document_id text NOT NULL REFERENCES managed_documents(id),version integer NOT NULL,parent_version integer,content text NOT NULL,content_hash text NOT NULL,change_id text NOT NULL REFERENCES changes(id),change_summary text NOT NULL,created_at text NOT NULL,created_by text NOT NULL,PRIMARY KEY(document_id,version));
+  `);
+  for(let index=24;index<=34;index++){
+    const prefix=String(index).padStart(4,"0")+"_";
+    const migration=[...new Bun.Glob(prefix+"*.sql").scanSync(new URL("../migrations",import.meta.url).pathname)][0];
+    if(migration)await applyStatements(database,new URL("../migrations/"+migration,import.meta.url));
+  }
+  database.exec(`
+    INSERT INTO changes(id,occurred_at,actor,source,summary,status) VALUES('document-change','2026-01-01','Synthetic','test','Synthetic document','committed');
+    INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig','Synthetic Company','Synthetic Role','identified','pending','Synthetic','2026-01-01','good','[]',1,0,1,0,'2026-01-01','2026-01-01');
+    INSERT INTO managed_documents(id,document_type,title,media_type,source_description,current_version,created_at,updated_at) VALUES('document','job_description','Synthetic Role','text/markdown','Synthetic source',1,'2026-01-01','2026-01-01');
+    INSERT INTO managed_document_links(document_id,gig_id) VALUES('document','gig');
+    INSERT INTO managed_document_versions(document_id,version,parent_version,content,content_hash,change_id,change_summary,created_at,created_by) VALUES('document',1,NULL,'Synthetic content','content-hash','document-change','Synthetic version','2026-01-01','Synthetic');
+    INSERT INTO scout_companies(id,name,current_configuration_id,created_at,updated_at) VALUES('company','Synthetic Company','config','2026-01-01','2026-01-01');
+    INSERT INTO scout_company_configurations(id,company_id,version,fingerprint,created_at) VALUES('config','company',1,'config-fingerprint','2026-01-01');
+    INSERT INTO scout_company_configuration_sources(id,company_configuration_id,source_key,source_type,settings_json) VALUES('source','config','official','json','{}');
+    INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,created_at,company_count) VALUES('full-run','completed','full',20,5,'2026-01-01',1);
+    INSERT INTO scout_runs(id,status,run_type,source_run_id,batch_size,concurrency,screening_cache_key,created_at,company_count) VALUES('legacy-run','completed','legacy_backfill','full-run',20,5,'cache-key','2026-01-02',0);
+    INSERT INTO scout_run_companies(id,run_id,company_id,company_configuration_id,status) VALUES('run-company','full-run','company','config','succeeded');
+    INSERT INTO scout_run_sources(id,run_company_id,configuration_source_id,status,candidate_count,accepted_count,rejected_count) VALUES('run-source','run-company','source','succeeded_with_results',1,1,0);
+    INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,canonical_url,title,first_seen_at,last_seen_at) VALUES('position','company','official','canonical_url','https://careers.example.test/1','https://careers.example.test/1','Synthetic Role','2026-01-01','2026-01-01');
+    INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES('observation','run-source','position','Synthetic Role','https://careers.example.test/1','{}','2026-01-01');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at) VALUES('processing','position','legacy-run','observation','source','reconcile_gig','identity','completed',1,'2026-01-02','2026-01-02','2026-01-02');
+    INSERT INTO scout_position_processing_outbox(id,processing_id,queue_job_id,dispatch_status,created_at,dispatched_at) VALUES('outbox','processing','position:processing','dispatched','2026-01-02','2026-01-02');
+  `);
+  const beforeRunRows=database.query(`SELECT * FROM scout_runs ORDER BY created_at`).all();
+  const beforeObservationRows=database.query(`SELECT * FROM scout_position_observations ORDER BY id`).all();
+  const beforeProcessingRows=database.query(`SELECT * FROM scout_position_processing ORDER BY id`).all();
+  const beforeOutboxRows=database.query(`SELECT * FROM scout_position_processing_outbox ORDER BY id`).all();
+  const beforeVersions=database.query(`SELECT * FROM managed_document_versions ORDER BY document_id,version`).all();
+
+  await applyStatements(database,new URL("../migrations/0035_position_backfill.sql",import.meta.url));
+
+  const runTypes=(database.query(`SELECT run_type runType FROM scout_runs ORDER BY created_at`).all() as Array<{runType:string}>).map(row=>row.runType);
+  expect(runTypes).toEqual(["full","legacy_backfill"]);
+  expect(database.query(`SELECT id,status,run_type,source_run_id,batch_size,concurrency,search_profile_json,screening_cache_key,candidate_profile_json,candidate_profile_version,candidate_profile_artifact_id,candidate_profile_hash,created_at,started_at,completed_at,company_count,succeeded_count,failed_count FROM scout_runs ORDER BY created_at`).all()).toEqual(beforeRunRows);
+  expect(database.query(`SELECT * FROM scout_position_observations ORDER BY id`).all()).toEqual(beforeObservationRows);
+  expect(database.query(`SELECT * FROM scout_position_processing ORDER BY id`).all()).toEqual(beforeProcessingRows);
+  expect(database.query(`SELECT * FROM scout_position_processing_outbox ORDER BY id`).all()).toEqual(beforeOutboxRows);
+  expect(columnNames(database,"scout_runs")).toEqual(expect.arrayContaining(["operator_reason","request_fingerprint"]));
+  expect(tableNames(database)).toContain("scout_position_backfill_items");
+  expect(columnNames(database,"managed_document_versions")).toEqual(expect.arrayContaining(["source_description","source_provenance_json"]));
+  expect(database.query(`SELECT document_id,version,parent_version,content,content_hash,change_id,change_summary,created_at,created_by FROM managed_document_versions`).all()).toEqual(beforeVersions);
+  expect(database.query(`SELECT source_description sourceDescription,source_provenance_json sourceProvenance FROM managed_document_versions`).get()).toEqual({sourceDescription:null,sourceProvenance:null});
+
+  const insertBackfill=database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,operator_reason,request_fingerprint,created_at,company_count) VALUES(?,'running','position_backfill',20,5,?,?,?,0)`);
+  expect(()=>insertBackfill.run("missing-contract",null,null,"2026-01-03")).toThrow();
+  expect(()=>insertBackfill.run("empty-reason","","a".repeat(64),"2026-01-03")).toThrow();
+  expect(()=>insertBackfill.run("invalid-fingerprint","Synthetic repair","A".repeat(64),"2026-01-03")).toThrow();
+  insertBackfill.run("valid-backfill","Synthetic repair","a".repeat(64),"2026-01-03");
+  expect(()=>insertBackfill.run("duplicate-backfill","Another repair","a".repeat(64),"2026-01-04")).toThrow();
+  expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
+  database.close();
+});

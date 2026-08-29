@@ -16,7 +16,7 @@ import type {
   ScoutRunStore,
   ScoutRunSummary,
 } from "../core/scout/engine/runs";
-import type { ScoutBackfillStatus,ScoutPositionDetail,ScoutPositionProcessingJob,ScoutPositionProcessingStage,ScoutPositionStore,ScoutPromotionWork,ScoutUserDecisionCommand,ScoutWorkspacePage } from "../core/scout/engine/positions";
+import type { ScoutBackfillStatus,ScoutPositionBackfillCommand,ScoutPositionBackfillPreview,ScoutPositionBackfillStatus,ScoutPositionDetail,ScoutPositionProcessingJob,ScoutPositionProcessingStage,ScoutPositionState,ScoutPositionStore,ScoutPromotionWork,ScoutUserDecisionCommand,ScoutWorkspacePage } from "../core/scout/engine/positions";
 import type { CandidateMatchRequest, ModelResult, RelevanceRequest, RelevanceResult, CandidateMatchResult, ScoutDescriptionInput, ScoutPositionProcessingRepository } from "../core/scout/engine/screening";
 import { BoundedFetchHttpPort } from "../core/scout/sourcing/ports";
 import { scoutDescriptionConverterVersion } from "../core/scout/sourcing/descriptions";
@@ -509,9 +509,9 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     }
     const complete=Boolean(checkpoint?.completed_at&&!identityChanged)||rows.length<limit,last=rows.at(-1)?.id??(identityChanged?null:checkpoint?.last_position_id??null);
     this.db.query(`INSERT INTO scout_position_backfill(name,source_run_id,last_position_id,gig_identity_signature,completed_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET source_run_id=excluded.source_run_id,last_position_id=excluded.last_position_id,gig_identity_signature=excluded.gig_identity_signature,completed_at=excluded.completed_at,updated_at=excluded.updated_at`).run(checkpointName,sourceRunId,last,gigIdentitySignature,complete?now:null,now);
-    return this.backfillStatus(backfillRunId,sourceRunId,complete,now);
+    return this.legacyBackfillStatus(backfillRunId,sourceRunId,complete,now);
   })();}
-  private backfillStatus(backfillRunId:string,sourceRunId:string,complete:boolean,now:string):ScoutBackfillStatus{
+  private legacyBackfillStatus(backfillRunId:string,sourceRunId:string,complete:boolean,now:string):ScoutBackfillStatus{
     const selected=Number((this.db.query(`SELECT count(DISTINCT o.position_id) count FROM scout_position_observations o JOIN scout_run_sources rs ON rs.id=o.run_source_id JOIN scout_run_companies rc ON rc.id=rs.run_company_id WHERE rc.run_id=?`).get(sourceRunId) as {count:number}).count);
     const stages=["reconcile_gig","acquire_description","screen_relevance","score_candidate_match"] as const;
     const empty=()=>({pending:0,completed:0,failed:0,superseded:0});
@@ -524,6 +524,69 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     for(const row of recoveryRows){const settings=JSON.parse(row.settings) as SourceConfiguration;const detail="template" in settings?(this.templates?.resolve(settings.template).detailDescription):settings.detailDescription;const template="template" in settings?`${settings.template.id}@${settings.template.version}`:"custom";const extractionStrategy=detail?`${detail.response}-${detail.response==="html"?detail.extractor?.type??"unknown":"field"}-v1`:"unconfigured";const failureCode=row.failureCode;const key=JSON.stringify([row.company,template,extractionStrategy,failureCode]);const value=recovery.get(key)??{company:row.company,template,extractionStrategy,failureCode,recovered:0,unresolved:0};if(row.status==="completed")value.recovered++;else if(row.status==="failed"||row.status==="pending")value.unresolved++;recovery.set(key,value);}
     if(complete&&downstream.pending===0)this.db.query(`UPDATE scout_runs SET status=?,completed_at=coalesce(completed_at,?) WHERE id=?`).run(downstream.failed?"partial":"completed",now,backfillRunId);
     return{backfillRunId,sourceRunId,selection:{selected,complete},downstream:{...downstream,stages:stageCounts},descriptionRecovery:[...recovery.values()].sort((a,b)=>a.company.localeCompare(b.company)||a.template.localeCompare(b.template)||a.extractionStrategy.localeCompare(b.extractionStrategy)||(a.failureCode??"").localeCompare(b.failureCode??""))};
+  }
+  private normalizePositionBackfill(command:ScoutPositionBackfillCommand){
+    if(!Array.isArray(command.positionIds)||command.positionIds.length===0||command.positionIds.length>1000)throw new Error("Scout position backfill requires between 1 and 1,000 exact position IDs.");
+    if(command.positionIds.some(positionId=>typeof positionId!=="string"||!/^spos_[0-9a-f]{32}$/.test(positionId)))throw new Error("Scout position backfill contains a malformed position ID.");
+    const reason=typeof command.reason==="string"?command.reason.trim():"";
+    if(reason.length<1||reason.length>500)throw new Error("Scout position backfill reason must contain between 1 and 500 characters.");
+    return{positionIds:[...new Set(command.positionIds)].sort(),reason};
+  }
+  private resolvePositionBackfill(command:ScoutPositionBackfillCommand){
+    const normalized=this.normalizePositionBackfill(command);
+    const accepted:Array<ScoutPositionBackfillPreview["accepted"][number]&{observationId:string;configurationSourceId:string}>=[];
+    const rejected:ScoutPositionBackfillPreview["rejected"]=[];
+    for(const positionId of normalized.positionIds){
+      const position=this.db.query(`SELECT p.id positionId,c.name company,p.title,coalesce(s.state,'processing') state,s.linked_gig_id linkedGigId FROM scout_positions p JOIN scout_companies c ON c.id=p.company_id LEFT JOIN scout_position_states s ON s.position_id=p.id WHERE p.id=?`).get(positionId) as {positionId:string;company:string;title:string;state:ScoutPositionState;linkedGigId:string|null}|null;
+      if(!position){rejected.push({positionId,code:"not_found"});continue;}
+      const observation=this.db.query(`SELECT id,title FROM scout_position_observations WHERE position_id=? ORDER BY observed_at DESC,id DESC LIMIT 1`).get(positionId) as {id:string;title:string}|null;
+      if(!observation){rejected.push({positionId,code:"no_observation"});continue;}
+      const source=this.db.query(`SELECT cs.id FROM scout_positions p JOIN scout_companies c ON c.id=p.company_id JOIN scout_company_configuration_sources cs ON cs.company_configuration_id=c.current_configuration_id AND cs.source_key=p.source_key AND cs.active=1 WHERE p.id=?`).get(positionId) as {id:string}|null;
+      if(!source){rejected.push({positionId,code:"no_active_configuration"});continue;}
+      accepted.push({...position,title:observation.title,observationId:observation.id,configurationSourceId:source.id});
+    }
+    return{...normalized,accepted,rejected};
+  }
+  previewBackfill(command:ScoutPositionBackfillCommand):ScoutPositionBackfillPreview{
+    const resolved=this.resolvePositionBackfill(command);
+    return{requested:resolved.positionIds.length,accepted:resolved.accepted.map(({observationId:_observationId,configurationSourceId:_configurationSourceId,...position})=>position),rejected:resolved.rejected};
+  }
+  startBackfill(command:ScoutPositionBackfillCommand,now:string):ScoutPositionBackfillStatus{return this.db.transaction(()=>{
+    const resolved=this.resolvePositionBackfill(command);
+    if(resolved.rejected.length)throw new Error(`Scout position backfill rejected ${resolved.rejected.map(item=>`${item.positionId} (${item.code})`).join(", ")}.`);
+    const requestFingerprint=createHash("sha256").update(JSON.stringify({positionIds:resolved.positionIds,reason:resolved.reason,observationIds:resolved.accepted.map(item=>item.observationId),configurationSourceIds:resolved.accepted.map(item=>item.configurationSourceId)})).digest("hex");
+    const runId=`srun_${crypto.randomUUID()}`;
+    const inserted=this.db.query(`INSERT OR IGNORE INTO scout_runs(id,status,run_type,batch_size,concurrency,search_profile_json,screening_cache_key,candidate_profile_json,candidate_profile_version,candidate_profile_artifact_id,candidate_profile_hash,operator_reason,request_fingerprint,created_at,started_at,company_count) VALUES(?,'running','position_backfill',?,?,?,?,?,?,?,?,?,?,?,?,0)`).run(runId,resolved.accepted.length,Math.min(5,resolved.accepted.length),'{"terms":[],"locations":[]}',this.screening?crypto.randomUUID():null,this.screening?JSON.stringify(this.screening.profile):null,this.screening?.profileVersion??null,this.screening?.profileArtifactId??null,this.screening?.profileHash??null,resolved.reason,requestFingerprint,now,now).changes>0;
+    if(!inserted){
+      const existing=this.db.query(`SELECT id FROM scout_runs WHERE run_type='position_backfill' AND request_fingerprint=?`).get(requestFingerprint) as {id:string}|null;
+      if(!existing)throw new Error("Scout position backfill idempotency conflict could not be resolved.");
+      const items=this.db.query(`SELECT position_id positionId,observation_id observationId,configuration_source_id configurationSourceId FROM scout_position_backfill_items WHERE run_id=? ORDER BY position_id`).all(existing.id) as Array<{positionId:string;observationId:string;configurationSourceId:string}>;
+      const expected=resolved.accepted.map(item=>({positionId:item.positionId,observationId:item.observationId,configurationSourceId:item.configurationSourceId}));
+      if(JSON.stringify(items)!==JSON.stringify(expected))throw new Error("Existing Scout position backfill does not match the requested immutable item set.");
+      return this.backfillStatus(existing.id)!;
+    }
+    for(const item of resolved.accepted){
+      this.db.query(`INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,requested_at) VALUES(?,?,?,?,?)`).run(runId,item.positionId,item.observationId,item.configurationSourceId,now);
+      this.initializePosition(item.positionId,now);
+      const inputIdentity=createHash("sha256").update(JSON.stringify({runId,identity:this.processingInputIdentity(item.positionId,item.observationId)})).digest("hex");
+      this.db.query(`UPDATE scout_position_processing SET status='superseded',updated_at=? WHERE position_id=? AND stage='reconcile_gig' AND status IN ('pending','failed')`).run(now,item.positionId);
+      const processingId=id("spp",item.positionId,"reconcile_gig",inputIdentity);
+      this.db.query(`INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,stage,input_identity,status,created_at,updated_at) VALUES(?,?,?,?,?,'reconcile_gig',?,'pending',?,?)`).run(processingId,item.positionId,runId,item.observationId,item.configurationSourceId,inputIdentity,now,now);
+      this.db.query(`INSERT INTO scout_position_processing_outbox(id,processing_id,queue_job_id,created_at) VALUES(?,?,?,?)`).run(id("sppo",processingId),processingId,`position:${processingId}`,now);
+    }
+    return this.backfillStatus(runId)!;
+  })();}
+  backfillStatus(runId:string):ScoutPositionBackfillStatus|null{
+    const run=this.db.query(`SELECT operator_reason reason FROM scout_runs WHERE id=? AND run_type='position_backfill'`).get(runId) as {reason:string}|null;
+    if(!run)return null;
+    const empty=()=>({pending:0,completed:0,failed:0,superseded:0});
+    const stages:Record<ScoutPositionProcessingStage,ReturnType<typeof empty>>={reconcile_gig:empty(),acquire_description:empty(),screen_relevance:empty(),score_candidate_match:empty()};
+    for(const row of this.db.query(`SELECT stage,status,count(*) count FROM scout_position_processing WHERE run_id=? GROUP BY stage,status`).all(runId) as Array<{stage:ScoutPositionProcessingStage;status:keyof ReturnType<typeof empty>;count:number}>)stages[row.stage][row.status]=Number(row.count);
+    const positionOutcomes:Record<string,number>={};
+    for(const row of this.db.query(`SELECT s.state,count(*) count FROM scout_position_backfill_items i JOIN scout_position_states s ON s.position_id=i.position_id WHERE i.run_id=? GROUP BY s.state ORDER BY s.state`).all(runId) as Array<{state:string;count:number}>)positionOutcomes[row.state]=Number(row.count);
+    const itemCounts=this.db.query(`SELECT count(*) accepted,count(linked_gig_id) pendingDocuments FROM scout_position_backfill_items WHERE run_id=?`).get(runId) as {accepted:number;pendingDocuments:number};
+    const accepted=Number(itemCounts.accepted);
+    return{runId,reason:run.reason,selection:{requested:accepted,accepted,rejected:0},stages,positionOutcomes,gigDocuments:{pending:Number(itemCounts.pendingDocuments),updated:0,unchanged:0,failed:0}};
   }
   private recoverExistingRelevance(positionId:string,sourceRunId:string,backfillRunId:string,observationId:string,now:string){const row=this.db.query(`SELECT re.input_identity relevanceIdentity,re.decision,re.confidence,criteria.confidence_threshold confidenceThreshold FROM scout_position_processing x JOIN scout_relevance_evaluations re ON re.input_identity=x.input_identity AND re.position_id=x.position_id JOIN scout_relevance_criteria criteria ON criteria.id=re.criteria_id WHERE x.position_id=? AND x.run_id=? AND x.observation_id=? AND x.stage='screen_relevance' AND x.status='completed' ORDER BY re.created_at DESC,re.id DESC LIMIT 1`).get(positionId,sourceRunId,observationId) as {relevanceIdentity:string;decision:"passes_relevance"|"fails_relevance";confidence:number;confidenceThreshold:number}|null;if(!row)return false;if(row.decision==="passes_relevance"||row.confidence<row.confidenceThreshold)this.ensureCurrentCandidateMatch(positionId,row.relevanceIdentity,backfillRunId,observationId,now);return true;}
   stage(processingId:string){const row=this.db.query(`SELECT stage FROM scout_position_processing WHERE id=? AND status='pending'`).get(processingId) as {stage:ReturnType<ScoutPositionProcessingRepository["stage"]>}|null;return row?.stage??null;}
