@@ -16,6 +16,7 @@ import workday from "../../config/scout/templates/workday.v1.json";
 import eightfoldV2 from "../../config/scout/templates/eightfold.v2.json";
 import gemV2 from "../../config/scout/templates/gem.v2.json";
 import greenhouseV2 from "../../config/scout/templates/greenhouse.v2.json";
+import greenhouseV3 from "../../config/scout/templates/greenhouse.v3.json";
 import oracleHcmV2 from "../../config/scout/templates/oracle-hcm.v2.json";
 import smartRecruitersV2 from "../../config/scout/templates/smartrecruiters.v2.json";
 import successFactorsRmkV2 from "../../config/scout/templates/successfactors-rmk.v2.json";
@@ -42,6 +43,7 @@ export const scoutTemplateCatalog = createTemplateCatalog([
   eightfoldV2,
   gemV2,
   greenhouseV2,
+  greenhouseV3,
   oracleHcmV2,
   smartRecruitersV2,
   successFactorsRmkV2,

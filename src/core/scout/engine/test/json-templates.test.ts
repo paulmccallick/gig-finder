@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { scanCompany as scanCompanyCore, type GigScoutHttpPort } from "..";
 import { scoutTemplateCatalog } from "../../../../operations/scout-template-catalog";
-import { reusableJsonSourceSchema } from "../../sourcing/contracts";
+import { customJsonSourceSchema, reusableJsonSourceSchema } from "../../sourcing/contracts";
 import {
   createTemplateCatalog,
   reusableJsonDefinitionSchema,
@@ -286,6 +286,92 @@ describe("reusable JSON templates", () => {
       "jobPostingInfo.additionalLocations.*",
     ]);
     expect(() => scoutTemplateCatalog.resolve({ id: "workday", version: 4 })).toThrow("unknown_scout_template");
+  });
+  test("description semantics default for existing JSON configurations and reject invalid entity decoding", () => {
+    const source = customJsonSourceSchema.parse({
+      key: "official",
+      type: "json",
+      url: "https://careers.example.test/jobs",
+      recordsPath: "jobs",
+      fields: {
+        title: "title",
+        url: "url",
+        description: { path: "description" },
+      },
+    });
+    expect(source.fields.description).toMatchObject({
+      path: "description",
+      contentFormat: "auto",
+      contentEncoding: "none",
+    });
+    expect(customJsonSourceSchema.safeParse({
+      ...source,
+      fields: {
+        ...source.fields,
+        description: {
+          path: "description",
+          contentFormat: "plain-text",
+          contentEncoding: "html-entities",
+        },
+      },
+    }).success).toBe(false);
+  });
+  test("Greenhouse v3 decodes configured listing HTML without changing prior template defaults", async () => {
+    for (const version of [1, 2]) {
+      const definition = scoutTemplateCatalog.resolve({ id: "greenhouse", version });
+      expect(definition.fields.description).toMatchObject({
+        contentFormat: "auto",
+        contentEncoding: "none",
+      });
+      if (definition.detailDescription)
+        expect(definition.detailDescription).toMatchObject({
+          contentFormat: "auto",
+          contentEncoding: "none",
+        });
+    }
+    const definition = scoutTemplateCatalog.resolve({ id: "greenhouse", version: 3 });
+    expect(definition.fields.description).toMatchObject({
+      contentFormat: "html",
+      contentEncoding: "html-entities",
+    });
+    expect(definition.detailDescription).toMatchObject({
+      contentFormat: "html",
+      contentEncoding: "html-entities",
+    });
+    const result = await scanCompany(
+      {
+        companyId: "company-1",
+        configurationVersionId: "config-1",
+        sources: [{
+          key: "official",
+          type: "json",
+          template: { id: "greenhouse", version: 3 },
+          url: "https://boards.greenhouse.io/example-labs",
+          active: true,
+        }],
+      },
+      {
+        http: {
+          async request(input) {
+            return {
+              status: 200,
+              url: input.url,
+              headers: {},
+              body: JSON.stringify({ jobs: [{
+                id: 101,
+                title: "Director of Reliability",
+                absolute_url: "https://boards.greenhouse.io/example-labs/jobs/101",
+                location: { name: "Remote" },
+                content: "&amp;lt;p&amp;gt;Scope: &amp;lt;a href=&amp;quot;https://example.test/team&amp;quot; data-id=&amp;quot;ignored&amp;quot;&amp;gt;Own delivery&amp;lt;/a&amp;gt;.&amp;lt;/p&amp;gt;&amp;lt;ul&amp;gt;&amp;lt;li&amp;gt;Lead teams.&amp;lt;/li&amp;gt;&amp;lt;/ul&amp;gt;",
+              }] }),
+            };
+          },
+        },
+      },
+    );
+    expect(result.positions[0]?.description).toContain("Lead teams.");
+    expect(result.positions[0]?.description).toContain("[Own delivery](https://example.test/team)");
+    expect(result.positions[0]?.description).not.toContain("&lt;li");
   });
   test("template configuration owns required variables and allowed overrides", () => {
     const source = {

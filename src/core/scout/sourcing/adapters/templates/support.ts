@@ -1,5 +1,9 @@
 import type { NormalizedPosition } from "../../contracts";
-import { normalizeDescription } from "../../descriptions";
+import {
+  normalizeExtractedDescription,
+  type DescriptionContentEncoding,
+  type DescriptionContentFormat,
+} from "../../descriptions";
 import { assignedJson, atPath } from "../../extractors/json";
 import type { ReusableJsonTemplateSource } from "./types";
 import type { SourcePage } from "../types";
@@ -38,13 +42,18 @@ export function normalize(
     locations?: unknown;
     workArrangement?: unknown;
     description?: unknown;
+    descriptionContentFormat?: DescriptionContentFormat;
+    descriptionContentEncoding?: DescriptionContentEncoding;
     descriptionUrl?: unknown;
   },
 ): NormalizedPosition | null {
   const title = text(value.title).trim(),
     url = absolute(text(value.url), source.url);
   if (!title || !url) return null;
-  const description = normalizeDescription(value.description);
+  const description = normalizeExtractedDescription(value.description, {
+    contentFormat: value.descriptionContentFormat,
+    contentEncoding: value.descriptionContentEncoding,
+  });
   const descriptionSourceContent=typeof value.description==="string"?value.description:null;
   const configuredDescriptionUrl = absolute(
     text(value.descriptionUrl),
@@ -296,6 +305,8 @@ export function decodeReusableJson(
       locations: fieldCollectionValues(record, definition.fields.locations, source, payload, index),
       workArrangement: fieldValue(record, definition.fields.workArrangement, source, payload, index),
       description: fieldValue(record, definition.fields.description, source, payload, index),
+      descriptionContentFormat: definition.fields.description?.contentFormat,
+      descriptionContentEncoding: definition.fields.description?.contentEncoding,
       descriptionUrl: fieldValue(
         record,
         definition.fields.descriptionUrl,
