@@ -15,6 +15,9 @@ CREATE TABLE `scout_runs_new` (
  `candidate_profile_version` text,
  `candidate_profile_artifact_id` text,
  `candidate_profile_hash` text,
+ `screening_model` text,
+ `screening_provider` text,
+ `screening_model_configuration` text,
  `created_at` text NOT NULL,
  `started_at` text,
  `completed_at` text,
@@ -33,6 +36,15 @@ CREATE TABLE `scout_runs_new` (
    AND request_fingerprint IS NOT NULL
    AND length(request_fingerprint)=64
    AND request_fingerprint NOT GLOB '*[^0-9a-f]*'
+   AND screening_cache_key IS NOT NULL
+   AND candidate_profile_json IS NOT NULL
+   AND json_valid(candidate_profile_json)
+   AND candidate_profile_version IS NOT NULL
+   AND candidate_profile_artifact_id IS NOT NULL
+   AND candidate_profile_hash IS NOT NULL
+   AND screening_model IS NOT NULL
+   AND screening_provider IS NOT NULL
+   AND screening_model_configuration IS NOT NULL
   )
  )
 );
@@ -41,14 +53,15 @@ INSERT INTO `scout_runs_new` (
  `id`,`status`,`run_type`,`source_run_id`,`operator_reason`,`request_fingerprint`,
  `batch_size`,`concurrency`,`search_profile_json`,`screening_cache_key`,
  `candidate_profile_json`,`candidate_profile_version`,`candidate_profile_artifact_id`,
- `candidate_profile_hash`,`created_at`,`started_at`,`completed_at`,`company_count`,
+ `candidate_profile_hash`,`screening_model`,`screening_provider`,`screening_model_configuration`,
+ `created_at`,`started_at`,`completed_at`,`company_count`,
  `succeeded_count`,`failed_count`
 )
 SELECT
  `id`,`status`,`run_type`,`source_run_id`,NULL,NULL,`batch_size`,`concurrency`,
  `search_profile_json`,`screening_cache_key`,`candidate_profile_json`,
  `candidate_profile_version`,`candidate_profile_artifact_id`,`candidate_profile_hash`,
- `created_at`,`started_at`,`completed_at`,`company_count`,`succeeded_count`,`failed_count`
+ NULL,NULL,NULL,`created_at`,`started_at`,`completed_at`,`company_count`,`succeeded_count`,`failed_count`
 FROM `scout_runs`;
 --> statement-breakpoint
 DROP TABLE `scout_runs`;

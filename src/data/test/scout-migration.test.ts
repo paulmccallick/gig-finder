@@ -280,14 +280,20 @@ test("0035 preserves durable Scout history while adding explicit position backfi
   expect(database.query(`SELECT * FROM scout_position_observations ORDER BY id`).all()).toEqual(beforeObservationRows);
   expect(database.query(`SELECT * FROM scout_position_processing ORDER BY id`).all()).toEqual(beforeProcessingRows);
   expect(database.query(`SELECT * FROM scout_position_processing_outbox ORDER BY id`).all()).toEqual(beforeOutboxRows);
-  expect(columnNames(database,"scout_runs")).toEqual(expect.arrayContaining(["operator_reason","request_fingerprint"]));
+  expect(columnNames(database,"scout_runs")).toEqual(expect.arrayContaining(["operator_reason","request_fingerprint","screening_model","screening_provider","screening_model_configuration"]));
+  expect(database.query(`SELECT screening_model model,screening_provider provider,screening_model_configuration modelConfiguration FROM scout_runs ORDER BY created_at`).all()).toEqual([
+    {model:null,provider:null,modelConfiguration:null},
+    {model:null,provider:null,modelConfiguration:null},
+  ]);
   expect(tableNames(database)).toContain("scout_position_backfill_items");
   expect(columnNames(database,"managed_document_versions")).toEqual(expect.arrayContaining(["source_description","source_provenance_json"]));
   expect(database.query(`SELECT document_id,version,parent_version,content,content_hash,change_id,change_summary,created_at,created_by FROM managed_document_versions`).all()).toEqual(beforeVersions);
   expect(database.query(`SELECT source_description sourceDescription,source_provenance_json sourceProvenance FROM managed_document_versions`).get()).toEqual({sourceDescription:null,sourceProvenance:null});
 
-  const insertBackfill=database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,operator_reason,request_fingerprint,created_at,company_count) VALUES(?,'running','position_backfill',20,5,?,?,?,0)`);
-  expect(()=>insertBackfill.run("missing-contract",null,null,"2026-01-03")).toThrow();
+  const insertIncompleteBackfill=database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,operator_reason,request_fingerprint,created_at,company_count) VALUES(?,'running','position_backfill',20,5,?,?,?,0)`);
+  expect(()=>insertIncompleteBackfill.run("missing-contract",null,null,"2026-01-03")).toThrow();
+  expect(()=>insertIncompleteBackfill.run("missing-screening","Synthetic repair","b".repeat(64),"2026-01-03")).toThrow();
+  const insertBackfill=database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,screening_cache_key,candidate_profile_json,candidate_profile_version,candidate_profile_artifact_id,candidate_profile_hash,screening_model,screening_provider,screening_model_configuration,operator_reason,request_fingerprint,created_at,company_count) VALUES(?,'running','position_backfill',20,5,'cache-key','{}','profile-v1','profile-artifact-v1','profile-hash-v1','model-v1','provider-v1','configuration-v1',?,?,?,0)`);
   expect(()=>insertBackfill.run("empty-reason","","a".repeat(64),"2026-01-03")).toThrow();
   expect(()=>insertBackfill.run("invalid-fingerprint","Synthetic repair","A".repeat(64),"2026-01-03")).toThrow();
   insertBackfill.run("valid-backfill","Synthetic repair","a".repeat(64),"2026-01-03");

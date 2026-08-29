@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { openDatabase, migrateDatabase } from "../database";
 import { SqliteScoutCompanyImportStore } from "../scout-company-import-store";
 import { SqliteScoutRunStore } from "../scout-run-store";
@@ -627,6 +628,7 @@ test("explicit position backfill preview validates and resolves exact current bi
   });
   expect(()=>store.previewBackfill({positionIds:[],reason:"Synthetic repair"})).toThrow();
   expect(()=>store.previewBackfill({positionIds:["position-1"],reason:"Synthetic repair"})).toThrow();
+  expect(store.previewBackfill({positionIds:Array.from({length:1001},()=>acceptedId),reason:"Synthetic repair"})).toMatchObject({requested:1,accepted:[{positionId:acceptedId}]});
   expect(()=>store.previewBackfill({positionIds:Array.from({length:1001},(_,index)=>`spos_${index.toString(16).padStart(32,"0")}`),reason:"Synthetic repair"})).toThrow();
   expect(()=>store.previewBackfill({positionIds:[acceptedId],reason:" "})).toThrow();
   expect(()=>store.previewBackfill({positionIds:[acceptedId],reason:"x".repeat(501)})).toThrow();
@@ -666,7 +668,7 @@ test("explicit position backfill starts atomically and reuses its durable finger
     positionOutcomes:{processing:1},
     gigDocuments:{pending:0,updated:0,unchanged:0,failed:0},
   });
-  expect(database.query(`SELECT run_type runType,operator_reason reason,length(request_fingerprint) fingerprintLength,candidate_profile_version profileVersion,candidate_profile_json profileJson,screening_cache_key IS NOT NULL hasCache FROM scout_runs WHERE id=?`).get(first.runId)).toEqual({runType:"position_backfill",reason:"Reprocess configured descriptions",fingerprintLength:64,profileVersion:"profile-v3",profileJson:JSON.stringify(screening.profile),hasCache:1});
+  expect(database.query(`SELECT run_type runType,operator_reason reason,length(request_fingerprint) fingerprintLength,candidate_profile_version profileVersion,candidate_profile_json profileJson,screening_cache_key IS NOT NULL hasCache,screening_model model,screening_provider provider,screening_model_configuration modelConfiguration FROM scout_runs WHERE id=?`).get(first.runId)).toEqual({runType:"position_backfill",reason:"Reprocess configured descriptions",fingerprintLength:64,profileVersion:"profile-v3",profileJson:JSON.stringify(screening.profile),hasCache:1,model:screening.model,provider:screening.provider,modelConfiguration:screening.modelConfiguration});
   expect(database.query(`SELECT position_id positionId,observation_id observationId,configuration_source_id configurationSourceId,linked_gig_id linkedGigId,requested_at requestedAt FROM scout_position_backfill_items WHERE run_id=?`).get(first.runId)).toEqual({positionId,observationId,configurationSourceId,linkedGigId:null,requestedAt:"2026-08-28T12:00:03Z"});
   const newProcessing=database.query(`SELECT id,input_identity inputIdentity,status FROM scout_position_processing WHERE run_id=?`).get(first.runId) as {id:string;inputIdentity:string;status:string};
   expect(newProcessing).toMatchObject({inputIdentity:expect.stringMatching(/^[0-9a-f]{64}$/),status:"pending"});
@@ -676,12 +678,54 @@ test("explicit position backfill starts atomically and reuses its durable finger
   expect(database.query(`SELECT status,completed_at completedAt FROM scout_position_processing WHERE id=?`).get(completedProcessingId)).toEqual({status:"completed",completedAt:"2026-08-28T12:00:01Z"});
   expect(store.backfillStatus(first.runId)).toEqual(first);
   expect(store.backfillStatus(sourceRun.id)).toBeNull();
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('backfill-gig','Example Company','Synthetic Systems Gardener','identified','pending','Synthetic','2026-08-28','good','[]',1,0,1,0,'2026-08-28','2026-08-28')`).run();
-  database.query(`UPDATE scout_position_backfill_items SET linked_gig_id='backfill-gig' WHERE run_id=?`).run(first.runId);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('backfill-gig','Example Company','Synthetic Systems Gardener','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/1','[]',1,0,1,0,'2026-08-28','2026-08-28')`).run();
+  store.reconcileGig(newProcessing.id,"2026-08-28T12:00:04.500Z");
   expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:1,updated:0,unchanged:0,failed:0});
   const distinctReason=store.startBackfill({positionIds:[positionId],reason:"Reprocess for a separate defect"},"2026-08-28T12:00:05Z");
   expect(distinctReason.runId).not.toBe(first.runId);
+  expect(database.query(`SELECT linked_gig_id linkedGigId FROM scout_position_backfill_items WHERE run_id=?`).get(distinctReason.runId)).toEqual({linkedGigId:"backfill-gig"});
+  expect(distinctReason.gigDocuments).toEqual({pending:1,updated:0,unchanged:0,failed:0});
+  expect(()=>store.backfillPositions(distinctReason.runId,20,"2026-08-28T12:00:06Z")).toThrow("source run not found");
+  expect(database.query(`SELECT count(*) count FROM scout_runs WHERE run_type='legacy_backfill' AND source_run_id=?`).get(distinctReason.runId)).toEqual({count:0});
   expect(database.query(`SELECT count(*) count FROM scout_runs WHERE run_type='position_backfill'`).get()).toEqual({count:2});
+});
+
+test("explicit position backfill keeps its screening snapshot across restart and configuration change",()=>{
+  setup();
+  const database=databases.at(-1)!;
+  const descriptionsRoot=mkdtempSync(path.join(process.cwd(),"tmp","scout-position-backfill-snapshot-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const original={profile:{summary:"Original candidate"},profileVersion:"profile-original",profileArtifactId:"profile-artifact-original",profileHash:"profile-hash-original",model:"model-original",provider:"provider-original",modelConfiguration:"configuration-original"};
+  const changed={profile:{summary:"Changed candidate"},profileVersion:"profile-changed",profileArtifactId:"profile-artifact-changed",profileHash:"profile-hash-changed",model:"model-changed",provider:"provider-changed",modelConfiguration:"configuration-changed"};
+  const store=new SqliteScoutRunStore(database,descriptionsRoot,original);
+  store.startOrReuse(20,5,"2026-08-28T13:00:00Z");
+  const job=store.pendingJobs(1)[0]!;
+  prepareAndComplete(store,job,successfulResult(job),"2026-08-28T13:00:01Z");
+  const positionId=(database.query(`SELECT id FROM scout_positions LIMIT 1`).get() as {id:string}).id;
+  const backfill=store.startBackfill({positionIds:[positionId],reason:"Verify durable screening snapshot"},"2026-08-28T13:00:02Z");
+  const reconcile=store.pendingPositionJobs(10).find(value=>value.stage==="reconcile_gig"&&value.positionId===positionId)!;
+  const restarted=new SqliteScoutRunStore(database,descriptionsRoot,changed);
+  restarted.reconcileGig(reconcile.id,"2026-08-28T13:00:03Z");
+  const acquire=restarted.pendingPositionJobs(10).find(value=>value.stage==="acquire_description")!;
+  const markdown="Durable original-model description.";
+  restarted.completeDescription(acquire.id,{markdown,sourceContentHash:"a".repeat(64),sourceUrl:"https://careers.example.test/jobs/1",retrievedAt:"2026-08-28T13:00:04Z",converterVersion:"synthetic-v1"},"2026-08-28T13:00:04Z");
+  const relevance=restarted.pendingPositionJobs(10).find(value=>value.stage==="screen_relevance")!;
+  const persisted=database.query(`SELECT screening_model model,screening_provider provider,screening_model_configuration modelConfiguration,screening_cache_key cacheKey,candidate_profile_hash profileHash FROM scout_runs WHERE id=?`).get(backfill.runId) as {model:string;provider:string;modelConfiguration:string;cacheKey:string;profileHash:string};
+  expect(persisted).toEqual({model:original.model,provider:original.provider,modelConfiguration:original.modelConfiguration,cacheKey:expect.any(String),profileHash:original.profileHash});
+  const descriptionHash=createHash("sha256").update(markdown).digest("hex");
+  const expectedRelevanceIdentity=createHash("sha256").update(JSON.stringify({positionId,title:"Synthetic Systems Gardener",location:"Remote",officialUrl:"https://careers.example.test/jobs/1",descriptionHash,criteriaVersion:1,promptVersion:"scout-relevance-v1",model:original.model,provider:original.provider,modelConfiguration:original.modelConfiguration})).digest("hex");
+  expect(relevance.inputIdentity).toBe(expectedRelevanceIdentity);
+  const relevanceResult={value:{decision:"passes_relevance" as const,reason:"Synthetic pass",confidence:.99,evidence:["Synthetic evidence"],ambiguities:[]},metrics:{provider:original.provider,model:original.model,modelConfiguration:original.modelConfiguration,inputTokens:10,outputTokens:5,latencyMs:1}};
+  expect(()=>restarted.completeRelevance(relevance.id,{...relevanceResult,metrics:{...relevanceResult.metrics,model:changed.model}},false,"2026-08-28T13:00:05Z")).toThrow("screening snapshot");
+  restarted.completeRelevance(relevance.id,relevanceResult,false,"2026-08-28T13:00:05Z");
+  const candidate=restarted.pendingPositionJobs(10).find(value=>value.stage==="score_candidate_match")!;
+  const relevanceEvaluationId=(database.query(`SELECT id FROM scout_relevance_evaluations WHERE input_identity=?`).get(expectedRelevanceIdentity) as {id:string}).id;
+  const expectedCandidateIdentity=createHash("sha256").update(JSON.stringify({relevanceEvaluationId,profileHash:original.profileHash,rubricVersion:1,promptVersion:"scout-candidate-match-v1",model:original.model,provider:original.provider,modelConfiguration:original.modelConfiguration})).digest("hex");
+  expect(candidate.inputIdentity).toBe(expectedCandidateIdentity);
+  expect(restarted.candidateMatchInput(candidate.id)).toMatchObject({profile:original.profile,profileVersion:original.profileVersion,profileHash:original.profileHash,promptCacheKey:persisted.cacheKey});
+  const candidateResult={value:{score:8,scoreExplanation:"Synthetic match"},metrics:{provider:original.provider,model:original.model,modelConfiguration:original.modelConfiguration,inputTokens:12,outputTokens:4,latencyMs:1}};
+  expect(()=>restarted.completeCandidateMatch(candidate.id,{...candidateResult,metrics:{...candidateResult.metrics,provider:changed.provider}},"2026-08-28T13:00:06Z")).toThrow("screening snapshot");
+  restarted.completeCandidateMatch(candidate.id,candidateResult,"2026-08-28T13:00:06Z");
 });
 const prepareAndComplete = (
   store: SqliteScoutRunStore,
