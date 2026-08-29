@@ -2,12 +2,28 @@ import { describe, expect, test } from "bun:test";
 import { ScoutPositionProcessor, candidateMatchResultSchema, relevanceResultSchema, type ScoutPositionProcessingRepository, type ScoutScreeningModel } from "../screening";
 
 const evaluation={positionId:"position-1",title:"Director of Facilities",company:"Example",location:"Remote",officialUrl:"https://example.test/job",descriptionMarkdown:"Leads facilities.",descriptionArtifactId:"artifact-1",descriptionHash:"hash-1"};
-function repository(stage:"screen_relevance"|"score_candidate_match",events:string[]){return{stage:()=>stage,reconcileGig(){throw new Error("unexpected");},descriptionInput(){throw new Error("unexpected");},acquireDescription(){throw new Error("unexpected");},completeDescription(){throw new Error("unexpected");},relevanceInput:()=>({...evaluation,criteria:"Technology leadership only",criteriaVersion:1,promptVersion:"relevance-v1",confidenceThreshold:.85}),completeRelevance(_id,_result,irrelevant){events.push(irrelevant?"irrelevant":"passed");},refreshCandidateMatch(){return false;},candidateMatchInput:()=>({...evaluation,profile:{synthetic:true},profileVersion:"profile-v1",profileArtifactId:"profile-artifact",profileHash:"profile-hash",promptCacheKey:"run-cache-key",rubric:"Synthetic rubric",rubricVersion:1,promptVersion:"match-v1",relevanceEvaluationId:"relevance-1"}),completeCandidateMatch(_id,result){events.push(`score:${result.value.score}`);},failPositionProcessing(){}} as ScoutPositionProcessingRepository;}
+function repository(stage:"screen_relevance"|"score_candidate_match",events:string[]){return{stage:()=>stage,screeningModelIdentity:()=>null,reconcileGig(){throw new Error("unexpected");},descriptionInput(){throw new Error("unexpected");},acquireDescription(){throw new Error("unexpected");},completeDescription(){throw new Error("unexpected");},relevanceInput:()=>({...evaluation,criteria:"Technology leadership only",criteriaVersion:1,promptVersion:"relevance-v1",confidenceThreshold:.85}),completeRelevance(_id,_result,irrelevant){events.push(irrelevant?"irrelevant":"passed");},refreshCandidateMatch(){return false;},candidateMatchInput:()=>({...evaluation,profile:{synthetic:true},profileVersion:"profile-v1",profileArtifactId:"profile-artifact",profileHash:"profile-hash",promptCacheKey:"run-cache-key",rubric:"Synthetic rubric",rubricVersion:1,promptVersion:"match-v1",relevanceEvaluationId:"relevance-1"}),completeCandidateMatch(_id,result){events.push(`score:${result.value.score}`);},failPositionProcessing(){}} as ScoutPositionProcessingRepository;}
 const model:ScoutScreeningModel={async screenRelevance(){return{value:{decision:"fails_relevance",reason:"The role is not clearly technical.",confidence:.84,evidence:["Non-technical scope"],ambiguities:[]},metrics:{provider:"test",model:"test",modelConfiguration:"test",inputTokens:1,outputTokens:1,latencyMs:1}};},async scoreCandidateMatch(){return{value:{score:7,scoreExplanation:"Synthetic score explanation"},metrics:{provider:"test",model:"test",modelConfiguration:"test",inputTokens:1,outputTokens:1,latencyMs:1}};}};
 
 describe("Scout position screening policy",()=>{
  test("uncertain relevance failures pass the exclusion gate",async()=>{const events:string[]=[];await new ScoutPositionProcessor(repository("screen_relevance",events),model).process("processing-1");expect(events).toEqual(["passed"]);});
  test("candidate match is a separate structured stage",async()=>{const events:string[]=[];await new ScoutPositionProcessor(repository("score_candidate_match",events),model).process("processing-2");expect(events).toEqual(["score:7"]);});
+ test("position backfill selects its snapshotted model before relevance and scoring",async()=>{
+  const selected={provider:"provider-original",model:"model-original",modelConfiguration:"configuration-original"};
+  const selections:Array<typeof selected>=[],events:string[]=[];
+  const currentModel:ScoutScreeningModel={async screenRelevance(){throw new Error("current relevance model must not run");},async scoreCandidateMatch(){throw new Error("current scoring model must not run");}};
+  const selectedModel:ScoutScreeningModel={
+   async screenRelevance(){events.push("selected-relevance");return{value:{decision:"passes_relevance",reason:"Selected model relevance",confidence:.99,evidence:[],ambiguities:[]},metrics:{...selected,inputTokens:1,outputTokens:1,latencyMs:1}};},
+   async scoreCandidateMatch(){events.push("selected-score");return{value:{score:9,scoreExplanation:"Selected model score"},metrics:{...selected,inputTokens:1,outputTokens:1,latencyMs:1}};},
+  };
+  const relevanceRepository={...repository("screen_relevance",events),screeningModelIdentity:()=>selected};
+  const scoreRepository={...repository("score_candidate_match",events),screeningModelIdentity:()=>selected};
+  const selector=(identity:typeof selected)=>{selections.push(identity);return selectedModel;};
+  await new ScoutPositionProcessor(relevanceRepository,currentModel,()=>"2026-08-29T00:00:00Z",selector).process("relevance-after-restart");
+  await new ScoutPositionProcessor(scoreRepository,currentModel,()=>"2026-08-29T00:00:01Z",selector).process("score-after-restart");
+  expect(selections).toEqual([selected,selected]);
+  expect(events).toEqual(["selected-relevance","passed","selected-score","score:9"]);
+ });
  test("strict contracts reject unknown fields and non-integer scores",()=>{expect(relevanceResultSchema.safeParse({decision:"passes_relevance",reason:"Synthetic reason",confidence:.5,evidence:[],ambiguities:[],extra:true}).success).toBeFalse();expect(candidateMatchResultSchema.safeParse({score:7.5,scoreExplanation:"No"}).success).toBeFalse();});
  test("comments are required and bounded for durable storage",()=>{
   expect(relevanceResultSchema.safeParse({decision:"passes_relevance",reason:"x".repeat(255),confidence:.5,evidence:[],ambiguities:[]}).success).toBeTrue();

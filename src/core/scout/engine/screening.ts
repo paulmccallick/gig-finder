@@ -13,9 +13,11 @@ export interface RelevanceRequest extends ScoutEvaluationInput {criteria:string;
 export interface CandidateMatchRequest extends ScoutEvaluationInput {profile:unknown;profileVersion:string;profileArtifactId:string;profileHash:string;promptCacheKey:string;rubric:string;rubricVersion:number;promptVersion:string;relevanceEvaluationId:string}
 export interface ModelMetrics {provider:string;model:string;modelConfiguration:string;inputTokens:number|null;outputTokens:number|null;cacheReadTokens?:number|null;cacheWriteTokens?:number|null;latencyMs:number}
 export interface ModelResult<T> {value:T;metrics:ModelMetrics}
+export type ScoutScreeningModelIdentity=Pick<ModelMetrics,"provider"|"model"|"modelConfiguration">;
 export interface ScoutScreeningModel {screenRelevance(input:RelevanceRequest):Promise<ModelResult<RelevanceResult>>;scoreCandidateMatch(input:CandidateMatchRequest):Promise<ModelResult<CandidateMatchResult>>}
 export interface ScoutPositionProcessingRepository {
  stage(processingId:string):"reconcile_gig"|"acquire_description"|"screen_relevance"|"score_candidate_match"|null;
+ screeningModelIdentity(processingId:string):ScoutScreeningModelIdentity|null;
  reconcileGig(processingId:string,now:string):void;
  descriptionInput(processingId:string):ScoutDescriptionInput;
  acquireDescription(input:ScoutDescriptionInput):Promise<{markdown:string;sourceContentHash:string;sourceUrl:string;retrievedAt:string;converterVersion:string}>;
@@ -29,13 +31,15 @@ export interface ScoutPositionProcessingRepository {
 }
 
 export class ScoutPositionProcessor {
- constructor(private readonly repository:ScoutPositionProcessingRepository,private readonly model:ScoutScreeningModel,private readonly now=()=>new Date().toISOString()){}
+ constructor(private readonly repository:ScoutPositionProcessingRepository,private readonly model:ScoutScreeningModel,private readonly now=()=>new Date().toISOString(),private readonly selectModel?:(identity:ScoutScreeningModelIdentity)=>ScoutScreeningModel){}
  async process(processingId:string){
   const stage=this.repository.stage(processingId);if(!stage)return;
   if(stage==="reconcile_gig"){this.repository.reconcileGig(processingId,this.now());return;}
   if(stage==="acquire_description"){const input=this.repository.descriptionInput(processingId);const result=await this.repository.acquireDescription(input);this.repository.completeDescription(processingId,result,this.now());return;}
-  if(stage==="screen_relevance"){const input=this.repository.relevanceInput(processingId);const result=await this.model.screenRelevance(input);const value=relevanceResultSchema.parse(result.value);const irrelevant=value.decision==="fails_relevance"&&value.confidence>=input.confidenceThreshold;this.repository.completeRelevance(processingId,{...result,value},irrelevant,this.now());return;}
+  const selectedIdentity=this.repository.screeningModelIdentity(processingId),selectedModel=selectedIdentity?this.selectModel?.(selectedIdentity):this.model;
+  if(!selectedModel)throw new Error("Scout position backfill screening model is unavailable.");
+  if(stage==="screen_relevance"){const input=this.repository.relevanceInput(processingId);const result=await selectedModel.screenRelevance(input);const value=relevanceResultSchema.parse(result.value);const irrelevant=value.decision==="fails_relevance"&&value.confidence>=input.confidenceThreshold;this.repository.completeRelevance(processingId,{...result,value},irrelevant,this.now());return;}
   if(this.repository.refreshCandidateMatch(processingId,this.now()))return;
-  const input=this.repository.candidateMatchInput(processingId);const result=await this.model.scoreCandidateMatch(input);this.repository.completeCandidateMatch(processingId,{...result,value:candidateMatchResultSchema.parse(result.value)},this.now());
+  const input=this.repository.candidateMatchInput(processingId);const result=await selectedModel.scoreCandidateMatch(input);this.repository.completeCandidateMatch(processingId,{...result,value:candidateMatchResultSchema.parse(result.value)},this.now());
  }
 }

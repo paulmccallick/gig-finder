@@ -487,3 +487,15 @@ test("position runtime retries a failed initial dispatch before consuming work",
  const runtime=new ScoutPositionRuntime(store,processor,{dataPath:path.join(root,"position-queue.sqlite"),batchSize:1,concurrency:1});
  try{runtime.start();const deadline=Date.now()+5_000;while(!reconciled&&Date.now()<deadline)await Bun.sleep(25);expect(pendingCalls).toBeGreaterThanOrEqual(2);expect(reconciled).toBeTrue();}finally{await runtime.close();}
 },10_000);
+
+test("position runtime rehydrates a missing queue job from durable processing after restart",async()=>{
+ const job:ScoutPositionProcessingJob={id:"restart-processing",positionId:"restart-position",stage:"reconcile_gig",inputIdentity:"restart-input",attemptCount:0};
+ let completed=false,dispatches=0,processed=0;
+ const store:ScoutPositionStore={backfillPositions(){throw new Error("not used");},previewBackfill(){throw new Error("not used");},startBackfill(){throw new Error("not used");},backfillStatus(){throw new Error("not used");},pendingPositionJobs(){return completed?[]:[job];},markPositionJobsDispatched(ids){expect(ids).toEqual([job.id]);dispatches++;},reconcileGig(){throw new Error("not used");},failPositionProcessing(){throw new Error("position processing should not exhaust retries");},workspace(){throw new Error("not used");},positionDetail(){throw new Error("not used");},decide(){throw new Error("not used");},restoreAgentIrrelevant(){throw new Error("not used");},reverseDecision(){throw new Error("not used");},appendPositionNote(){},promotionWork(){return null;},failPromotion(){throw new Error("not used");},completePromotion(){throw new Error("not used");},resurfaceDue(){return 0;},relevanceCriteria(){throw new Error("not used");},appendRelevanceCriteria(){throw new Error("not used");}};
+ const processor={async process(processingId:string){expect(processingId).toBe(job.id);processed++;completed=true;}} as import("../../core/scout/engine/screening").ScoutPositionProcessor;
+ const interrupted=new ScoutPositionRuntime(store,processor,{dataPath:path.join(root,"position-interrupted-queue.sqlite"),batchSize:1,concurrency:1});
+ await interrupted.dispatch();
+ await interrupted.close();
+ const restarted=new ScoutPositionRuntime(store,processor,{dataPath:path.join(root,"position-restarted-queue.sqlite"),batchSize:1,concurrency:1});
+ try{restarted.start();const deadline=Date.now()+5_000;while(!completed&&Date.now()<deadline)await Bun.sleep(25);expect({processed,dispatches}).toEqual({processed:1,dispatches:2});}finally{await restarted.close();}
+},10_000);
