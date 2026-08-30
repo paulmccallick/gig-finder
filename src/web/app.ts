@@ -207,7 +207,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
   const screeningForIdentity=(identity:ScoutScreeningModelIdentity)=>{if(identity.provider!=="openai-codex")throw new Error(`Unsupported Scout screening provider: ${identity.provider}`);const selectedModel=parseAgentModelId(identity.model);return new AiSdkScoutScreeningModel(()=>createCodexLanguageModel(selectedModel,{...(configuration.smoke.providerBaseURL?{smokeBaseURL:configuration.smoke.providerBaseURL}:{}),surfaceLiveSmokeErrors:configuration.smoke.mode==="live"}),{provider:identity.provider,model:selectedModel,configuration:identity.modelConfiguration});};
   const screeningIdentity={provider:"openai-codex",model:screeningModel,modelConfiguration:screeningModelConfiguration};
   const screening=screeningForIdentity(screeningIdentity);
-  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,new ScoutPositionProcessor(local.scoutStore,screening,undefined,screeningForIdentity),{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
+  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,new ScoutPositionProcessor(local.scoutStore,screening,undefined,screeningForIdentity,gigFinder.documents),{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
   scoutPositionRuntime.start();
   const stagedDocuments = new StagedDocumentService(configuration.staging);
   const uploadHandler = createDocumentUploadHandler(

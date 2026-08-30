@@ -690,6 +690,89 @@ test("explicit position backfill starts atomically and reuses its durable finger
   expect(database.query(`SELECT count(*) count FROM scout_runs WHERE run_type='position_backfill'`).get()).toEqual({count:2});
 });
 
+test("promoted description preparation durably updates one linked managed document and retries conflicts",async()=>{
+  setup();
+  const database=databases.at(-1)!;
+  const descriptionsRoot=mkdtempSync(path.join(process.cwd(),"tmp","scout-promoted-description-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const screening={profile:{summary:"Synthetic candidate"},profileVersion:"profile-v1",profileArtifactId:"profile-artifact-v1",profileHash:"profile-hash-v1",model:"model-v1",provider:"provider-v1",modelConfiguration:"configuration-v1"};
+  const store=new SqliteScoutRunStore(database,descriptionsRoot,screening);
+  store.startOrReuse(20,5,"2026-08-29T01:00:00Z");
+  const companyJob=store.pendingJobs(1)[0]!;
+  const position={sourceKey:"official",externalId:"promoted-143",canonicalUrl:"https://careers.example.test/jobs/promoted-143",title:"Director of Synthetic Platforms",location:"Remote",description:"Original official description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/promoted-143"}};
+  prepareAndComplete(store,companyJob,{companyId:companyJob.companyId,configurationVersionId:companyJob.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]} ,"2026-08-29T01:00:01Z");
+  const model:ScoutScreeningModel={
+    async screenRelevance(){return{value:{decision:"passes_relevance",reason:"Synthetic relevant role",confidence:.99,evidence:["Technology leadership"],ambiguities:[]},metrics:{provider:screening.provider,model:screening.model,modelConfiguration:screening.modelConfiguration,inputTokens:1,outputTokens:1,latencyMs:1}};},
+    async scoreCandidateMatch(){return{value:{score:9,scoreExplanation:"Synthetic candidate match"},metrics:{provider:screening.provider,model:screening.model,modelConfiguration:screening.modelConfiguration,inputTokens:1,outputTokens:1,latencyMs:1}};},
+  };
+  const initialProcessor=new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:02Z");
+  while(store.pendingPositionJobs(20)[0])await initialProcessor.process(store.pendingPositionJobs(20)[0]!.id);
+  const positionId=(database.query(`SELECT id FROM scout_positions LIMIT 1`).get() as {id:string}).id;
+  const review=store.reviewDetail(positionId)!;
+  const application=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
+  const positions=new ScoutPositionService(store,application.gigs,application.documents);
+  positions.decide(positionId,{action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!});
+  const promotion=database.query(`SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`).get(positionId) as {gigId:string;managedDocumentId:string};
+  expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(1);
+
+  importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{source.origin}/details/{position.id}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-29T01:00:03Z"));
+  const corrected={markdown:"Corrected official description.",sourceContentHash:"a".repeat(64),extractedContentHash:"b".repeat(64),sourceUrl:"https://careers.example.test/details/promoted-143",retrievedAt:"2026-08-29T01:00:04Z",converterVersion:"scout-description-v2",strategyVersion:"json-field-v1"};
+  const first=store.startBackfill({positionIds:[positionId],reason:"Correct the promoted description"},"2026-08-29T01:00:03Z");
+  const firstReconcile=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='reconcile_gig'`).get(first.runId) as {id:string}).id;
+  store.reconcileGig(firstReconcile,"2026-08-29T01:00:03.500Z");
+  const firstAcquire=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='acquire_description'`).get(first.runId) as {id:string}).id;
+  const prepared=store.prepareDescriptionCompletion(firstAcquire,corrected,"2026-08-29T01:00:04Z");
+  expect(prepared.promotedDocument).toEqual({
+    processingId:firstAcquire,
+    positionId,
+    gigId:promotion.gigId,
+    managedDocumentId:promotion.managedDocumentId,
+    expectedDocumentVersion:1,
+    markdown:corrected.markdown,
+    sourceDescription:"Gig Scout official posting retrieved from official configuration 2.",
+    sourceProvenance:{officialUrl:corrected.sourceUrl,retrievedAt:corrected.retrievedAt,sourceContentHash:corrected.sourceContentHash,extractedContentHash:corrected.extractedContentHash,sourceKey:"official",configurationVersion:2,extractionStrategy:corrected.strategyVersion,converterVersion:corrected.converterVersion},
+    documentChangeId:expect.stringMatching(/^change_[0-9a-f]{32}$/),
+  });
+  expect(database.query(`SELECT status,description_id descriptionId FROM scout_position_processing WHERE id=?`).get(firstAcquire)).toEqual({status:"pending",descriptionId:prepared.descriptionId});
+  const replayedPreparation=store.prepareDescriptionCompletion(firstAcquire,corrected,"2026-08-29T01:00:05Z");
+  expect(replayedPreparation).toEqual(prepared);
+  const changed=application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:prepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:05Z"},{documentId:promotion.managedDocumentId,expectedVersion:1,content:corrected.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance});
+  store.completeDescription(firstAcquire,prepared.descriptionId,changed.changed?"updated":"unchanged","2026-08-29T01:00:05Z");
+  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:2,sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance},{version:1,sourceDescription:null,sourceProvenance:null}]);
+  expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
+
+  const unchangedRun=store.startBackfill({positionIds:[positionId],reason:"Verify unchanged promoted description"},"2026-08-29T01:00:06Z");
+  const unchangedReconcile=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='reconcile_gig'`).get(unchangedRun.runId) as {id:string}).id;
+  store.reconcileGig(unchangedReconcile,"2026-08-29T01:00:06.500Z");
+  const unchangedAcquire=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='acquire_description'`).get(unchangedRun.runId) as {id:string}).id;
+  const unchangedPrepared=store.prepareDescriptionCompletion(unchangedAcquire,corrected,"2026-08-29T01:00:07Z");
+  const current=application.documents.get(promotion.managedDocumentId)!;
+  const unchanged=application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:unchangedPrepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:07Z"},{documentId:promotion.managedDocumentId,expectedVersion:current.currentVersion,content:corrected.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:unchangedPrepared.promotedDocument!.sourceDescription,sourceProvenance:unchangedPrepared.promotedDocument!.sourceProvenance});
+  store.completeDescription(unchangedAcquire,unchangedPrepared.descriptionId,unchanged.changed?"updated":"unchanged","2026-08-29T01:00:07Z");
+  expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(2);
+  expect(store.backfillStatus(unchangedRun.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:1,failed:0});
+
+  const conflicted={...corrected,markdown:"Final corrected official description.",sourceContentHash:"c".repeat(64),extractedContentHash:"d".repeat(64),retrievedAt:"2026-08-29T01:00:08Z"};
+  const conflictRun=store.startBackfill({positionIds:[positionId],reason:"Retry a promoted document conflict"},"2026-08-29T01:00:08Z");
+  const conflictReconcile=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='reconcile_gig'`).get(conflictRun.runId) as {id:string}).id;
+  store.reconcileGig(conflictReconcile,"2026-08-29T01:00:08.500Z");
+  const conflictAcquire=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='acquire_description'`).get(conflictRun.runId) as {id:string}).id;
+  const conflictPrepared=store.prepareDescriptionCompletion(conflictAcquire,conflicted,"2026-08-29T01:00:09Z");
+  application.documents.update({actor:"Reviewer",source:"user_request",summary:"Concurrent edit",changeId:"concurrent-promoted-edit",occurredAt:"2026-08-29T01:00:09Z"},{documentId:promotion.managedDocumentId,expectedVersion:2,content:"Concurrent user edit.",changeSummary:"Concurrent edit"});
+  expect(()=>application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:conflictPrepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:09Z"},{documentId:promotion.managedDocumentId,expectedVersion:conflictPrepared.promotedDocument!.expectedDocumentVersion,content:conflicted.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:conflictPrepared.promotedDocument!.sourceDescription,sourceProvenance:conflictPrepared.promotedDocument!.sourceProvenance})).toThrow("expected version 2 but is at version 3");
+  store.failDescriptionProjection(conflictAcquire,"revision_conflict","Synthetic document revision conflict.","2026-08-29T01:00:09Z");
+  expect(database.query(`SELECT status,description_id descriptionId,failure_code failureCode FROM scout_position_processing WHERE id=?`).get(conflictAcquire)).toEqual({status:"pending",descriptionId:conflictPrepared.descriptionId,failureCode:"document_projection_revision_conflict"});
+  expect(store.backfillStatus(conflictRun.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:0,failed:1});
+  const retried=store.prepareDescriptionCompletion(conflictAcquire,conflicted,"2026-08-29T01:00:10Z");
+  expect(retried).toMatchObject({descriptionId:conflictPrepared.descriptionId,promotedDocument:{expectedDocumentVersion:3,documentChangeId:conflictPrepared.promotedDocument!.documentChangeId}});
+  const final=application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:retried.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:10Z"},{documentId:promotion.managedDocumentId,expectedVersion:3,content:conflicted.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:retried.promotedDocument!.sourceDescription,sourceProvenance:retried.promotedDocument!.sourceProvenance});
+  store.completeDescription(conflictAcquire,retried.descriptionId,final.changed?"updated":"unchanged","2026-08-29T01:00:10Z");
+  expect(store.backfillStatus(conflictRun.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
+  expect(database.query(`SELECT count(*) count FROM gigs WHERE id=?`).get(promotion.gigId)).toEqual({count:1});
+  expect(database.query(`SELECT count(*) count FROM managed_documents WHERE id=?`).get(promotion.managedDocumentId)).toEqual({count:1});
+  expect(application.documents.versions(promotion.managedDocumentId).filter(version=>version.changeId===retried.promotedDocument!.documentChangeId)).toHaveLength(1);
+});
+
 test("position backfill reruns the complete pipeline",async()=>{
   setup();
   const database=databases.at(-1)!;

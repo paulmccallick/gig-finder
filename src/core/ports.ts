@@ -4,6 +4,7 @@ import type {
   DocumentLinkEntityType,
   ManagedDocumentData,
   ManagedDocumentRecord,
+  ManagedDocumentSourceProvenance,
   ManagedDocumentVersionData,
 } from "./documents";
 
@@ -28,6 +29,8 @@ export interface DocumentWriteRepository extends DocumentReadRepository {
     content: string;
     contentHash: string;
     changeSummary: string;
+    sourceDescription?: string;
+    sourceProvenance?: ManagedDocumentSourceProvenance;
   }): ManagedDocumentRecord;
 }
 export interface ApplicationSettingsRepository {

@@ -39,6 +39,27 @@ export interface ScoutPromotionWork {
  company:string; title:string; externalId:string|null; location:string|null; sourceUrl:string;
  markdown:string; sourceDescription:string;
 }
+export interface ScoutPromotedDescriptionWork {
+ processingId:string;
+ positionId:string;
+ gigId:string;
+ managedDocumentId:string;
+ expectedDocumentVersion:number;
+ markdown:string;
+ sourceDescription:string;
+ sourceProvenance:{
+  officialUrl:string;
+  retrievedAt:string;
+  sourceContentHash:string;
+  extractedContentHash:string;
+  sourceKey:string;
+  configurationVersion:number;
+  extractionStrategy:string;
+  converterVersion:string;
+ };
+ documentChangeId:string;
+}
+export type ScoutPromotedDescriptionOutcome="updated"|"unchanged";
 export interface ScoutPositionStore {
  pendingPositionJobs(limit:number):ScoutPositionProcessingJob[];
  markPositionJobsDispatched(processingIds:string[],now:string):void;

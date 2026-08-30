@@ -36,6 +36,17 @@ export interface UploadedDocumentProvenance {
   uploadedAt: string;
 }
 
+export interface ManagedDocumentSourceProvenance {
+  officialUrl: string;
+  retrievedAt: string;
+  sourceContentHash: string;
+  extractedContentHash: string;
+  sourceKey: string;
+  configurationVersion: number;
+  extractionStrategy: string;
+  converterVersion: string;
+}
+
 export interface DocumentLink {
   entityType: DocumentLinkEntityType;
   entityId: string;
@@ -58,6 +69,8 @@ export interface ManagedDocumentVersionData {
   changeSummary: string;
   createdAt: string;
   createdBy: string;
+  sourceDescription: string | null;
+  sourceProvenance: ManagedDocumentSourceProvenance | null;
 }
 
 export interface UpdateManagedDocumentInput {
@@ -65,6 +78,8 @@ export interface UpdateManagedDocumentInput {
   expectedVersion: number;
   content: string;
   changeSummary: string;
+  sourceDescription?: string;
+  sourceProvenance?: ManagedDocumentSourceProvenance;
 }
 
 export interface ManagedDocumentMutationResult {
@@ -98,6 +113,17 @@ export const uploadedDocumentProvenanceSchema = z.object({
   uploadedAt: z.string().datetime(),
 }).strict();
 
+export const managedDocumentSourceProvenanceSchema = z.object({
+  officialUrl: z.string().url().max(2_000),
+  retrievedAt: z.string().datetime({ offset: true }),
+  sourceContentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  extractedContentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  sourceKey: z.string().trim().min(1).max(100),
+  configurationVersion: z.number().int().positive(),
+  extractionStrategy: z.string().trim().min(1).max(100),
+  converterVersion: z.string().trim().min(1).max(100),
+}).strict();
+
 export const documentLinkSchema = z.object({
   entityType: z.enum(documentLinkEntityTypes),
   entityId: z.string().trim().min(1).max(200),
@@ -127,7 +153,11 @@ export const updateManagedDocumentSchema = z.object({
   expectedVersion: z.number().int().positive(),
   content: contentSchema,
   changeSummary: z.string().trim().min(1).max(500),
-}).strict();
+  sourceDescription: z.string().trim().min(1).max(500).optional(),
+  sourceProvenance: managedDocumentSourceProvenanceSchema.optional(),
+}).strict().superRefine((value,context)=>{
+  if((value.sourceDescription===undefined)!==(value.sourceProvenance===undefined))context.addIssue({code:"custom",message:"Document version source description and provenance must be provided together."});
+});
 
 const typeLabels: Record<ManagedDocumentType, string> = {
   job_description: "Job Description",
