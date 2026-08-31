@@ -1,40 +1,38 @@
 # Codex Project Guide
 
-Read the relevant files in `docs/product/` and `docs/architecture/` before
-changing behavior or contracts. Update them in the same change. If code and
-documentation conflict, stop and flag it.
+The installed Superpowers workflow is authoritative for development. The rules
+below are GigFinder-specific extensions.
+
+Apply `$coding-guide` to all implementation and review work.
+
+Before changing behavior or contracts, read the relevant files in
+`docs/product/` and `docs/architecture/`. Update them in the same change and
+stop if they conflict with the code.
 
 The backlog is the [GigFinder GitHub
 Project](https://github.com/users/paulmccallick/projects/5).
 
-## GitHub workflow
+## Workflow
 
-- The GitHub Project is the source of truth for issue status.
-  - Backlog is for unrefined work,
-  - Grooming is for defining requirements
-  - Development is while implementing and verification
-  - Done is means the issue has been signed off and deployed to production
-- Create feature branches from `main`
-- merges to main require a pull request linked with `Closes #<issue>`.
+- Grooming
+  - The issue is in Grooming in github
+  - Superpowers does brainstorming and drives to commited spec and plan
+  - spec and plan are attatched to GH issue
+- Development
+  - The issue moves to Development in Github
+  - A branch is taken from main for feature development
+  - Superpowers drives the development to its final review
+  - A PR is created in Github with the changes
+  - change overview agent is run against the changes with overview captured in an md file
+  - Github runs PR checks which can be viewed via `gh pr checks --watch`
+  - user must approve PR before moving to Release
+- Release
+  - Deployer agent drives the release process via the deployment skill
+  - GH issue is moved to Done
 
-## Sub Agent workflow
+## Root coordination
 
-- development requires the user to ask for the issue to be implemented
-- once all tests are passing the developer must commit, push, and create a PR
-- a PR should spawn the code reviewer sub agent to do a code review
-- a PR should spawn the change overview agent to create a markdown file with reported changes.
-- the developer should resolve any found issues, and push
-- fixes will initiate a code review
-- fixes will initiate a new change overview
-
-## Root coordination workflow
-
-- Do not send a final response while requested subagent, review, CI, merge,
-  publication, or deployment work remains active.
-- Wait for subagent mailbox updates and continue the next documented workflow
-  step without requiring a user prompt.
-- Use `gh pr checks --watch` for required GitHub checks and continue when they
-  complete.
-- Provide periodic status updates while waiting.
-- Finish only when the requested terminal state is reached or a concrete
-  blocker requires user input.
+- The main thread is responsible for moving issues through the workflow
+- The main thread should check on subagents periodically (maximum of 30 minutes)
+- if a subagent has a blocking issue notify the user immediately
+- if a subagent completes its task and no user input is needed the main agent moves to the next stage of the workflow
