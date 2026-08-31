@@ -552,7 +552,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
         rejected.push({positionId,code:"description_acquisition_not_configured"});
         continue;
       }
-      if(position.externalId===null&&(Boolean(detailPlan.identity?.idPath)||(detailPlan.extractor?.type==="dom"&&Boolean(detailPlan.extractor.idSelector)))){
+      if(!position.externalId?.trim()&&(Boolean(detailPlan.identity?.idPath)||(detailPlan.extractor?.type==="dom"&&Boolean(detailPlan.extractor.idSelector)))){
         rejected.push({positionId,code:"description_identity_input_missing"});
         continue;
       }

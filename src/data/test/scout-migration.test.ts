@@ -302,6 +302,7 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
   insertBackfill.run("pending-backfill","Synthetic pending repair","a".repeat(64),"2026-01-03");
   expect(()=>insertBackfill.run("duplicate-backfill","Another repair","a".repeat(64),"2026-01-04")).toThrow();
   insertBackfill.run("completed-backfill","Synthetic completed repair","b".repeat(64),"2026-01-04");
+  insertBackfill.run("superseded-backfill","Synthetic superseded repair","c".repeat(64),"2026-01-06");
   database.exec(`
     INSERT INTO scout_description_artifacts(id,file_path,content_hash,media_type,byte_count,provenance_json,created_at)
     VALUES('artifact','aa/description.md','description-hash','text/markdown',21,'{}','2026-01-03');
@@ -319,6 +320,8 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
     VALUES('pending-backfill','position','observation','source','gig','2026-01-03');
     INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at)
     VALUES('completed-backfill','position','observation','source','gig','2026-01-04');
+    INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at)
+    VALUES('superseded-backfill','position','observation','source','gig','2026-01-06');
     INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,description_id,stage,input_identity,status,attempt_count,document_projection_status,created_at,updated_at)
     VALUES('pending-acquisition','position','pending-backfill','observation','source','description','acquire_description','pending-acquisition-identity','pending',1,'failed','2026-01-03','2026-01-03');
     INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at)
@@ -329,6 +332,8 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
     VALUES('completed-relevance','position','completed-backfill','observation','source','description','screen_relevance','completed-relevance-identity','completed',1,'2026-01-04','2026-01-05','2026-01-05');
     INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,description_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at)
     VALUES('completed-match','position','completed-backfill','observation','source','description','score_candidate_match','completed-match-identity','completed',1,'2026-01-04','2026-01-05','2026-01-05');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,stage,input_identity,status,attempt_count,created_at,updated_at)
+    VALUES('superseded-reconcile','position','superseded-backfill','observation','source','reconcile_gig','superseded-reconcile-identity','superseded',0,'2026-01-06','2026-01-06');
   `);
 
   await applyStatements(database,new URL("../migrations/0036_bizarre_doomsday.sql",import.meta.url));
@@ -341,6 +346,8 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
   expect(database.query(`SELECT company_name companyName,template_name templateName,final_outcome finalOutcome,completed_at completedAt FROM scout_position_backfill_items WHERE run_id='completed-backfill'`).get()).toEqual({companyName:"Synthetic Company",templateName:"custom",finalOutcome:"promoted",completedAt:"2026-01-05"});
   expect(database.query(`SELECT status,completed_at completedAt FROM scout_runs WHERE id='pending-backfill'`).get()).toEqual({status:"running",completedAt:null});
   expect(database.query(`SELECT status,completed_at completedAt FROM scout_runs WHERE id='completed-backfill'`).get()).toEqual({status:"completed",completedAt:"2026-01-05"});
+  expect(database.query(`SELECT final_outcome finalOutcome,completed_at completedAt FROM scout_position_backfill_items WHERE run_id='superseded-backfill'`).get()).toEqual({finalOutcome:"superseded",completedAt:"2026-01-06"});
+  expect(database.query(`SELECT status,completed_at completedAt FROM scout_runs WHERE id='superseded-backfill'`).get()).toEqual({status:"partial",completedAt:"2026-01-06"});
   expect(()=>database.query(`UPDATE scout_position_backfill_items SET description_outcome='invalid'`).run()).toThrow();
   expect(()=>database.query(`UPDATE scout_position_backfill_items SET final_outcome='invalid'`).run()).toThrow();
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);

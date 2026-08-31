@@ -694,6 +694,38 @@ test("explicit position backfill preview rejects DOM detail identities that requ
   });
 });
 
+test("explicit position backfill preview rejects a JSON ID identity with an empty external ID",()=>{
+  const store=setup(),database=databases.at(-1)!;
+  store.startOrReuse(20,5,"2026-08-28T12:00:00Z");
+  const job=store.pendingJobs(1)[0]!;
+  prepareAndComplete(store,job,successfulResult(job),"2026-08-28T12:00:01Z");
+  const positionId=(database.query(`SELECT id FROM scout_positions LIMIT 1`).get() as {id:string}).id;
+  database.query(`UPDATE scout_positions SET external_id='' WHERE id=?`).run(positionId);
+  importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{position.url}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-28T12:00:02Z"));
+
+  expect(store.previewBackfill({positionIds:[positionId],reason:"Reject empty JSON identity"})).toMatchObject({
+    requested:1,
+    accepted:[],
+    rejected:[{positionId,code:"description_identity_input_missing"}],
+  });
+});
+
+test("explicit position backfill preview rejects a DOM ID identity with a whitespace external ID",()=>{
+  const store=setup(),database=databases.at(-1)!;
+  store.startOrReuse(20,5,"2026-08-28T12:00:00Z");
+  const job=store.pendingJobs(1)[0]!;
+  prepareAndComplete(store,job,successfulResult(job),"2026-08-28T12:00:01Z");
+  const positionId=(database.query(`SELECT id FROM scout_positions LIMIT 1`).get() as {id:string}).id;
+  database.query(`UPDATE scout_positions SET external_id=' \t ' WHERE id=?`).run(positionId);
+  importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"html",url:"https://careers.example.test/jobs",listingSelector:".job",titleField:{selector:".title"},urlField:{selector:"a"},listingSurfaceSelector:".jobs",detailDescription:{response:"html",urlTemplate:"{position.url}",extractor:{type:"dom",selector:".description",idSelector:"#job-id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-28T12:00:02Z"));
+
+  expect(store.previewBackfill({positionIds:[positionId],reason:"Reject whitespace DOM identity"})).toMatchObject({
+    requested:1,
+    accepted:[],
+    rejected:[{positionId,code:"description_identity_input_missing"}],
+  });
+});
+
 test("explicit position backfill starts atomically and reuses its durable fingerprint",()=>{
   setup();
   const database=databases.at(-1)!;

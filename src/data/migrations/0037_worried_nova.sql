@@ -76,16 +76,16 @@ SET
 			) THEN 'unavailable'
 			ELSE 'failed'
 		END
-		WHEN `linked_gig_id` IS NOT NULL THEN 'promoted'
-		WHEN `initial_decision_origin` = 'user' THEN 'user_workflow_preserved'
-		WHEN `initial_state` = 'irrelevant' THEN 'agent_irrelevant'
-		WHEN `initial_state` = 'needs_user_review' THEN 'needs_user_review'
 		WHEN NOT EXISTS (
 			SELECT 1 FROM `scout_position_processing` processing
 			WHERE processing.`run_id` = `scout_position_backfill_items`.`run_id`
 				AND processing.`position_id` = `scout_position_backfill_items`.`position_id`
 				AND processing.`status` <> 'superseded'
 		) THEN 'superseded'
+		WHEN `linked_gig_id` IS NOT NULL THEN 'promoted'
+		WHEN `initial_decision_origin` = 'user' THEN 'user_workflow_preserved'
+		WHEN `initial_state` = 'irrelevant' THEN 'agent_irrelevant'
+		WHEN `initial_state` = 'needs_user_review' THEN 'needs_user_review'
 		ELSE 'failed'
 	END,
 	`failure_code` = CASE
