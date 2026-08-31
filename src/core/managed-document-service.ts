@@ -44,6 +44,10 @@ export class ManagedDocumentService {
     return this.persistence.documents.createdByChange(changeId);
   }
 
+  versionByChange(changeId:string):ManagedDocumentVersionData|null {
+    return this.persistence.documents.versionByChange(changeId);
+  }
+
   list(entityType: DocumentLinkEntityType, entityId: string): ManagedDocumentSummary[] {
     return this.persistence.documents.list(entityType, entityId).map(managedSummary);
   }

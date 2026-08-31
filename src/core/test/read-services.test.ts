@@ -56,6 +56,7 @@ class Repo<T extends { id: string }> implements ReadRepository<T> {
 class EmptyDocuments implements DocumentWriteRepository {
   get() { return null; }
   createdByChange() { return null; }
+  versionByChange() { return null; }
   list(_entityType: DocumentLinkEntityType, _entityId: string) { return []; }
   listVersions(): ManagedDocumentVersionData[] { return []; }
   create(_input: { document: ManagedDocumentData; content: string; contentHash: string }): ManagedDocumentRecord {

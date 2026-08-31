@@ -38,7 +38,7 @@ export interface ScoutPositionProcessingRepository {
 }
 
 export class ScoutPositionProcessor {
- constructor(private readonly repository:ScoutPositionProcessingRepository,private readonly model:ScoutScreeningModel,private readonly now=()=>new Date().toISOString(),private readonly selectModel?:(identity:ScoutScreeningModelIdentity)=>ScoutScreeningModel,private readonly documents?:Pick<ManagedDocumentService,"get"|"update">){}
+ constructor(private readonly repository:ScoutPositionProcessingRepository,private readonly model:ScoutScreeningModel,private readonly now=()=>new Date().toISOString(),private readonly selectModel?:(identity:ScoutScreeningModelIdentity)=>ScoutScreeningModel,private readonly documents?:Pick<ManagedDocumentService,"get"|"update"|"versionByChange">){}
  async process(processingId:string){
   const stage=this.repository.stage(processingId);if(!stage)return;
   if(stage==="reconcile_gig"){this.repository.reconcileGig(processingId,this.now());return;}
@@ -51,6 +51,13 @@ export class ScoutPositionProcessor {
     const work=prepared.promotedDocument,current=this.documents.get(work.managedDocumentId);
     if(!current)throw new Error("Promoted Gig job description not found.");
     this.verifyPromotedDocument(current,work);
+    const projectedVersion=this.documents.versionByChange(work.documentChangeId);
+    if(projectedVersion){
+     if(projectedVersion.documentId!==work.managedDocumentId||projectedVersion.content!==work.markdown)throw new Error("Promoted Gig job-description change does not match its durable Scout work.");
+     this.verifyPromotedDocument(current,work,work.markdown);
+     this.repository.completeDescription(processingId,prepared.descriptionId,"updated",now);
+     return;
+    }
     const outcome=this.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:work.documentChangeId,occurredAt:now},{documentId:work.managedDocumentId,expectedVersion:current.currentVersion,content:work.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:work.sourceDescription,sourceProvenance:work.sourceProvenance});
     this.verifyPromotedDocument(outcome.document,work,work.markdown);
     this.repository.completeDescription(processingId,prepared.descriptionId,outcome.changed?"updated":"unchanged",now);

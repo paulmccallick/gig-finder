@@ -92,6 +92,7 @@ describe("promoted description managed-document projection",()=>{
   let document=promotedDocument("Original official description.",1);
   const documents={
    get(id:string){expect(id).toBe(promotedDescriptionWork.managedDocumentId);events.push("document:get");return document;},
+   versionByChange(){return null;},
    update(context:Parameters<import("../../../managed-document-service").ManagedDocumentService["update"]>[0],input:Parameters<import("../../../managed-document-service").ManagedDocumentService["update"]>[1]){
     expect(context).toEqual({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:promotedDescriptionWork.documentChangeId,occurredAt:"2026-08-29T01:00:01Z"});
     expect(input).toEqual({documentId:promotedDescriptionWork.managedDocumentId,expectedVersion:1,content:promotedDescriptionWork.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:promotedDescriptionWork.sourceDescription,sourceProvenance:promotedDescriptionWork.sourceProvenance});
@@ -109,17 +110,35 @@ describe("promoted description managed-document projection",()=>{
  test("records unchanged content without creating a managed-document version",async()=>{
   const events:string[]=[];
   const document=promotedDocument(promotedDescriptionWork.markdown,4);
-  const documents={get(){events.push("document:get");return document;},update(){events.push("document:update");return{document,changeId:null,changed:false};}};
+  const documents={get(){events.push("document:get");return document;},versionByChange(){return null;},update(){events.push("document:update");return{document,changeId:null,changed:false};}};
 
   await new ScoutPositionProcessor(promotedRepository(events),model,()=>"2026-08-29T01:00:02Z",undefined,documents).process(promotedDescriptionWork.processingId);
 
   expect(events).toEqual(["acquired","prepared","document:get","document:update","completed:unchanged"]);
  });
 
+ test("records updated when retry finds the deterministic managed-document version",async()=>{
+  const events:string[]=[];
+  const document=promotedDocument(promotedDescriptionWork.markdown,2);
+  const documents={
+   get(){events.push("document:get");return document;},
+   versionByChange(changeId:string){
+    expect(changeId).toBe(promotedDescriptionWork.documentChangeId);
+    events.push("document:version-by-change");
+    return{documentId:document.id,version:2,parentVersion:1,content:promotedDescriptionWork.markdown,contentHash:"hash",changeId,changeSummary:"Refresh from current official Scout posting",createdAt:"2026-08-29T01:00:01Z",createdBy:"Gig Scout",sourceDescription:promotedDescriptionWork.sourceDescription,sourceProvenance:promotedDescriptionWork.sourceProvenance};
+   },
+   update(){throw new Error("retry must not create or deduplicate another version");},
+  };
+
+  await new ScoutPositionProcessor(promotedRepository(events),model,()=>"2026-08-29T01:00:02Z",undefined,documents).process(promotedDescriptionWork.processingId);
+
+  expect(events).toEqual(["acquired","prepared","document:get","document:version-by-change","completed:updated"]);
+ });
+
  test("rejects a document that is not the exact linked Gig Markdown job description",async()=>{
   const events:string[]=[];
   const document={...promotedDocument("Original official description.",1),links:[{entityType:"gig" as const,entityId:"another-gig"}]};
-  const documents={get(){events.push("document:get");return document;},update(){events.push("document:update");return{document,changeId:promotedDescriptionWork.documentChangeId,changed:true};}};
+  const documents={get(){events.push("document:get");return document;},versionByChange(){return null;},update(){events.push("document:update");return{document,changeId:promotedDescriptionWork.documentChangeId,changed:true};}};
 
   await expect(new ScoutPositionProcessor(promotedRepository(events),model,()=>"2026-08-29T01:00:02Z",undefined,documents).process(promotedDescriptionWork.processingId)).rejects.toThrow("durable Scout link");
 
@@ -131,6 +150,7 @@ describe("promoted description managed-document projection",()=>{
   let document=promotedDocument("Original official description.",1),conflict=true,automatedVersions=0;
   const documents={
    get(){events.push(`document:get:${document.currentVersion}`);return document;},
+   versionByChange(){return null;},
    update(_context:unknown,input:{expectedVersion:number;content:string}){
     events.push(`document:update:${input.expectedVersion}`);
     if(conflict){conflict=false;document={...document,currentVersion:2,content:"Concurrent user edit."};throw new MutationError("revision_conflict","Synthetic document revision conflict.");}

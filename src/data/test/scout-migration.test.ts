@@ -278,7 +278,7 @@ test("0035 preserves durable Scout history while adding explicit position backfi
   expect(runTypes).toEqual(["full","legacy_backfill"]);
   expect(database.query(`SELECT id,status,run_type,source_run_id,batch_size,concurrency,search_profile_json,screening_cache_key,candidate_profile_json,candidate_profile_version,candidate_profile_artifact_id,candidate_profile_hash,created_at,started_at,completed_at,company_count,succeeded_count,failed_count FROM scout_runs ORDER BY created_at`).all()).toEqual(beforeRunRows);
   expect(database.query(`SELECT * FROM scout_position_observations ORDER BY id`).all()).toEqual(beforeObservationRows);
-  expect(database.query(`SELECT * FROM scout_position_processing ORDER BY id`).all()).toEqual(beforeProcessingRows);
+  expect(database.query(`SELECT id,position_id,run_id,observation_id,configuration_source_id,description_id,criteria_id,relevance_evaluation_id,rubric_id,stage,input_identity,status,attempt_count,failure_code,failure_message,created_at,updated_at,completed_at FROM scout_position_processing ORDER BY id`).all()).toEqual(beforeProcessingRows);
   expect(database.query(`SELECT * FROM scout_position_processing_outbox ORDER BY id`).all()).toEqual(beforeOutboxRows);
   expect(columnNames(database,"scout_runs")).toEqual(expect.arrayContaining(["operator_reason","request_fingerprint","screening_model","screening_provider","screening_model_configuration"]));
   expect(database.query(`SELECT screening_model model,screening_provider provider,screening_model_configuration modelConfiguration FROM scout_runs ORDER BY created_at`).all()).toEqual([
@@ -286,6 +286,9 @@ test("0035 preserves durable Scout history while adding explicit position backfi
     {model:null,provider:null,modelConfiguration:null},
   ]);
   expect(tableNames(database)).toContain("scout_position_backfill_items");
+  expect(columnNames(database,"scout_position_processing")).toContain("document_projection_status");
+  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id='processing'`).get()).toEqual({documentProjectionStatus:null});
+  expect(()=>database.query(`UPDATE scout_position_processing SET document_projection_status='inferred' WHERE id='processing'`).run()).toThrow();
   expect(columnNames(database,"managed_document_versions")).toEqual(expect.arrayContaining(["source_description","source_provenance_json"]));
   expect(database.query(`SELECT document_id,version,parent_version,content,content_hash,change_id,change_summary,created_at,created_by FROM managed_document_versions`).all()).toEqual(beforeVersions);
   expect(database.query(`SELECT source_description sourceDescription,source_provenance_json sourceProvenance FROM managed_document_versions`).get()).toEqual({sourceDescription:null,sourceProvenance:null});

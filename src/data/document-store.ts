@@ -118,6 +118,12 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
     return row?fromRow(row,this.links(row.id)):null;
   }
 
+  versionByChange(changeId:string):ManagedDocumentVersionData|null {
+    const rows=this.database.query(`SELECT * FROM managed_document_versions WHERE change_id=? ORDER BY document_id,version LIMIT 2`).all(changeId) as VersionRow[];
+    if(rows.length>1)throw new Error(`Managed document change ${changeId} created multiple versions.`);
+    return rows[0]?versionFromRow(rows[0]):null;
+  }
+
   list(
     entityType: DocumentLinkEntityType,
     entityId: string,

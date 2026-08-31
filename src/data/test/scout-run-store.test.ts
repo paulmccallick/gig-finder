@@ -11,7 +11,7 @@ import type { CompanyScanResult } from "../../core/scout/engine";
 import type { ScoutCompanyJob } from "../../core/scout/engine/runs";
 import { ScoutPositionProcessor, type ScoutScreeningModel } from "../../core/scout/engine/screening";
 import { ScoutPositionService } from "../../core/scout/engine/scout-position-service";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 const databases: ReturnType<typeof openDatabase>[] = [];
 const temporaryDirectories:string[]=[];
@@ -39,6 +39,11 @@ function setup() {
   );
   return new SqliteScoutRunStore(db);
 }
+
+test("Scout run persistence never mutates managed-document tables directly",()=>{
+  const source=readFileSync(new URL("../scout-run-store.ts",import.meta.url),"utf8");
+  expect(source).not.toMatch(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+`?managed_(?:documents|document_versions|document_links)`?/i);
+});
 
 const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
   const position = {
@@ -690,7 +695,7 @@ test("explicit position backfill starts atomically and reuses its durable finger
   expect(database.query(`SELECT count(*) count FROM scout_runs WHERE run_type='position_backfill'`).get()).toEqual({count:2});
 });
 
-test("promoted description preparation durably updates one linked managed document and retries conflicts",async()=>{
+test("real processor durably records promoted document outcomes and reconciles a crash after update",async()=>{
   setup();
   const database=databases.at(-1)!;
   const descriptionsRoot=mkdtempSync(path.join(process.cwd(),"tmp","scout-promoted-description-"));
@@ -733,23 +738,25 @@ test("promoted description preparation durably updates one linked managed docume
     sourceProvenance:{officialUrl:corrected.sourceUrl,retrievedAt:corrected.retrievedAt,sourceContentHash:corrected.sourceContentHash,extractedContentHash:corrected.extractedContentHash,sourceKey:"official",configurationVersion:2,extractionStrategy:corrected.strategyVersion,converterVersion:corrected.converterVersion},
     documentChangeId:expect.stringMatching(/^change_[0-9a-f]{32}$/),
   });
-  expect(database.query(`SELECT status,description_id descriptionId FROM scout_position_processing WHERE id=?`).get(firstAcquire)).toEqual({status:"pending",descriptionId:prepared.descriptionId});
+  expect(database.query(`SELECT status,description_id descriptionId,document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(firstAcquire)).toEqual({status:"pending",descriptionId:prepared.descriptionId,documentProjectionStatus:"pending"});
   const replayedPreparation=store.prepareDescriptionCompletion(firstAcquire,corrected,"2026-08-29T01:00:05Z");
   expect(replayedPreparation).toEqual(prepared);
-  const changed=application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:prepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:05Z"},{documentId:promotion.managedDocumentId,expectedVersion:1,content:corrected.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance});
-  store.completeDescription(firstAcquire,prepared.descriptionId,changed.changed?"updated":"unchanged","2026-08-29T01:00:05Z");
+  await new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:05Z",undefined,application.documents).process(firstAcquire);
   expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:2,sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance},{version:1,sourceDescription:null,sourceProvenance:null}]);
+  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(firstAcquire)).toEqual({documentProjectionStatus:"updated"});
   expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
+  database.query(`UPDATE scout_position_processing SET document_projection_status='unchanged' WHERE id=?`).run(firstAcquire);
+  expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:1,failed:0});
+  database.query(`UPDATE scout_position_processing SET document_projection_status='updated' WHERE id=?`).run(firstAcquire);
 
   const unchangedRun=store.startBackfill({positionIds:[positionId],reason:"Verify unchanged promoted description"},"2026-08-29T01:00:06Z");
   const unchangedReconcile=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='reconcile_gig'`).get(unchangedRun.runId) as {id:string}).id;
   store.reconcileGig(unchangedReconcile,"2026-08-29T01:00:06.500Z");
   const unchangedAcquire=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='acquire_description'`).get(unchangedRun.runId) as {id:string}).id;
-  const unchangedPrepared=store.prepareDescriptionCompletion(unchangedAcquire,corrected,"2026-08-29T01:00:07Z");
-  const current=application.documents.get(promotion.managedDocumentId)!;
-  const unchanged=application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:unchangedPrepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:07Z"},{documentId:promotion.managedDocumentId,expectedVersion:current.currentVersion,content:corrected.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:unchangedPrepared.promotedDocument!.sourceDescription,sourceProvenance:unchangedPrepared.promotedDocument!.sourceProvenance});
-  store.completeDescription(unchangedAcquire,unchangedPrepared.descriptionId,unchanged.changed?"updated":"unchanged","2026-08-29T01:00:07Z");
+  const _unchangedPrepared=store.prepareDescriptionCompletion(unchangedAcquire,corrected,"2026-08-29T01:00:07Z");
+  await new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:07Z",undefined,application.documents).process(unchangedAcquire);
   expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(2);
+  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(unchangedAcquire)).toEqual({documentProjectionStatus:"unchanged"});
   expect(store.backfillStatus(unchangedRun.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:1,failed:0});
 
   const conflicted={...corrected,markdown:"Final corrected official description.",sourceContentHash:"c".repeat(64),extractedContentHash:"d".repeat(64),retrievedAt:"2026-08-29T01:00:08Z"};
@@ -760,17 +767,34 @@ test("promoted description preparation durably updates one linked managed docume
   const conflictPrepared=store.prepareDescriptionCompletion(conflictAcquire,conflicted,"2026-08-29T01:00:09Z");
   application.documents.update({actor:"Reviewer",source:"user_request",summary:"Concurrent edit",changeId:"concurrent-promoted-edit",occurredAt:"2026-08-29T01:00:09Z"},{documentId:promotion.managedDocumentId,expectedVersion:2,content:"Concurrent user edit.",changeSummary:"Concurrent edit"});
   expect(()=>application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:conflictPrepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:09Z"},{documentId:promotion.managedDocumentId,expectedVersion:conflictPrepared.promotedDocument!.expectedDocumentVersion,content:conflicted.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:conflictPrepared.promotedDocument!.sourceDescription,sourceProvenance:conflictPrepared.promotedDocument!.sourceProvenance})).toThrow("expected version 2 but is at version 3");
-  store.failDescriptionProjection(conflictAcquire,"revision_conflict","Synthetic document revision conflict.","2026-08-29T01:00:09Z");
-  expect(database.query(`SELECT status,description_id descriptionId,failure_code failureCode FROM scout_position_processing WHERE id=?`).get(conflictAcquire)).toEqual({status:"pending",descriptionId:conflictPrepared.descriptionId,failureCode:"document_projection_revision_conflict"});
+  store.failDescriptionProjection(conflictAcquire,"document_projection_failed","Synthetic document revision conflict.","2026-08-29T01:00:09Z");
+  expect(database.query(`SELECT status,description_id descriptionId,failure_code failureCode,document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(conflictAcquire)).toEqual({status:"pending",descriptionId:conflictPrepared.descriptionId,failureCode:"document_projection_failed",documentProjectionStatus:"failed"});
   expect(store.backfillStatus(conflictRun.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:0,failed:1});
   const retried=store.prepareDescriptionCompletion(conflictAcquire,conflicted,"2026-08-29T01:00:10Z");
   expect(retried).toMatchObject({descriptionId:conflictPrepared.descriptionId,promotedDocument:{expectedDocumentVersion:3,documentChangeId:conflictPrepared.promotedDocument!.documentChangeId}});
+  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(conflictAcquire)).toEqual({documentProjectionStatus:"pending"});
   const final=application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:retried.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:10Z"},{documentId:promotion.managedDocumentId,expectedVersion:3,content:conflicted.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:retried.promotedDocument!.sourceDescription,sourceProvenance:retried.promotedDocument!.sourceProvenance});
   store.completeDescription(conflictAcquire,retried.descriptionId,final.changed?"updated":"unchanged","2026-08-29T01:00:10Z");
+  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(conflictAcquire)).toEqual({documentProjectionStatus:"updated"});
   expect(store.backfillStatus(conflictRun.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=?`).get(promotion.gigId)).toEqual({count:1});
   expect(database.query(`SELECT count(*) count FROM managed_documents WHERE id=?`).get(promotion.managedDocumentId)).toEqual({count:1});
   expect(application.documents.versions(promotion.managedDocumentId).filter(version=>version.changeId===retried.promotedDocument!.documentChangeId)).toHaveLength(1);
+
+  const afterCrash={...corrected,markdown:"Crash-safe corrected official description.",sourceContentHash:"e".repeat(64),extractedContentHash:"f".repeat(64),retrievedAt:"2026-08-29T01:00:11Z"};
+  const crashRun=store.startBackfill({positionIds:[positionId],reason:"Replay after managed document update"},"2026-08-29T01:00:11Z");
+  const crashReconcile=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='reconcile_gig'`).get(crashRun.runId) as {id:string}).id;
+  store.reconcileGig(crashReconcile,"2026-08-29T01:00:11.500Z");
+  const crashAcquire=(database.query(`SELECT id FROM scout_position_processing WHERE run_id=? AND stage='acquire_description'`).get(crashRun.runId) as {id:string}).id;
+  const crashPrepared=store.prepareDescriptionCompletion(crashAcquire,afterCrash,"2026-08-29T01:00:12Z");
+  const beforeCrash=application.documents.get(promotion.managedDocumentId)!;
+  application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:crashPrepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:12Z"},{documentId:promotion.managedDocumentId,expectedVersion:beforeCrash.currentVersion,content:afterCrash.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:crashPrepared.promotedDocument!.sourceDescription,sourceProvenance:crashPrepared.promotedDocument!.sourceProvenance});
+
+  await new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:13Z",undefined,application.documents).process(crashAcquire);
+
+  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(crashAcquire)).toEqual({documentProjectionStatus:"updated"});
+  expect(store.backfillStatus(crashRun.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
+  expect(application.documents.versions(promotion.managedDocumentId).filter(version=>version.changeId===crashPrepared.promotedDocument!.documentChangeId)).toHaveLength(1);
 });
 
 test("position backfill reruns the complete pipeline",async()=>{

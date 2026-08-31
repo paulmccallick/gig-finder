@@ -86,6 +86,8 @@ CREATE TABLE `scout_position_backfill_items` (
 --> statement-breakpoint
 CREATE INDEX `scout_position_backfill_items_position_idx` ON `scout_position_backfill_items` (`position_id`,`run_id`);
 --> statement-breakpoint
+ALTER TABLE `scout_position_processing` ADD COLUMN `document_projection_status` text CONSTRAINT `scout_position_processing_document_projection_status_check` CHECK(`document_projection_status` IS NULL OR `document_projection_status` IN ('pending','updated','unchanged','failed'));
+--> statement-breakpoint
 CREATE TABLE `managed_document_versions_new` (
  `document_id` text NOT NULL REFERENCES managed_documents(id),
  `version` integer NOT NULL CHECK(version > 0),

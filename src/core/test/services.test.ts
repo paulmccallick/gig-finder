@@ -15,6 +15,7 @@ class DocumentRepo implements DocumentWriteRepository {
   rows=new Map<string,ManagedDocumentRecord>();histories=new Map<string,ManagedDocumentVersionData[]>();
   get(id:string){return this.rows.get(id)??null}
   createdByChange(changeId:string){return[...this.rows.values()].find(document=>this.histories.get(document.id)?.[0]?.changeId===changeId)??null}
+  versionByChange(changeId:string){return[...this.histories.values()].flat().find(version=>version.changeId===changeId)??null}
   list(entityType:DocumentLinkEntityType,entityId:string){return[...this.rows.values()].filter(document=>document.links.some(link=>link.entityType===entityType&&link.entityId===entityId))}
   listVersions(id:string){return this.histories.get(id)??[]}
   create(input:{document:ManagedDocumentData;content:string;contentHash:string}){const record={...input.document,displayName:documentDisplayName(input.document),currentVersion:1,content:input.content,contentHash:input.contentHash,createdAt:metadata.createdAt,updatedAt:metadata.updatedAt};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version:1,parentVersion:null,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:"change",createdAt:record.createdAt,createdBy:"test",sourceDescription:null,sourceProvenance:null}]);return record}

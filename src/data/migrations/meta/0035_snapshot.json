@@ -4822,6 +4822,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "document_projection_status": {
+          "name": "document_projection_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -4973,7 +4980,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "scout_position_processing_document_projection_status_check": {
+          "name": "scout_position_processing_document_projection_status_check",
+          "value": "\"scout_position_processing\".\"document_projection_status\" is null or \"scout_position_processing\".\"document_projection_status\" in ('pending','updated','unchanged','failed')"
+        }
+      }
     },
     "scout_position_processing_outbox": {
       "name": "scout_position_processing_outbox",

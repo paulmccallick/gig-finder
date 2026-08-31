@@ -490,6 +490,14 @@ describe("managed document persistence", () => {
         sourceProvenance: null,
       },
     ]);
+    expect(store.documents.versionByChange(updated.changeId)).toMatchObject({
+      documentId:document.id,
+      version:2,
+      changeId:updated.changeId,
+      content:"Version two",
+      sourceDescription,
+      sourceProvenance,
+    });
   });
 
   test("rolls back document metadata and versions atomically", () => {

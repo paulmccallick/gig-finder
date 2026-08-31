@@ -14,6 +14,7 @@ export interface ReversibleCreateRepository<T extends {id:string}> extends Write
 export interface DocumentReadRepository {
   get(id: string): ManagedDocumentRecord | null;
   createdByChange(changeId:string):ManagedDocumentRecord|null;
+  versionByChange(changeId:string):ManagedDocumentVersionData|null;
   list(entityType: DocumentLinkEntityType, entityId: string): ManagedDocumentRecord[];
   listVersions(id: string): ManagedDocumentVersionData[];
 }
