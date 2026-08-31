@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -346,4 +347,95 @@ test("rejects output symlink components and final files without writing their ta
     outputPath: escapedOutput,
   })).rejects.toThrow("must not contain symbolic links");
   expect(await Bun.file(path.join(outside, "escaped.json")).exists()).toBe(false);
+});
+
+test("keeps artifact final open anchored when its validated parent is swapped", async () => {
+  const root = await temporaryRoot("encoded-selection-input-swap-");
+  const descriptions = path.join(root, "descriptions");
+  const safeParent = path.join(descriptions, "safe-parent");
+  const movedSafeParent = path.join(descriptions, "safe-parent-opened");
+  const outside = path.join(root, "outside-descriptions");
+  await mkdir(safeParent, { recursive: true });
+  await mkdir(outside);
+  const safeContent = "Safe fixture content &lt;div&gt;select this artifact&lt;/div&gt;";
+  const outsideContent = "# Outside clean content must not be read";
+  await writeFile(path.join(safeParent, "role.md"), safeContent, "utf8");
+  await writeFile(path.join(outside, "role.md"), outsideContent, "utf8");
+
+  const positionId = `spos_${"d".repeat(32)}`;
+  const databasePath = path.join(root, "selection.sqlite");
+  createSymlinkTestDatabase(databasePath, [{
+    positionId,
+    artifactId: "artifact-parent-swap",
+    filePath: "safe-parent/role.md",
+  }]);
+  let swapped = false;
+  const report = await writeEncodedDescriptionSelectionReport({
+    databasePath,
+    descriptionsPath: descriptions,
+    outputPath: path.join(root, "selection.json"),
+    pathHooks: {
+      beforeArtifactFinalOpen: async () => {
+        await rename(safeParent, movedSafeParent);
+        await symlink(outside, safeParent);
+        swapped = true;
+      },
+    },
+  });
+
+  expect(swapped).toBe(true);
+  expect(report.selected).toEqual([{
+    positionId,
+    state: "needs_user_review",
+    origin: null,
+    linkedGigId: null,
+    company: "Example Company",
+  }]);
+  expect(await readFile(path.join(outside, "role.md"), "utf8"))
+    .toBe(outsideContent);
+});
+
+test("keeps output replacement anchored when its validated parent is swapped", async () => {
+  const root = await temporaryRoot("encoded-selection-output-swap-");
+  const descriptions = path.join(root, "descriptions");
+  const outputParent = path.join(root, "output-parent");
+  const movedOutputParent = path.join(root, "output-parent-opened");
+  const outside = path.join(root, "outside-output");
+  await mkdir(descriptions);
+  await mkdir(outputParent);
+  await mkdir(outside);
+  await writeFile(
+    path.join(descriptions, "clean.md"),
+    "# Clean description",
+    "utf8",
+  );
+  const databasePath = path.join(root, "selection.sqlite");
+  createSymlinkTestDatabase(databasePath, [{
+    positionId: `spos_${"e".repeat(32)}`,
+    artifactId: "artifact-output-parent-swap",
+    filePath: "clean.md",
+  }]);
+  const sentinelPath = path.join(outside, "sentinel.txt");
+  const sentinel = "outside output remains unchanged";
+  await writeFile(sentinelPath, sentinel, "utf8");
+  let swapped = false;
+  const outputPath = path.join(outputParent, "selection.json");
+  await writeEncodedDescriptionSelectionReport({
+    databasePath,
+    descriptionsPath: descriptions,
+    outputPath,
+    pathHooks: {
+      beforeOutputTemporaryOpen: async () => {
+        await rename(outputParent, movedOutputParent);
+        await symlink(outside, outputParent);
+        swapped = true;
+      },
+    },
+  });
+
+  expect(swapped).toBe(true);
+  expect(await Bun.file(path.join(outside, "selection.json")).exists()).toBe(false);
+  expect(await Bun.file(path.join(movedOutputParent, "selection.json")).exists())
+    .toBe(true);
+  expect(await readFile(sentinelPath, "utf8")).toBe(sentinel);
 });

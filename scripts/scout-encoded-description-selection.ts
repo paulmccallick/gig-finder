@@ -1,12 +1,25 @@
-import { constants } from "node:fs";
 import {
-  lstat,
-  mkdir,
-  open,
-  realpath,
-} from "node:fs/promises";
+  closeSync,
+  constants,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  mkdirSync,
+  readSync,
+  writeSync,
+} from "node:fs";
 import path from "node:path";
 import { Database } from "bun:sqlite";
+import {
+  createDirectoryAt,
+  hasDescriptorErrorCode,
+  openDirectoryAt,
+  openFileAt,
+  openRootDirectory,
+  removeAt,
+  replaceAt,
+  type DirectoryDescriptor,
+} from "./descriptor-path";
 
 export interface EncodedDescriptionSelectionReport {
   generatedAt: string;
@@ -30,6 +43,10 @@ interface SelectionInput {
   descriptionsPath: string;
   outputPath: string;
   generatedAt?: string;
+  pathHooks?: {
+    beforeArtifactFinalOpen?(): void | Promise<void>;
+    beforeOutputTemporaryOpen?(): void | Promise<void>;
+  };
 }
 
 interface SelectionRow {
@@ -50,10 +67,6 @@ const maxArtifactBytes = 1_000_000;
 const encodedStructuralTag = /(?:&(?:amp;)?(?:lt|#0*60|#x0*3c);)\s*\/?\s*(?:div|p|ul|ol|li|h[1-6]|a|strong|em)\b[\s\S]{0,256}?(?:&(?:amp;)?(?:gt|#0*62|#x0*3e);)/i;
 const symbolicLinkError = "Selection report paths must not contain symbolic links.";
 
-function hasErrorCode(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
 function isWithinOrEqual(root: string, candidate: string) {
   const relative = path.relative(root, candidate);
   return relative === ""
@@ -62,55 +75,52 @@ function isWithinOrEqual(root: string, candidate: string) {
       && !path.isAbsolute(relative));
 }
 
-function relativeComponents(root: string, candidate: string) {
-  const relative = path.relative(root, candidate);
-  if (!isWithinOrEqual(root, candidate) || relative === "") return [];
-  return relative.split(path.sep).filter(Boolean);
+function descriptorPath(root: string, candidate: string) {
+  if (!isWithinOrEqual(root, candidate) || candidate === root) return null;
+  const components = path.relative(root, candidate).split(path.sep);
+  const name = components.pop();
+  if (!name) return null;
+  return { directories: components, name };
 }
 
-async function assertDirectoryWithoutSymlinks(directory: string) {
-  const metadata = await lstat(directory);
-  if (metadata.isSymbolicLink()) throw new Error(symbolicLinkError);
-  if (!metadata.isDirectory()) {
-    throw new Error("Selection report path component must be a directory.");
+function openExistingParent(root: string, directories: string[]) {
+  let current = openRootDirectory(root);
+  try {
+    for (const component of directories) {
+      const next = openDirectoryAt(current, component);
+      current.close();
+      current = next;
+    }
+    return current;
+  } catch (error) {
+    current.close();
+    throw error;
   }
-}
-
-async function canonicalDirectoryWithin(root: string, directory: string) {
-  const canonicalRoot = await realpath(root);
-  const canonicalDirectory = await realpath(directory);
-  if (!isWithinOrEqual(canonicalRoot, canonicalDirectory)) {
-    throw new Error("Selection report path escapes its configured root.");
-  }
-  return canonicalDirectory;
 }
 
 async function inspectArtifact(
   descriptionsRoot: string,
   filePath: string | null,
+  beforeFinalOpen?: () => void | Promise<void>,
 ): Promise<ArtifactInspection> {
   if (!filePath) return "missing";
 
   const root = path.resolve(descriptionsRoot);
   const artifact = path.resolve(root, filePath);
-  if (!isWithinOrEqual(root, artifact) || artifact === root) return "unreadable";
+  const relative = descriptorPath(root, artifact);
+  if (!relative) return "unreadable";
 
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let parent: DirectoryDescriptor | undefined;
+  let fileDescriptor: number | undefined;
   try {
-    await assertDirectoryWithoutSymlinks(root);
-    const parent = path.dirname(artifact);
-    let current = root;
-    for (const component of relativeComponents(root, parent)) {
-      current = path.join(current, component);
-      await assertDirectoryWithoutSymlinks(current);
-    }
-    await canonicalDirectoryWithin(root, parent);
-
-    handle = await open(
-      artifact,
+    parent = openExistingParent(root, relative.directories);
+    await beforeFinalOpen?.();
+    fileDescriptor = openFileAt(
+      parent,
+      relative.name,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
-    const metadata = await handle.stat();
+    const metadata = fstatSync(fileDescriptor);
     if (!metadata.isFile() || metadata.size > maxArtifactBytes) {
       return "unreadable";
     }
@@ -118,7 +128,8 @@ async function inspectArtifact(
     const buffer = Buffer.alloc(Number(metadata.size));
     let offset = 0;
     while (offset < buffer.length) {
-      const { bytesRead } = await handle.read(
+      const bytesRead = readSync(
+        fileDescriptor,
         buffer,
         offset,
         buffer.length - offset,
@@ -130,62 +141,152 @@ async function inspectArtifact(
     const markdown = buffer.subarray(0, offset).toString("utf8");
     return encodedStructuralTag.test(markdown) ? "encoded" : "clean";
   } catch (error) {
-    return hasErrorCode(error, "ENOENT") ? "missing" : "unreadable";
+    return hasDescriptorErrorCode(error, "ENOENT") ? "missing" : "unreadable";
   } finally {
-    await handle?.close();
+    if (fileDescriptor !== undefined) closeSync(fileDescriptor);
+    parent?.close();
   }
 }
 
-async function ensureSafeOutputParent(output: string) {
-  await mkdir(allowedOutputRoot, { mode: 0o700 }).catch(error => {
-    if (!hasErrorCode(error, "EEXIST")) throw error;
-  });
-  await assertDirectoryWithoutSymlinks(allowedOutputRoot);
-
-  const parent = path.dirname(output);
-  let current = allowedOutputRoot;
-  for (const component of relativeComponents(allowedOutputRoot, parent)) {
-    current = path.join(current, component);
-    try {
-      await mkdir(current, { mode: 0o700 });
-    } catch (error) {
-      if (!hasErrorCode(error, "EEXIST")) throw error;
-    }
-    await assertDirectoryWithoutSymlinks(current);
-    await canonicalDirectoryWithin(allowedOutputRoot, current);
-  }
-  await canonicalDirectoryWithin(allowedOutputRoot, parent);
-}
-
-async function writeReport(output: string, report: EncodedDescriptionSelectionReport) {
-  await ensureSafeOutputParent(output);
+function openOutputParent(directories: string[]) {
   try {
-    const existing = await lstat(output);
-    if (existing.isSymbolicLink()) throw new Error(symbolicLinkError);
-    if (!existing.isFile()) {
+    mkdirSync(allowedOutputRoot, { mode: 0o700 });
+  } catch (error) {
+    if (!hasDescriptorErrorCode(error, "EEXIST")) throw error;
+  }
+
+  let current = openRootDirectory(allowedOutputRoot);
+  try {
+    for (const component of directories) {
+      let next: DirectoryDescriptor;
+      try {
+        next = openDirectoryAt(current, component);
+      } catch (error) {
+        if (!hasDescriptorErrorCode(error, "ENOENT")) throw error;
+        try {
+          createDirectoryAt(current, component, 0o700);
+        } catch (createError) {
+          if (!hasDescriptorErrorCode(createError, "EEXIST")) throw createError;
+        }
+        next = openDirectoryAt(current, component);
+      }
+      current.close();
+      current = next;
+    }
+    return current;
+  } catch (error) {
+    current.close();
+    if (hasDescriptorErrorCode(error, "ELOOP", "ENOTDIR")) {
+      throw new Error(symbolicLinkError, { cause: error });
+    }
+    throw error;
+  }
+}
+
+function assertSafeOutputFinal(parent: DirectoryDescriptor, name: string) {
+  let existing: number | undefined;
+  try {
+    existing = openFileAt(
+      parent,
+      name,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    if (!fstatSync(existing).isFile()) {
       throw new Error("Selection report output must be a regular file.");
     }
   } catch (error) {
-    if (!hasErrorCode(error, "ENOENT")) throw error;
+    if (hasDescriptorErrorCode(error, "ENOENT")) return;
+    if (hasDescriptorErrorCode(error, "ELOOP")) {
+      throw new Error(symbolicLinkError, { cause: error });
+    }
+    throw error;
+  } finally {
+    if (existing !== undefined) closeSync(existing);
+  }
+}
+
+function writeBuffer(fileDescriptor: number, content: Buffer) {
+  let offset = 0;
+  while (offset < content.length) {
+    const bytesWritten = writeSync(
+      fileDescriptor,
+      content,
+      offset,
+      content.length - offset,
+      null,
+    );
+    if (bytesWritten === 0) {
+      throw new Error("Selection report write made no progress.");
+    }
+    offset += bytesWritten;
+  }
+}
+
+async function writeReport(
+  output: string,
+  report: EncodedDescriptionSelectionReport,
+  beforeTemporaryOpen?: () => void | Promise<void>,
+) {
+  const relative = descriptorPath(allowedOutputRoot, output);
+  if (!relative) {
+    throw new Error(
+      "The encoded-description selection report must be written beneath repository-local tmp/.",
+    );
   }
 
-  const handle = await open(
-    output,
-    constants.O_WRONLY
-      | constants.O_CREAT
-      | constants.O_TRUNC
-      | constants.O_NOFOLLOW,
-    0o600,
-  );
+  const parent = openOutputParent(relative.directories);
+  const temporaryName = `.encoded-selection-${crypto.randomUUID()}.tmp`;
+  let temporaryDescriptor: number | undefined;
+  let temporaryExists = false;
+  let cleanupError: unknown;
   try {
-    const metadata = await handle.stat();
-    if (!metadata.isFile()) {
-      throw new Error("Selection report output must be a regular file.");
+    assertSafeOutputFinal(parent, relative.name);
+    await beforeTemporaryOpen?.();
+    temporaryDescriptor = openFileAt(
+      parent,
+      temporaryName,
+      constants.O_WRONLY
+        | constants.O_CREAT
+        | constants.O_EXCL
+        | constants.O_NOFOLLOW,
+      0o600,
+    );
+    temporaryExists = true;
+    if (!fstatSync(temporaryDescriptor).isFile()) {
+      throw new Error("Selection report temporary output must be a regular file.");
     }
-    await handle.chmod(0o600);
-    await handle.writeFile(`${JSON.stringify(report, null, 2)}\n`, "utf8");
+    fchmodSync(temporaryDescriptor, 0o600);
+    writeBuffer(
+      temporaryDescriptor,
+      Buffer.from(`${JSON.stringify(report, null, 2)}\n`, "utf8"),
+    );
+    fsyncSync(temporaryDescriptor);
+    closeSync(temporaryDescriptor);
+    temporaryDescriptor = undefined;
+
+    replaceAt(parent, temporaryName, relative.name);
+    temporaryExists = false;
+    try {
+      fsyncSync(parent.fd);
+    } catch (error) {
+      if (!hasDescriptorErrorCode(error, "EINVAL")) throw error;
+    }
   } finally {
-    await handle.close();
+    if (temporaryDescriptor !== undefined) closeSync(temporaryDescriptor);
+    if (temporaryExists) {
+      try {
+        removeAt(parent, temporaryName);
+      } catch (error) {
+        if (!hasDescriptorErrorCode(error, "ENOENT")) cleanupError = error;
+      }
+    }
+    parent.close();
+  }
+  if (cleanupError instanceof Error) throw cleanupError;
+  if (cleanupError) {
+    throw new Error("Selection report temporary cleanup failed.", {
+      cause: cleanupError,
+    });
   }
 }
 
@@ -253,7 +354,11 @@ export async function writeEncodedDescriptionSelectionReport(
         continue;
       }
 
-      const artifact = await inspectArtifact(input.descriptionsPath, row.filePath);
+      const artifact = await inspectArtifact(
+        input.descriptionsPath,
+        row.filePath,
+        input.pathHooks?.beforeArtifactFinalOpen,
+      );
       if (artifact === "missing") {
         unresolved.push({
           positionId: row.positionId,
@@ -289,7 +394,11 @@ export async function writeEncodedDescriptionSelectionReport(
       excluded,
       unresolved,
     };
-    await writeReport(output, report);
+    await writeReport(
+      output,
+      report,
+      input.pathHooks?.beforeOutputTemporaryOpen,
+    );
     return report;
   } finally {
     database.close();

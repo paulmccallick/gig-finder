@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "architecture": "depcruise src --config .dependency-cruiser.cjs",
-    "test": "bun test src/core/test src/core/scout/engine/test src/data/test src/cli/test src/agent/test src/web src/operations/test scripts/smoke-support",
+    "test": "bun test src/core/test src/core/scout/engine/test src/data/test src/cli/test src/agent/test src/web src/operations/test scripts/smoke-support scripts/scout-encoded-description-selection.test.ts",
     "check": "bun run lint && bun run typecheck && bun run architecture && bun run test",
     "test:e2e": "playwright test --config src/web/playwright.config.ts",
     "smoke:deterministic": "bun run scripts/smoke.ts deterministic",
