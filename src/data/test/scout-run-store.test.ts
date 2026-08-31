@@ -789,12 +789,16 @@ test("real processor durably records promoted document outcomes and reconciles a
   const crashPrepared=store.prepareDescriptionCompletion(crashAcquire,afterCrash,"2026-08-29T01:00:12Z");
   const beforeCrash=application.documents.get(promotion.managedDocumentId)!;
   application.documents.update({actor:"Gig Scout",source:"automation",summary:"Refresh promoted Gig job description",changeId:crashPrepared.promotedDocument!.documentChangeId,occurredAt:"2026-08-29T01:00:12Z"},{documentId:promotion.managedDocumentId,expectedVersion:beforeCrash.currentVersion,content:afterCrash.markdown,changeSummary:"Refresh from current official Scout posting",sourceDescription:crashPrepared.promotedDocument!.sourceDescription,sourceProvenance:crashPrepared.promotedDocument!.sourceProvenance});
+  const afterScoutUpdate=application.documents.get(promotion.managedDocumentId)!;
+  application.documents.update({actor:"Reviewer",source:"user_request",summary:"Edit job description after Scout refresh",changeId:"user-edit-after-scout-refresh",occurredAt:"2026-08-29T01:00:12.500Z"},{documentId:promotion.managedDocumentId,expectedVersion:afterScoutUpdate.currentVersion,content:"Newer user-authored description.",changeSummary:"Preserve a newer user edit"});
+  const userVersion=application.documents.get(promotion.managedDocumentId)!;
 
   await new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:13Z",undefined,application.documents).process(crashAcquire);
 
-  expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(crashAcquire)).toEqual({documentProjectionStatus:"updated"});
+  expect(database.query(`SELECT status,document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(crashAcquire)).toEqual({status:"completed",documentProjectionStatus:"updated"});
   expect(store.backfillStatus(crashRun.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
   expect(application.documents.versions(promotion.managedDocumentId).filter(version=>version.changeId===crashPrepared.promotedDocument!.documentChangeId)).toHaveLength(1);
+  expect(application.documents.get(promotion.managedDocumentId)).toMatchObject({currentVersion:userVersion.currentVersion,content:"Newer user-authored description."});
 });
 
 test("position backfill reruns the complete pipeline",async()=>{

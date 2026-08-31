@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { MutationError } from "../../errors";
-import type { ManagedDocumentRecord } from "../../documents";
+import type { ManagedDocumentRecord, ManagedDocumentVersionData } from "../../documents";
 import type { ManagedDocumentService } from "../../managed-document-service";
 import type { ScoutPromotedDescriptionOutcome, ScoutPromotedDescriptionWork } from "./positions";
 
@@ -53,8 +53,7 @@ export class ScoutPositionProcessor {
     this.verifyPromotedDocument(current,work);
     const projectedVersion=this.documents.versionByChange(work.documentChangeId);
     if(projectedVersion){
-     if(projectedVersion.documentId!==work.managedDocumentId||projectedVersion.content!==work.markdown)throw new Error("Promoted Gig job-description change does not match its durable Scout work.");
-     this.verifyPromotedDocument(current,work,work.markdown);
+     this.verifyPromotedVersion(projectedVersion,work);
      this.repository.completeDescription(processingId,prepared.descriptionId,"updated",now);
      return;
     }
@@ -78,5 +77,10 @@ export class ScoutPositionProcessor {
   const exactGigOwnership=document.links.length===1&&document.links[0]?.entityType==="gig"&&document.links[0].entityId===work.gigId;
   const exactContent=expectedContent===undefined||document.content===expectedContent;
   if(document.id!==work.managedDocumentId||document.documentType!=="job_description"||document.mediaType!=="text/markdown"||!exactContent||!exactGigOwnership)throw new Error("Promoted Gig job description does not match its durable Scout link.");
+ }
+ private verifyPromotedVersion(version:ManagedDocumentVersionData,work:ScoutPromotedDescriptionWork){
+  const actual=version.sourceProvenance,expected=work.sourceProvenance;
+  const exactProvenance=actual?.officialUrl===expected.officialUrl&&actual.retrievedAt===expected.retrievedAt&&actual.sourceContentHash===expected.sourceContentHash&&actual.extractedContentHash===expected.extractedContentHash&&actual.sourceKey===expected.sourceKey&&actual.configurationVersion===expected.configurationVersion&&actual.extractionStrategy===expected.extractionStrategy&&actual.converterVersion===expected.converterVersion;
+  if(version.documentId!==work.managedDocumentId||version.content!==work.markdown||version.sourceDescription!==work.sourceDescription||!exactProvenance)throw new Error("Promoted Gig job-description change does not match its durable Scout work.");
  }
 }

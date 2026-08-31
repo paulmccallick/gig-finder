@@ -117,9 +117,9 @@ describe("promoted description managed-document projection",()=>{
   expect(events).toEqual(["acquired","prepared","document:get","document:update","completed:unchanged"]);
  });
 
- test("records updated when retry finds the deterministic managed-document version",async()=>{
+ test("records updated from the deterministic version while preserving a newer user version",async()=>{
   const events:string[]=[];
-  const document=promotedDocument(promotedDescriptionWork.markdown,2);
+  const document=promotedDocument("Later user edit.",3);
   const documents={
    get(){events.push("document:get");return document;},
    versionByChange(changeId:string){
@@ -133,6 +133,21 @@ describe("promoted description managed-document projection",()=>{
   await new ScoutPositionProcessor(promotedRepository(events),model,()=>"2026-08-29T01:00:02Z",undefined,documents).process(promotedDescriptionWork.processingId);
 
   expect(events).toEqual(["acquired","prepared","document:get","document:version-by-change","completed:updated"]);
+  expect(document).toMatchObject({currentVersion:3,content:"Later user edit."});
+ });
+
+ test("rejects a deterministic version whose Scout provenance does not match durable work",async()=>{
+  const events:string[]=[];
+  const document=promotedDocument("Later user edit.",3);
+  const documents={
+   get(){events.push("document:get");return document;},
+   versionByChange(changeId:string){return{documentId:document.id,version:2,parentVersion:1,content:promotedDescriptionWork.markdown,contentHash:"hash",changeId,changeSummary:"Refresh from current official Scout posting",createdAt:"2026-08-29T01:00:01Z",createdBy:"Gig Scout",sourceDescription:promotedDescriptionWork.sourceDescription,sourceProvenance:{...promotedDescriptionWork.sourceProvenance,sourceContentHash:"c".repeat(64)}};},
+   update(){throw new Error("mismatched deterministic history must not be updated or accepted");},
+  };
+
+  await expect(new ScoutPositionProcessor(promotedRepository(events),model,()=>"2026-08-29T01:00:02Z",undefined,documents).process(promotedDescriptionWork.processingId)).rejects.toThrow("does not match its durable Scout work");
+
+  expect(events).toEqual(["acquired","prepared","document:get","failed:document_projection_failed"]);
  });
 
  test("rejects a document that is not the exact linked Gig Markdown job description",async()=>{
