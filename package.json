@@ -35,6 +35,7 @@
     "test:data": "bun test src/data/test",
     "cli": "bin/gig-finder",
     "scout:source": "bun run scripts/scout-source.ts",
+    "scout:encoded-description-selection": "bun run scripts/scout-encoded-description-selection.ts",
     "scout:verify-descriptions:live": "bun run src/operations/scout-description-live-verification.ts"
   },
   "dependencies": {

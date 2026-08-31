@@ -13,6 +13,12 @@ const documentUploadTimeoutSeconds = 60;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const trustedUserActor="User";
 const scoutMutation=<T>(operation:()=>T)=>{try{return operation();}catch(reason){const message=reason instanceof Error?reason.message:"Invalid Scout position request.";throw new WebRequestError(message,message.includes("revised")?409:422);}};
+const scoutBackfillRequest=<T>(operation:()=>T)=>{try{return operation();}catch(reason){throw new WebRequestError(reason instanceof Error?reason.message:"Invalid Scout position backfill request.",400);}};
+
+async function scoutBackfillBody(request:Request){
+  try{return await request.json();}
+  catch(error){throw new WebRequestError("Request body must be valid JSON.",400,{cause:error});}
+}
 
 export interface WebHandlerDependencies {
   gigFinder: GigFinderApplication;
@@ -222,8 +228,21 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
         if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method==="GET")response=json(scoutPositions.relevance());else if(request.method==="PUT"){let body:unknown;try{body=await request.json();}catch{throw new WebRequestError("Request body must be valid JSON.",400);}if(!isRecord(body))throw new WebRequestError("Request body must be an object.",400);response=json(scoutPositions.configureRelevance({criteria:body.criteria,confidenceThreshold:body.confidenceThreshold}));}else response=json({error:"Method not allowed"},405);
       } else if(url.pathname==="/api/gig-scout/positions"){
         response=!scoutPositions?json({error:"Gig Scout unavailable"},503):request.method!=="GET"?json({error:"Method not allowed"},405):json(scoutPositions.list({text:url.searchParams.get("text")??undefined,company:url.searchParams.get("company")??undefined,state:url.searchParams.get("state")??undefined,sort:url.searchParams.get("sort")??undefined,direction:(url.searchParams.get("direction")??undefined) as "asc"|"desc"|undefined,offset:Number(url.searchParams.get("offset")??0),limit:Number(url.searchParams.get("limit")??20)}));
+      } else if(url.pathname==="/api/gig-scout/positions/backfill/preview"){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);
+        else if(request.method!=="POST")response=json({error:"Method not allowed"},405);
+        else if(url.searchParams.size)throw new WebRequestError("Explicit Scout position backfill does not accept query filters.",400);
+        else{const body=await scoutBackfillBody(request);response=json(scoutBackfillRequest(()=>scoutPositions.previewBackfill(body)));}
       } else if(url.pathname==="/api/gig-scout/positions/backfill"){
-        response=!scoutPositions?json({error:"Gig Scout unavailable"},503):request.method!=="POST"?json({error:"Method not allowed"},405):json(scoutPositions.backfill(url.searchParams.get("sourceRunId")??"",Number(url.searchParams.get("limit")??100)),202);
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);
+        else if(request.method!=="POST")response=json({error:"Method not allowed"},405);
+        else if(url.searchParams.has("sourceRunId"))response=json(scoutPositions.backfill(url.searchParams.get("sourceRunId")??"",Number(url.searchParams.get("limit")??100)),202);
+        else if(url.searchParams.size)throw new WebRequestError("Explicit Scout position backfill does not accept query filters.",400);
+        else{const body=await scoutBackfillBody(request);response=json(scoutBackfillRequest(()=>scoutPositions.startBackfill(body)),202);}
+      } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/backfill\/[^/]+$/)){
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);
+        else if(request.method!=="GET")response=json({error:"Method not allowed"},405);
+        else{const runId=decodeURIComponent(url.pathname.slice("/api/gig-scout/positions/backfill/".length));const status=scoutBackfillRequest(()=>scoutPositions.backfillStatus(runId));response=status?json(status):json({error:"Scout position backfill not found"},404);}
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+$/)){
         const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const position=scoutPositions?.get(positionId);response=request.method!=="GET"?json({error:"Method not allowed"},405):position?json(position):json({error:"Scout position not found"},404);
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/decision$/)){
