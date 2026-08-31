@@ -1,7 +1,47 @@
 import type { GigInput } from "../../gigs";
 import type { ManagedDocumentService } from "../../managed-document-service";
 import type { GigDomainService } from "../../tracker-services";
-import type { ScoutPositionDetail, ScoutPositionStore, ScoutUserDecisionCommand } from "./positions";
+import type {
+  ScoutPositionBackfillCommand,
+  ScoutPositionDetail,
+  ScoutPositionStore,
+  ScoutUserDecisionCommand,
+} from "./positions";
+
+const exactPositionIdPattern = /^spos_[0-9a-f]{32}$/;
+
+function normalizeBackfillCommand(input: unknown): ScoutPositionBackfillCommand {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("Scout position backfill request must be an object.");
+  }
+
+  const record = input as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 2 || keys[0] !== "positionIds" || keys[1] !== "reason") {
+    throw new Error("Scout position backfill accepts only positionIds and reason.");
+  }
+  if (!Array.isArray(record.positionIds)) {
+    throw new Error("Scout position backfill requires between 1 and 1,000 exact position IDs.");
+  }
+  const validatedPositionIds: string[] = [];
+  for (const positionId of record.positionIds) {
+    if (typeof positionId !== "string" || !exactPositionIdPattern.test(positionId)) {
+      throw new Error("Scout position backfill contains a malformed position ID.");
+    }
+    validatedPositionIds.push(positionId);
+  }
+
+  const positionIds = [...new Set(validatedPositionIds)].sort();
+  if (positionIds.length < 1 || positionIds.length > 1000) {
+    throw new Error("Scout position backfill requires between 1 and 1,000 exact position IDs.");
+  }
+
+  const reason = typeof record.reason === "string" ? record.reason.trim() : "";
+  if (reason.length < 1 || reason.length > 500) {
+    throw new Error("Scout position backfill reason must contain between 1 and 500 characters.");
+  }
+  return { positionIds, reason };
+}
 
 export class ScoutPositionService {
   constructor(
@@ -42,6 +82,24 @@ export class ScoutPositionService {
   relevance() { return this.store.relevanceCriteria(); }
   configureRelevance(input: { criteria: unknown; confidenceThreshold: unknown }) { if (typeof input.criteria !== "string" || input.criteria.trim().length < 10 || input.criteria.length > 4_000) throw new Error("Relevance criteria must contain 10 to 4000 characters."); if (typeof input.confidenceThreshold !== "number" || input.confidenceThreshold < 0 || input.confidenceThreshold > 1) throw new Error("Relevance confidence threshold must be from 0 through 1."); return this.store.appendRelevanceCriteria(input.criteria.trim(), input.confidenceThreshold, new Date().toISOString()); }
   backfill(sourceRunId: string, limit = 100) { if (!sourceRunId.trim()) throw new Error("A source Scout run ID is required."); if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error("Backfill limit must be from 1 through 1000."); return this.store.backfillPositions(sourceRunId.trim(), limit, new Date().toISOString()); }
+  previewBackfill(input: unknown) {
+    return this.store.previewBackfill(normalizeBackfillCommand(input));
+  }
+
+  startBackfill(input: unknown) {
+    return this.store.startBackfill(
+      normalizeBackfillCommand(input),
+      new Date().toISOString(),
+    );
+  }
+
+  backfillStatus(runId: string) {
+    const normalized = runId.trim();
+    if (!/^srun_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+      throw new Error("A valid Scout position backfill run ID is required.");
+    }
+    return this.store.backfillStatus(normalized);
+  }
 
   private promote(positionId: string, now: string): ScoutPositionDetail | null {
     try {

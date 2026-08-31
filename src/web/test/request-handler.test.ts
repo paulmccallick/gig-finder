@@ -11,6 +11,7 @@ import {
   SqliteScoutCompanyImportStore,
 } from "../../data";
 import { importScoutCompany } from "../../core/scout/engine/company-import";
+import { ScoutPositionService } from "../../core/scout/engine/scout-position-service";
 import { createWebHandler } from "../request-handler";
 
 const artifacts: ArtifactPort = {
@@ -67,6 +68,237 @@ describe("Gig Scout position mutation API",()=>{
     expect(calls[0]).toMatchObject({changeId:"accepted",actor:"User"});
     const stale=await decide("stale");expect(stale.status).toBe(409);expect(await stale.json()).toMatchObject({error:"This position was revised and requires review again."});
     const invalid=await decide("invalid");expect(invalid.status).toBe(422);expect(await invalid.json()).toMatchObject({error:"Decision note must contain 1 to 2000 characters."});
+  });
+});
+
+describe("explicit position backfill API", () => {
+  const firstPositionId = `spos_${"1".repeat(32)}`;
+  const secondPositionId = `spos_${"2".repeat(32)}`;
+  const reason = "Reprocess entity-encoded descriptions after converter v2";
+
+  function backfillHandler(options: { rejected?: boolean } = {}) {
+    const calls: {
+      preview: Array<Record<string, unknown>>;
+      start: Array<Record<string, unknown>>;
+      status: string[];
+      legacy: Array<{ sourceRunId: string; limit: number }>;
+    } = {
+      preview: [],
+      start: [],
+      status: [],
+      legacy: [],
+    };
+    const status = {
+      runId: "srun_12345678-1234-1234-8234-123456789abc",
+      reason,
+      status: "running" as const,
+      completedAt: null,
+      selection: { requested: 1, accepted: 1, rejected: 0 },
+      stages: {
+        reconcile_gig: { pending: 1, completed: 0, failed: 0, superseded: 0 },
+        acquire_description: { pending: 0, completed: 0, failed: 0, superseded: 0 },
+        screen_relevance: { pending: 0, completed: 0, failed: 0, superseded: 0 },
+        score_candidate_match: { pending: 0, completed: 0, failed: 0, superseded: 0 },
+      },
+      positionOutcomes: { pending: 1 },
+      positions: [{
+        positionId: firstPositionId,
+        company: "Example Company",
+        template: "custom",
+        descriptionOutcome: null,
+        outcome: "pending",
+        failureCode: null,
+      }],
+      gigDocuments: { pending: 0, updated: 0, unchanged: 0, failed: 0 },
+    };
+    const scoutStore = {
+      previewBackfill(input: Record<string, unknown>) {
+        calls.preview.push(input);
+        return options.rejected
+          ? {
+              requested: 1,
+              accepted: [],
+              rejected: [{ positionId: firstPositionId, code: "not_found" }],
+            }
+          : {
+              requested: 1,
+              accepted: [{
+                positionId: firstPositionId,
+                company: "Example Company",
+                title: "Director",
+                state: "needs_user_review",
+                linkedGigId: null,
+              }],
+              rejected: [],
+            };
+      },
+      startBackfill(input: Record<string, unknown>) {
+        calls.start.push(input);
+        if (options.rejected) {
+          throw new Error(
+            `Scout position backfill rejected ${firstPositionId} (not_found).`,
+          );
+        }
+        return status;
+      },
+      backfillStatus(runId: string) {
+        calls.status.push(runId);
+        return runId === status.runId ? status : null;
+      },
+      backfillPositions(sourceRunId: string, limit: number) {
+        calls.legacy.push({ sourceRunId, limit });
+        return { legacy: true };
+      },
+    };
+    const scoutPositions = new ScoutPositionService(
+      scoutStore as never,
+      {} as never,
+      {} as never,
+    );
+    const handler = createWebHandler({
+      gigFinder: application,
+      agentApi: {
+        messages: async () => new Response(null),
+        list: () => Response.json({ conversations: [] }),
+        load: () => Response.json({ error: "Not found" }, { status: 404 }),
+      },
+      uploadHandler: async () => new Response(null),
+      discardStagedDocument: () => false,
+      requestLogger: () => logger,
+      scoutPositions: scoutPositions as never,
+    });
+    const post = (requestPath: string, body: unknown) => handler(
+      new Request(`http://localhost${requestPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      requestServer,
+    );
+    const get = (requestPath: string) => handler(
+      new Request(`http://localhost${requestPath}`),
+      requestServer,
+    );
+    return { calls, status, post, get };
+  }
+
+  test("explicit position backfill previews without starting and normalizes duplicate IDs", async () => {
+    const api = backfillHandler();
+    const response = await api.post(
+      "/api/gig-scout/positions/backfill/preview",
+      {
+        positionIds: [secondPositionId, firstPositionId, secondPositionId],
+        reason: ` ${reason} `,
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(api.calls.preview).toEqual([{
+      positionIds: [firstPositionId, secondPositionId],
+      reason,
+    }]);
+    expect(api.calls.start).toEqual([]);
+  });
+
+  test("explicit position backfill applies its limit after duplicate IDs normalize", async () => {
+    const api = backfillHandler();
+    const response = await api.post(
+      "/api/gig-scout/positions/backfill/preview",
+      {
+        positionIds: Array.from({ length: 1001 }, () => firstPositionId),
+        reason,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(api.calls.preview).toEqual([{
+      positionIds: [firstPositionId],
+      reason,
+    }]);
+  });
+
+  test("explicit position backfill starts durable work and returns stable status", async () => {
+    const api = backfillHandler();
+    const started = await api.post("/api/gig-scout/positions/backfill", {
+      positionIds: [firstPositionId],
+      reason,
+    });
+    expect(started.status).toBe(202);
+    expect(await started.json()).toEqual(api.status);
+    expect(api.calls.start).toEqual([{
+      positionIds: [firstPositionId],
+      reason,
+    }]);
+
+    const status = await api.get(
+      `/api/gig-scout/positions/backfill/${api.status.runId}`,
+    );
+    expect(status.status).toBe(200);
+    expect(await status.json()).toEqual(api.status);
+    expect(api.calls.status).toEqual([api.status.runId]);
+  });
+
+  test("explicit position backfill rejects malformed, empty, oversized, and implicit selections", async () => {
+    const api = backfillHandler();
+    const invalidBodies: unknown[] = [
+      { positionIds: [], reason },
+      { positionIds: ["position-1"], reason },
+      {
+        positionIds: Array.from(
+          { length: 1001 },
+          (_, index) => `spos_${index.toString(16).padStart(32, "0")}`,
+        ),
+        reason,
+      },
+      { positionIds: [firstPositionId], reason: "" },
+      { positionIds: [firstPositionId], reason: "x".repeat(501) },
+      {
+        positionIds: [firstPositionId],
+        reason,
+        states: ["needs_user_review"],
+      },
+      { positionIds: [firstPositionId], reason, company: "Example Company" },
+      {
+        positionIds: [firstPositionId],
+        reason,
+        where: "state = 'needs_user_review'",
+      },
+    ];
+    for (const body of invalidBodies) {
+      const response = await api.post("/api/gig-scout/positions/backfill", body);
+      expect(response.status).toBe(400);
+    }
+    expect(api.calls.start).toEqual([]);
+  });
+
+  test("explicit position backfill prevents partial start when an exact ID is rejected", async () => {
+    const api = backfillHandler({ rejected: true });
+    const preview = await api.post(
+      "/api/gig-scout/positions/backfill/preview",
+      { positionIds: [firstPositionId], reason },
+    );
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      accepted: [],
+      rejected: [{ positionId: firstPositionId, code: "not_found" }],
+    });
+    const start = await api.post("/api/gig-scout/positions/backfill", {
+      positionIds: [firstPositionId],
+      reason,
+    });
+    expect(start.status).toBe(400);
+    expect(api.calls.start).toHaveLength(1);
+  });
+
+  test("explicit position backfill preserves the source-run query form", async () => {
+    const api = backfillHandler();
+    const response = await api.post(
+      "/api/gig-scout/positions/backfill?sourceRunId=srun_source&limit=25",
+      {},
+    );
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ legacy: true });
+    expect(api.calls.legacy).toEqual([{ sourceRunId: "srun_source", limit: 25 }]);
+    expect(api.calls.start).toEqual([]);
   });
 });
 

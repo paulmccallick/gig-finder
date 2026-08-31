@@ -1,7 +1,12 @@
 import { atPath } from "./extractors/json";
 import type { GigScoutHttpPort } from "./ports";
 import type { PlannedRequest } from "./source-plan";
-import { descriptionToMarkdown, scoutDescriptionConverterVersion } from "./descriptions";
+import {
+  normalizeExtractedDescription,
+  scoutDescriptionConverterVersion,
+  type DescriptionContentEncoding,
+  type DescriptionContentFormat,
+} from "./descriptions";
 import type { SourceConfiguration } from "./contracts";
 import type { TemplateResolver } from "./adapters/templates/definitions";
 import { planReusableDetailRequest } from "./adapters/templates/request";
@@ -13,6 +18,8 @@ export interface DetailDescriptionPlan {
   descriptionPath?: string;
   extractor?: { type:"dom"; selector:string; titleSelector?:string; idSelector?:string } | { type:"json-ld" };
   identity?: { titlePath?:string; idPath?:string };
+  contentFormat: DescriptionContentFormat;
+  contentEncoding: DescriptionContentEncoding;
   strategyVersion: string;
   template?: { id:string; version:number };
 }
@@ -22,10 +29,10 @@ const normalizeIdentity = (value:unknown) => typeof value === "string" || typeof
 const comparableIdentity=(value:unknown)=>normalizeIdentity(value).normalize("NFKC").replaceAll("&amp;","&").replaceAll("&quot;",'"').replace(/[^\p{L}\p{N}]+/gu," ").trim();
 
 export function resolveDetailDescriptionPlan(source:SourceConfiguration,position:{id:string|null;title:string;url:string},templates?:TemplateResolver):DetailDescriptionPlan|null{
-  if("template" in source){if(!templates)throw new Error("Scout template catalog is unavailable.");const definition=templates.resolve(source.template);if(!definition.detailDescription)return null;const request=planReusableDetailRequest(source,definition,position);if(!request)return null;return{request,response:definition.detailDescription.response,descriptionPath:definition.detailDescription.descriptionPath,extractor:definition.detailDescription.extractor,identity:definition.detailDescription.identity,strategyVersion:`${definition.detailDescription.response}-${definition.detailDescription.extractor?.type??"field"}-v1`,template:source.template};}
+  if("template" in source){if(!templates)throw new Error("Scout template catalog is unavailable.");const definition=templates.resolve(source.template);if(!definition.detailDescription)return null;const request=planReusableDetailRequest(source,definition,position);if(!request)return null;return{request,response:definition.detailDescription.response,descriptionPath:definition.detailDescription.descriptionPath,extractor:definition.detailDescription.extractor,identity:definition.detailDescription.identity,contentFormat:definition.detailDescription.contentFormat,contentEncoding:definition.detailDescription.contentEncoding,strategyVersion:`${definition.detailDescription.response}-${definition.detailDescription.extractor?.type??"field"}-v1`,template:source.template};}
   const detail=source.detailDescription;if(!detail)return null;
-  if(detail.response==="json")return{request:planInlineDetailRequest({sourceUrl:source.url,urlTemplate:detail.request.urlTemplate,method:detail.request.method,headers:detail.request.headers,body:detail.request.body},position),response:"json",descriptionPath:detail.descriptionPath,identity:detail.identity,strategyVersion:"json-field-v1"};
-  return{request:planInlineDetailRequest({sourceUrl:source.url,urlTemplate:detail.urlTemplate,method:"GET",headers:{accept:"text/html, application/xhtml+xml"}},position),response:"html",extractor:detail.extractor,strategyVersion:`html-${detail.extractor.type}-v1`};
+  if(detail.response==="json")return{request:planInlineDetailRequest({sourceUrl:source.url,urlTemplate:detail.request.urlTemplate,method:detail.request.method,headers:detail.request.headers,body:detail.request.body},position),response:"json",descriptionPath:detail.descriptionPath,identity:detail.identity,contentFormat:detail.contentFormat,contentEncoding:detail.contentEncoding,strategyVersion:"json-field-v1"};
+  return{request:planInlineDetailRequest({sourceUrl:source.url,urlTemplate:detail.urlTemplate,method:"GET",headers:{accept:"text/html, application/xhtml+xml"}},position),response:"html",extractor:detail.extractor,contentFormat:"html",contentEncoding:"none",strategyVersion:`html-${detail.extractor.type}-v1`};
 }
 
 async function htmlSelection(body:string, selector:string) {
@@ -79,7 +86,10 @@ export async function acquirePlannedDescription(plan:DetailDescriptionPlan,posit
     }else extracted=await jsonLdSelection(response.body,position);
   }
   if(typeof extracted!=="string"||!extracted.trim())throw new Error("description_empty");
-  const markdown=descriptionToMarkdown(extracted,/<[a-z][\s\S]*>/i.test(extracted)?"text/html":"text/plain");
+  const markdown=normalizeExtractedDescription(extracted,{
+    contentFormat:plan.contentFormat,
+    contentEncoding:plan.contentEncoding,
+  });
   if(!markdown)throw new Error("description_empty");
   return {markdown,sourceContentHash:await sha256(response.body),extractedContentHash:await sha256(extracted),sourceUrl:response.url,retrievedAt:new Date().toISOString(),converterVersion:scoutDescriptionConverterVersion,strategyVersion:plan.strategyVersion,template:plan.template};
 }

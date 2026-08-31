@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+const descriptionContentFormatSchema = z.enum(["auto", "html", "plain-text"]);
+const descriptionContentEncodingSchema = z.enum(["none", "html-entities"]);
+const descriptionSemantics = {
+  contentFormat: descriptionContentFormatSchema.default("auto"),
+  contentEncoding: descriptionContentEncodingSchema.default("none"),
+};
+const validateDescriptionSemantics = (
+  value: { contentFormat: "auto" | "html" | "plain-text"; contentEncoding: "none" | "html-entities" },
+  context: z.RefinementCtx,
+) => {
+  if (value.contentEncoding === "html-entities" && value.contentFormat !== "html")
+    context.addIssue({
+      code: "custom",
+      message: "HTML entity encoding requires HTML content format.",
+    });
+};
+
 const templateInputNameSchema = z
   .string()
   .trim()
@@ -31,6 +48,10 @@ const fieldSchema = z
       .optional(),
   })
   .strict();
+
+const descriptionFieldSchema = fieldSchema
+  .extend(descriptionSemantics)
+  .superRefine(validateDescriptionSemantics);
 
 const requestSchema = z
   .object({
@@ -64,7 +85,9 @@ const detailDescriptionSchema = z.object({
     z.object({ type: z.literal("json-ld") }).strict(),
   ]).optional(),
   identity: z.object({ titlePath: z.string().trim().min(1).max(200).optional(), idPath: z.string().trim().min(1).max(200).optional() }).strict().optional(),
+  ...descriptionSemantics,
 }).strict().superRefine((value, context) => {
+  validateDescriptionSemantics(value, context);
   if (value.response === "json" && !value.descriptionPath) context.addIssue({ code:"custom", message:"JSON detail descriptions require descriptionPath." });
   if (value.response === "json" && !value.identity?.idPath && !value.identity?.titlePath) context.addIssue({ code:"custom", message:"JSON detail descriptions require an ID or title identity path." });
   if (value.response === "html" && !value.extractor) context.addIssue({ code:"custom", message:"HTML detail descriptions require an extractor." });
@@ -113,7 +136,7 @@ export const reusableJsonDefinitionSchema = z
         location: fieldSchema.optional(),
         locations: fieldSchema.optional(),
         workArrangement: fieldSchema.optional(),
-        description: fieldSchema.optional(),
+        description: descriptionFieldSchema.optional(),
         descriptionUrl: fieldSchema.optional(),
       })
       .strict(),

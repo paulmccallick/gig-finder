@@ -4,7 +4,7 @@ import { ChangeExecutor } from "../changes";
 import { DomainValidationError,MutationError,OptimisticConcurrencyError } from "../errors";
 import type { ArtifactPort,ArtifactVerification,AuditPort,DocumentWriteRepository,Persistence,ReadRepository,UnitOfWork } from "../ports";
 import type { ChangeContext,EntityRecord,GigData,GigPersonData,InteractionData,InteractionParticipantData,PersonData,TaskData } from "../models";
-import { documentDisplayName,type DocumentLinkEntityType,type ManagedDocumentData,type ManagedDocumentRecord,type ManagedDocumentVersionData } from "../documents";
+import { documentDisplayName,type DocumentLinkEntityType,type ManagedDocumentData,type ManagedDocumentRecord,type ManagedDocumentSourceProvenance,type ManagedDocumentVersionData } from "../documents";
 import { gigInputSchema } from "../gigs";
 
 const metadata={revision:1,isDeleted:false,createdAt:"2026-07-22T12:00:00-07:00",updatedAt:"2026-07-22T12:00:00-07:00"};
@@ -15,10 +15,11 @@ class DocumentRepo implements DocumentWriteRepository {
   rows=new Map<string,ManagedDocumentRecord>();histories=new Map<string,ManagedDocumentVersionData[]>();
   get(id:string){return this.rows.get(id)??null}
   createdByChange(changeId:string){return[...this.rows.values()].find(document=>this.histories.get(document.id)?.[0]?.changeId===changeId)??null}
+  versionByChange(changeId:string){return[...this.histories.values()].flat().find(version=>version.changeId===changeId)??null}
   list(entityType:DocumentLinkEntityType,entityId:string){return[...this.rows.values()].filter(document=>document.links.some(link=>link.entityType===entityType&&link.entityId===entityId))}
   listVersions(id:string){return this.histories.get(id)??[]}
-  create(input:{document:ManagedDocumentData;content:string;contentHash:string}){const record={...input.document,displayName:documentDisplayName(input.document),currentVersion:1,content:input.content,contentHash:input.contentHash,createdAt:metadata.createdAt,updatedAt:metadata.updatedAt};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version:1,parentVersion:null,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:"change",createdAt:record.createdAt,createdBy:"test"}]);return record}
-  addVersion(input:{documentId:string;expectedVersion:number;content:string;contentHash:string;changeSummary:string}){const current=this.get(input.documentId)!;const version=input.expectedVersion+1;const record={...current,currentVersion:version,content:input.content,contentHash:input.contentHash,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version,parentVersion:input.expectedVersion,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:input.changeSummary,createdAt:record.updatedAt,createdBy:"test"},...(this.histories.get(record.id)??[])]);return record}
+  create(input:{document:ManagedDocumentData;content:string;contentHash:string}){const record={...input.document,displayName:documentDisplayName(input.document),currentVersion:1,content:input.content,contentHash:input.contentHash,createdAt:metadata.createdAt,updatedAt:metadata.updatedAt};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version:1,parentVersion:null,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:"change",createdAt:record.createdAt,createdBy:"test",sourceDescription:null,sourceProvenance:null}]);return record}
+  addVersion(input:{documentId:string;expectedVersion:number;content:string;contentHash:string;changeSummary:string;sourceDescription?:string;sourceProvenance?:ManagedDocumentSourceProvenance}){const current=this.get(input.documentId)!;const version=input.expectedVersion+1;const record={...current,currentVersion:version,content:input.content,contentHash:input.contentHash,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(record.id,record);this.histories.set(record.id,[{documentId:record.id,version,parentVersion:input.expectedVersion,content:record.content,contentHash:record.contentHash,changeId:"test-change",changeSummary:input.changeSummary,createdAt:record.updatedAt,createdBy:"test",sourceDescription:input.sourceDescription??null,sourceProvenance:input.sourceProvenance??null},...(this.histories.get(record.id)??[])]);return record}
 }
 const documents=new DocumentRepo();
 let auditedChangeCount=0;
@@ -76,9 +77,14 @@ describe("application services",()=>{
   expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Original description",mediaType:"text/plain",version:1,currentVersion:1}});
   const unchanged=app.documents.update({...context,changeId:"document-noop"},{documentId:created.document.id,expectedVersion:1,content:"Original description",changeSummary:"No content change"});
   expect(unchanged).toMatchObject({changed:false,changeId:null,document:{currentVersion:1}});
-  const updated=app.documents.update({...context,changeId:"document-update"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Correct source text"});
+  const sourceDescription="Gig Scout official posting retrieved from official configuration 2.";
+  const sourceProvenance={officialUrl:"https://careers.example.test/jobs/143",retrievedAt:"2026-08-29T01:00:00Z",sourceContentHash:"a".repeat(64),extractedContentHash:"b".repeat(64),sourceKey:"official",configurationVersion:2,extractionStrategy:"json-field-v1",converterVersion:"scout-description-v2"};
+  expect(()=>app.documents.update({...context,changeId:"document-source-description-only"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Invalid partial provenance",sourceDescription})).toThrow(DomainValidationError);
+  expect(()=>app.documents.update({...context,changeId:"document-source-provenance-only"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Invalid partial provenance",sourceProvenance})).toThrow(DomainValidationError);
+  const updated=app.documents.update({...context,changeId:"document-update"},{documentId:created.document.id,expectedVersion:1,content:"Corrected description",changeSummary:"Correct source text",sourceDescription,sourceProvenance});
   expect(updated).toMatchObject({changed:true,changeId:"document-update",document:{currentVersion:2,content:"Corrected description"}});
   expect(app.documents.versions(created.document.id).map(version=>version.content)).toEqual(["Corrected description","Original description"]);
+  expect(app.documents.versions(created.document.id)).toMatchObject([{sourceDescription,sourceProvenance},{sourceDescription:null,sourceProvenance:null}]);
  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description",mediaType:"text/plain",version:2,currentVersion:2}});
  expect(await app.documentReader.get(created.document.id,1)).toMatchObject({status:"ok",record:{content:"Original description",mediaType:"text/plain",version:1,currentVersion:2}});
   const discovery=await app.documentReader.query({owner:{entityType:"gig",entityId:"gig"},offset:0,limit:50});

@@ -1,5 +1,5 @@
 import type { NormalizedPosition, SourceConfiguration } from "../contracts";
-import { normalizeDescription } from "../descriptions";
+import { normalizeExtractedDescription } from "../descriptions";
 import { normalizeLocations, normalizeWorkArrangement } from "../matching";
 
 export function atPath(value: unknown, path: string): unknown {
@@ -91,8 +91,11 @@ export function extractJson(
       location,
     ]);
     const explicitWorkArrangement = read(source.fields.workArrangement);
-    const rawDescription=read(source.fields.description);
-    const description = normalizeDescription(rawDescription);
+    const rawDescription = read(source.fields.description?.path);
+    const description = normalizeExtractedDescription(rawDescription, {
+      contentFormat: source.fields.description?.contentFormat,
+      contentEncoding: source.fields.description?.contentEncoding,
+    });
     return [
       {
         sourceKey: source.key,

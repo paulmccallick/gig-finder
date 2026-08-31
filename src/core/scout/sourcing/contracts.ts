@@ -1,5 +1,29 @@
 import { z } from "zod";
 
+const descriptionContentFormatSchema = z.enum(["auto", "html", "plain-text"]);
+const descriptionContentEncodingSchema = z.enum(["none", "html-entities"]);
+const descriptionSemantics = {
+  contentFormat: descriptionContentFormatSchema.default("auto"),
+  contentEncoding: descriptionContentEncodingSchema.default("none"),
+};
+const validateDescriptionSemantics = (
+  value: { contentFormat: "auto" | "html" | "plain-text"; contentEncoding: "none" | "html-entities" },
+  context: z.RefinementCtx,
+) => {
+  if (value.contentEncoding === "html-entities" && value.contentFormat !== "html")
+    context.addIssue({
+      code: "custom",
+      message: "HTML entity encoding requires HTML content format.",
+    });
+};
+const customDescriptionFieldSchema = z
+  .object({
+    path: z.string().trim().min(1),
+    ...descriptionSemantics,
+  })
+  .strict()
+  .superRefine(validateDescriptionSemantics);
+
 export const sourceTypes = ["json", "html"] as const;
 export const sourceOutcomeStatuses = [
   "succeeded_with_results",
@@ -33,8 +57,9 @@ const detailDescriptionSchema = z.discriminatedUnion("response", [
       body: z.record(z.string(), z.unknown()).optional(),
     }).strict(),
     descriptionPath: z.string().trim().min(1).max(200),
+    ...descriptionSemantics,
     identity: z.object({ titlePath: z.string().trim().min(1).max(200).optional(), idPath: z.string().trim().min(1).max(200).optional() }).strict().optional(),
-  }).strict().superRefine((value,context)=>{if(!value.identity?.idPath&&!value.identity?.titlePath)context.addIssue({code:"custom",message:"JSON detail descriptions require an ID or title identity path."});}),
+  }).strict().superRefine((value,context)=>{validateDescriptionSemantics(value,context);if(!value.identity?.idPath&&!value.identity?.titlePath)context.addIssue({code:"custom",message:"JSON detail descriptions require an ID or title identity path."});}),
   z.object({
     response: z.literal("html"),
     urlTemplate: z.string().trim().min(1).max(1_000),
@@ -71,7 +96,14 @@ export const customJsonSourceSchema = commonSource
         title: z.string().trim().min(1),
         url: z.string().trim().min(1),
         urlPrefix: z.string().max(300).optional(),
-        description: z.string().trim().min(1).optional(),
+        description: z
+          .union([z.string().trim().min(1), customDescriptionFieldSchema])
+          .transform((value) =>
+            typeof value === "string"
+              ? { path: value, contentFormat: "auto" as const, contentEncoding: "none" as const }
+              : value,
+          )
+          .optional(),
         location: z.string().trim().min(1).optional(),
         locations: z.string().trim().min(1).optional(),
         workArrangement: z.string().trim().min(1).optional(),

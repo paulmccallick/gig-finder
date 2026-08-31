@@ -28,7 +28,7 @@ import {ScoutPositionRuntime} from "../operations/scout-position-runtime";
 import { importScoutCompany } from "../core/scout/engine/company-import";
 import { scoutTemplateCatalog } from "../operations/scout-template-catalog";
 import { AiSdkScoutScreeningModel } from "../agent/scout-position-screening";
-import { ScoutPositionProcessor } from "../core/scout/engine/screening";
+import { ScoutPositionProcessor, type ScoutScreeningModelIdentity } from "../core/scout/engine/screening";
 
 type ProcessEnvironment = Record<string, string | undefined>;
 
@@ -204,8 +204,10 @@ export async function createWebApplication(configuration: WebConfiguration) {
     logger: logging.logger,
   });
   scoutRuntime.start();
-  const screening=new AiSdkScoutScreeningModel(()=>createCodexLanguageModel(screeningModel,{...(configuration.smoke.providerBaseURL?{smokeBaseURL:configuration.smoke.providerBaseURL}:{}),surfaceLiveSmokeErrors:configuration.smoke.mode==="live"}),{provider:"openai-codex",model:screeningModel,configuration:screeningModelConfiguration});
-  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,new ScoutPositionProcessor(local.scoutStore,screening),{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
+  const screeningForIdentity=(identity:ScoutScreeningModelIdentity)=>{if(identity.provider!=="openai-codex")throw new Error(`Unsupported Scout screening provider: ${identity.provider}`);const selectedModel=parseAgentModelId(identity.model);return new AiSdkScoutScreeningModel(()=>createCodexLanguageModel(selectedModel,{...(configuration.smoke.providerBaseURL?{smokeBaseURL:configuration.smoke.providerBaseURL}:{}),surfaceLiveSmokeErrors:configuration.smoke.mode==="live"}),{provider:identity.provider,model:selectedModel,configuration:identity.modelConfiguration});};
+  const screeningIdentity={provider:"openai-codex",model:screeningModel,modelConfiguration:screeningModelConfiguration};
+  const screening=screeningForIdentity(screeningIdentity);
+  const scoutPositionRuntime=new ScoutPositionRuntime(local.scoutStore,new ScoutPositionProcessor(local.scoutStore,screening,undefined,screeningForIdentity,gigFinder.documents),{dataPath:configuration.context.scoutPositionQueue,batchSize:configuration.scout.batchSize,concurrency:configuration.scout.concurrency});
   scoutPositionRuntime.start();
   const stagedDocuments = new StagedDocumentService(configuration.staging);
   const uploadHandler = createDocumentUploadHandler(

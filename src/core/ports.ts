@@ -4,6 +4,7 @@ import type {
   DocumentLinkEntityType,
   ManagedDocumentData,
   ManagedDocumentRecord,
+  ManagedDocumentSourceProvenance,
   ManagedDocumentVersionData,
 } from "./documents";
 
@@ -13,6 +14,7 @@ export interface ReversibleCreateRepository<T extends {id:string}> extends Write
 export interface DocumentReadRepository {
   get(id: string): ManagedDocumentRecord | null;
   createdByChange(changeId:string):ManagedDocumentRecord|null;
+  versionByChange(changeId:string):ManagedDocumentVersionData|null;
   list(entityType: DocumentLinkEntityType, entityId: string): ManagedDocumentRecord[];
   listVersions(id: string): ManagedDocumentVersionData[];
 }
@@ -28,6 +30,8 @@ export interface DocumentWriteRepository extends DocumentReadRepository {
     content: string;
     contentHash: string;
     changeSummary: string;
+    sourceDescription?: string;
+    sourceProvenance?: ManagedDocumentSourceProvenance;
   }): ManagedDocumentRecord;
 }
 export interface ApplicationSettingsRepository {

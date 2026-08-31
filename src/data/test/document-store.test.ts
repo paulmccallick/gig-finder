@@ -431,6 +431,17 @@ describe("managed document persistence", () => {
       }),
     );
     const updatedAt = "2026-07-28T12:00:00.000Z";
+    const sourceDescription = "Gig Scout official posting retrieved from official configuration 2.";
+    const sourceProvenance = {
+      officialUrl: "https://careers.example.test/jobs/143",
+      retrievedAt: "2026-07-28T11:59:00.000Z",
+      sourceContentHash: "a".repeat(64),
+      extractedContentHash: "b".repeat(64),
+      sourceKey: "official",
+      configurationVersion: 2,
+      extractionStrategy: "json-field-v1",
+      converterVersion: "scout-description-v2",
+    };
     const updated = store.change(
       { ...context("Correct transcription"), occurredAt: updatedAt },
       transaction => transaction.documents.addVersion({
@@ -439,6 +450,8 @@ describe("managed document persistence", () => {
         content: "Version two",
         contentHash: "hash-v2",
         changeSummary: "Correct transcription",
+        sourceDescription,
+        sourceProvenance,
       }),
     );
 
@@ -460,6 +473,8 @@ describe("managed document persistence", () => {
         changeSummary: "Correct transcription",
         createdAt: updatedAt,
         createdBy: "test-suite",
+        sourceDescription,
+        sourceProvenance,
       },
       {
         documentId: document.id,
@@ -471,8 +486,18 @@ describe("managed document persistence", () => {
         changeSummary: "Capture job description",
         createdAt: timestamp,
         createdBy: "test-suite",
+        sourceDescription: null,
+        sourceProvenance: null,
       },
     ]);
+    expect(store.documents.versionByChange(updated.changeId)).toMatchObject({
+      documentId:document.id,
+      version:2,
+      changeId:updated.changeId,
+      content:"Version two",
+      sourceDescription,
+      sourceProvenance,
+    });
   });
 
   test("rolls back document metadata and versions atomically", () => {

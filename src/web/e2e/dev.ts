@@ -177,7 +177,18 @@ const scoutImport = importScoutCompany(
           title: "title",
           url: "url",
           location: "workplace",
-          description: "description",
+          description: {
+            path: "description",
+          },
+        },
+        detailDescription: {
+          response: "json",
+          request: {
+            urlTemplate: "{source.origin}/details/{position.id}",
+            method: "GET",
+          },
+          descriptionPath: "job.description",
+          identity: { idPath: "job.id" },
         },
       },
     ],
@@ -188,15 +199,32 @@ if (scoutImport.rejected)
   throw new Error("Could not create the synthetic Scout company fixture.");
 database.close();
 
+let encodedFixturesEnabled = false;
 const scoutSource = Bun.serve({
   hostname: "127.0.0.1",
   port: scoutSourcePort,
   tls: { key: scoutSourceKey, cert: scoutSourceCertificate },
   fetch(request) {
-    if (new URL(request.url).pathname !== "/jobs")
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/details/encoded-recovery") {
+      return Response.json({
+        job: {
+          id: "encoded-recovery",
+          description: "&lt;h2&gt;Corrected scope&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;Lead recovery teams.&lt;/li&gt;&lt;li&gt;Own resilient platforms.&lt;/li&gt;&lt;/ul&gt;",
+        },
+      });
+    }
+    if (pathname === "/details/encoded-platforms") {
+      return Response.json({
+        job: {
+          id: "encoded-platforms",
+          description: "&lt;h2&gt;Corrected platform scope&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;Lead encoded platform teams.&lt;/li&gt;&lt;li&gt;Own delivery systems.&lt;/li&gt;&lt;/ul&gt;",
+        },
+      });
+    }
+    if (pathname !== "/jobs")
       return new Response("Not found", { status: 404 });
-    return Response.json({
-      jobs: [
+    const jobs = [
         {
           id: "example-1",
           title: "Director of Synthetic Systems",
@@ -211,14 +239,79 @@ const scoutSource = Bun.serve({
           workplace: "Synthetic Region",
           description: "Build and lead the orchard technology team.",
         },
-      ],
-    });
+    ];
+    if (encodedFixturesEnabled) jobs.push(
+        {
+          id: "encoded-recovery",
+          title: "Director of Encoded Recovery",
+          url: `https://127.0.0.1:${scoutSourcePort}/jobs/encoded-recovery`,
+          workplace: "Encoded Region",
+          description: "&lt;h2&gt;Legacy scope&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;Non-target facilities support.&lt;/li&gt;&lt;/ul&gt;",
+        },
+        {
+          id: "encoded-platforms",
+          title: "Head of Encoded Platforms",
+          url: `https://127.0.0.1:${scoutSourcePort}/jobs/encoded-platforms`,
+          workplace: "Encoded Region",
+          description: "&lt;h2&gt;Original platform scope&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;Lead encoded platform teams.&lt;/li&gt;&lt;/ul&gt;",
+        },
+    );
+    return Response.json({ jobs });
   },
 });
+const screeningState = createSmokeProviderState();
+const defaultScreeningHandler = smokeProviderHandler(screeningState);
 const screeningProvider = Bun.serve({
   hostname: "127.0.0.1",
   port: screeningProviderPort,
-  fetch: smokeProviderHandler(createSmokeProviderState()),
+  async fetch(request) {
+    if (
+      request.method === "POST"
+      && new URL(request.url).pathname === "/fixtures/encoded"
+    ) {
+      encodedFixturesEnabled = true;
+      return new Response(null, { status: 204 });
+    }
+    const body = request.method === "POST" ? await request.clone().text() : "";
+    if (
+      body.includes("GigFinder Scout's narrow relevance screener")
+      && body.includes("Non-target facilities support")
+    ) {
+      const id = `scout_irrelevant_${screeningState.requests + 1}`;
+      const itemId = `msg_${id}`;
+      const value = JSON.stringify({
+        decision: "fails_relevance",
+        reason: "The original description is outside the configured technology scope.",
+        confidence: 0.99,
+        evidence: ["The description identifies non-target facilities support."],
+        ambiguities: [],
+      });
+      const events = [
+        { type: "response.created", response: { id: `resp_${id}`, created_at: 1, model: "smoke-codex" } },
+        { type: "response.output_item.added", output_index: 0, item: { type: "message", id: itemId, phase: "final_answer" } },
+        { type: "response.output_text.delta", item_id: itemId, delta: value },
+        { type: "response.output_item.done", output_index: 0, item: { type: "message", id: itemId, phase: "final_answer" } },
+        {
+          type: "response.completed",
+          response: {
+            usage: {
+              input_tokens: 20,
+              input_tokens_details: { cached_tokens: 0 },
+              output_tokens: 8,
+              output_tokens_details: { reasoning_tokens: 0 },
+            },
+            incomplete_details: null,
+          },
+        },
+      ];
+      return new Response(
+        events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("")
+          + "data: [DONE]\n\n",
+        { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } },
+      );
+    }
+    return defaultScreeningHandler(request);
+  },
 });
 
 const environment = {

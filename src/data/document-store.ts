@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import {
   documentDisplayName,
+  managedDocumentSourceProvenanceSchema,
   uploadedDocumentProvenanceSchema,
 } from "../core/documents";
 import type {
@@ -8,6 +9,7 @@ import type {
   DocumentLinkEntityType,
   ManagedDocumentData,
   ManagedDocumentRecord,
+  ManagedDocumentSourceProvenance,
   ManagedDocumentVersionData,
 } from "../core/documents";
 import type {
@@ -47,6 +49,8 @@ type VersionRow = {
   change_summary: string;
   created_at: string;
   created_by: string;
+  source_description: string | null;
+  source_provenance_json: string | null;
 };
 
 const timestamp = (context: ChangeContext) =>
@@ -87,6 +91,10 @@ const versionFromRow = (row: VersionRow): ManagedDocumentVersionData => ({
   changeSummary: row.change_summary,
   createdAt: row.created_at,
   createdBy: row.created_by,
+  sourceDescription: row.source_description,
+  sourceProvenance: row.source_provenance_json
+    ? managedDocumentSourceProvenanceSchema.parse(JSON.parse(row.source_provenance_json))
+    : null,
 });
 
 const selectCurrent = `
@@ -108,6 +116,12 @@ export class SqliteDocumentReadRepository implements DocumentReadRepository {
   createdByChange(changeId:string):ManagedDocumentRecord|null {
     const row=this.database.query(`${selectCurrent} WHERE EXISTS(SELECT 1 FROM managed_document_versions created WHERE created.document_id=d.id AND created.version=1 AND created.change_id=?)`).get(changeId) as DocumentRow|null;
     return row?fromRow(row,this.links(row.id)):null;
+  }
+
+  versionByChange(changeId:string):ManagedDocumentVersionData|null {
+    const rows=this.database.query(`SELECT * FROM managed_document_versions WHERE change_id=? ORDER BY document_id,version LIMIT 2`).all(changeId) as VersionRow[];
+    if(rows.length>1)throw new Error(`Managed document change ${changeId} created multiple versions.`);
+    return rows[0]?versionFromRow(rows[0]):null;
   }
 
   list(
@@ -257,6 +271,8 @@ export class SqliteDocumentWriteRepository
     content: string;
     contentHash: string;
     changeSummary: string;
+    sourceDescription?: string;
+    sourceProvenance?: ManagedDocumentSourceProvenance;
   }): ManagedDocumentRecord {
     const current = this.get(input.documentId);
     if (!current) throw new NotFoundError("document", input.documentId);
@@ -276,6 +292,8 @@ export class SqliteDocumentWriteRepository
       content: input.content,
       contentHash: input.contentHash,
       changeSummary: input.changeSummary,
+      sourceDescription: input.sourceDescription,
+      sourceProvenance: input.sourceProvenance,
     });
     const result = this.database.query(
       `UPDATE managed_documents
@@ -305,12 +323,15 @@ export class SqliteDocumentWriteRepository
     content: string;
     contentHash: string;
     changeSummary: string;
+    sourceDescription?: string;
+    sourceProvenance?: ManagedDocumentSourceProvenance;
   }) {
     this.database.query(
       `INSERT INTO managed_document_versions (
         document_id, version, parent_version, content, content_hash,
-        change_id, change_summary, created_at, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        change_id, change_summary, created_at, created_by,
+        source_description, source_provenance_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.documentId,
       input.version,
@@ -321,6 +342,8 @@ export class SqliteDocumentWriteRepository
       input.changeSummary,
       timestamp(this.context),
       this.context.actor,
+      input.sourceDescription ?? null,
+      input.sourceProvenance ? JSON.stringify(input.sourceProvenance) : null,
     );
   }
 }

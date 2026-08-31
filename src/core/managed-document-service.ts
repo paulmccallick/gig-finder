@@ -44,6 +44,10 @@ export class ManagedDocumentService {
     return this.persistence.documents.createdByChange(changeId);
   }
 
+  versionByChange(changeId:string):ManagedDocumentVersionData|null {
+    return this.persistence.documents.versionByChange(changeId);
+  }
+
   list(entityType: DocumentLinkEntityType, entityId: string): ManagedDocumentSummary[] {
     return this.persistence.documents.list(entityType, entityId).map(managedSummary);
   }
@@ -104,7 +108,7 @@ export class ManagedDocumentService {
         const transactionalCurrent = transaction.documents.get(id);
         if (!transactionalCurrent) throw new MutationError("not_found", `Document not found: ${parsed.documentId}`);
         if (transactionalCurrent.currentVersion !== parsed.expectedVersion) throw new MutationError("revision_conflict", `Document ${parsed.documentId} expected version ${parsed.expectedVersion} but is at version ${transactionalCurrent.currentVersion}.`);
-        return transaction.documents.addVersion({ documentId: id, expectedVersion: parsed.expectedVersion, content: parsed.content, contentHash, changeSummary: parsed.changeSummary });
+        return transaction.documents.addVersion({ documentId: id, expectedVersion: parsed.expectedVersion, content: parsed.content, contentHash, changeSummary: parsed.changeSummary, sourceDescription: parsed.sourceDescription, sourceProvenance: parsed.sourceProvenance });
       });
       return { document: result.value, changeId: result.changeId, changed: true };
     } catch (error) {

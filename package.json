@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "architecture": "depcruise src --config .dependency-cruiser.cjs",
-    "test": "bun test src/core/test src/core/scout/engine/test src/data/test src/cli/test src/agent/test src/web src/operations/test scripts/smoke-support",
+    "test": "bun test src/core/test src/core/scout/engine/test src/data/test src/cli/test src/agent/test src/web src/operations/test scripts/smoke-support scripts/scout-encoded-description-selection.test.ts",
     "check": "bun run lint && bun run typecheck && bun run architecture && bun run test",
     "test:e2e": "playwright test --config src/web/playwright.config.ts",
     "smoke:deterministic": "bun run scripts/smoke.ts deterministic",
@@ -35,6 +35,7 @@
     "test:data": "bun test src/data/test",
     "cli": "bin/gig-finder",
     "scout:source": "bun run scripts/scout-source.ts",
+    "scout:encoded-description-selection": "bun run scripts/scout-encoded-description-selection.ts",
     "scout:verify-descriptions:live": "bun run src/operations/scout-description-live-verification.ts"
   },
   "dependencies": {
@@ -43,6 +44,7 @@
     "ai": "7.0.35",
     "bunqueue": "2.7.14",
     "drizzle-orm": "^0.45.2",
+    "html-entities": "^2.6.0",
     "mammoth": "1.12.0",
     "mermaid": "^11.16.1",
     "pdfjs-dist": "6.2.108",
