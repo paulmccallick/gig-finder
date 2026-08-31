@@ -232,7 +232,7 @@ test("0034 renames Gig availability columns and removes the Scout-specific histo
   database.close();
 });
 
-test("0035 preserves durable Scout history while adding explicit position backfill storage",async()=>{
+test("0035 through 0037 preserve durable Scout history while extending explicit position backfill storage",async()=>{
   const database=new Database(":memory:");
   database.exec("PRAGMA foreign_keys=ON");
   database.exec(`
@@ -301,6 +301,16 @@ test("0035 preserves durable Scout history while adding explicit position backfi
   expect(()=>insertBackfill.run("invalid-fingerprint","Synthetic repair","A".repeat(64),"2026-01-03")).toThrow();
   insertBackfill.run("valid-backfill","Synthetic repair","a".repeat(64),"2026-01-03");
   expect(()=>insertBackfill.run("duplicate-backfill","Another repair","a".repeat(64),"2026-01-04")).toThrow();
+  database.query(`INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at) VALUES('valid-backfill','position','observation','source','gig','2026-01-03')`).run();
+
+  await applyStatements(database,new URL("../migrations/0036_bizarre_doomsday.sql",import.meta.url));
+  await applyStatements(database,new URL("../migrations/0037_worried_nova.sql",import.meta.url));
+
+  expect(tableNames(database)).toContain("scout_description_acquisitions");
+  expect(columnNames(database,"scout_position_backfill_items")).toEqual(expect.arrayContaining(["company_name","template_name","initial_state","initial_decision_origin","description_outcome","final_outcome","failure_code","completed_at"]));
+  expect(database.query(`SELECT run_id runId,position_id positionId,observation_id observationId,configuration_source_id configurationSourceId,linked_gig_id linkedGigId,requested_at requestedAt,company_name companyName,final_outcome finalOutcome FROM scout_position_backfill_items`).get()).toEqual({runId:"valid-backfill",positionId:"position",observationId:"observation",configurationSourceId:"source",linkedGigId:"gig",requestedAt:"2026-01-03",companyName:null,finalOutcome:null});
+  expect(()=>database.query(`UPDATE scout_position_backfill_items SET description_outcome='invalid'`).run()).toThrow();
+  expect(()=>database.query(`UPDATE scout_position_backfill_items SET final_outcome='invalid'`).run()).toThrow();
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
   database.close();
 });

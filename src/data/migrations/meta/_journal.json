@@ -253,6 +253,20 @@
       "when": 1787972628256,
       "tag": "0035_position_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1788211830194,
+      "tag": "0036_bizarre_doomsday",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1788212238792,
+      "tag": "0037_worried_nova",
+      "breakpoints": true
     }
   ]
 }

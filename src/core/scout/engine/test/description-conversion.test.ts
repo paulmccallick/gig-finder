@@ -51,6 +51,13 @@ test("omitted JSON semantics preserve current auto detection", () => {
   expect(normalizeExtractedDescription("<p>HTML text.</p>", {})).toBe("HTML text.");
 });
 
+test("explicit plain text rejects whitespace-only descriptions", () => {
+  expect(normalizeExtractedDescription(" \n\t ", {
+    contentFormat: "plain-text",
+    contentEncoding: "none",
+  })).toBeNull();
+});
+
 test("configured normalization uses the immutable v2 converter identity", () => {
   expect(scoutDescriptionConverterVersion).toBe("html-to-markdown-v2");
 });

@@ -179,8 +179,6 @@ const scoutImport = importScoutCompany(
           location: "workplace",
           description: {
             path: "description",
-            contentFormat: "html",
-            contentEncoding: "html-entities",
           },
         },
         detailDescription: {
@@ -191,8 +189,6 @@ const scoutImport = importScoutCompany(
           },
           descriptionPath: "job.description",
           identity: { idPath: "job.id" },
-          contentFormat: "html",
-          contentEncoding: "html-entities",
         },
       },
     ],

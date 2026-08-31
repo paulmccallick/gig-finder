@@ -41,7 +41,6 @@ const promotedDescriptionWork:ScoutPromotedDescriptionWork={
  positionId:"position-promoted",
  gigId:"gig-promoted",
  managedDocumentId:"doc_00000000-0000-4000-8000-000000000143",
- expectedDocumentVersion:1,
  markdown:"Corrected official description.",
  sourceDescription:"Gig Scout official posting retrieved from official configuration 2.",
  sourceProvenance:{officialUrl:"https://example.test/jobs/promoted",retrievedAt:"2026-08-29T01:00:00Z",sourceContentHash:"a".repeat(64),extractedContentHash:"b".repeat(64),sourceKey:"official",configurationVersion:2,extractionStrategy:"json-field-v1",converterVersion:"scout-description-v2"},

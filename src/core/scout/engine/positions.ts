@@ -18,14 +18,17 @@ export interface ScoutPositionBackfillCommand {
 export interface ScoutPositionBackfillPreview {
  requested:number;
  accepted:Array<{positionId:string;company:string;title:string;state:ScoutPositionState;linkedGigId:string|null}>;
- rejected:Array<{positionId:string;code:"not_found"|"no_observation"|"no_active_configuration"}>;
+ rejected:Array<{positionId:string;code:"not_found"|"no_observation"|"no_active_configuration"|"description_acquisition_not_configured"}>;
 }
 export interface ScoutPositionBackfillStatus {
  runId:string;
  reason:string;
+ status:"running"|"completed"|"partial"|"failed";
+ completedAt:string|null;
  selection:{requested:number;accepted:number;rejected:number};
  stages:Record<ScoutPositionProcessingStage,ScoutBackfillStageStatus>;
  positionOutcomes:Record<string,number>;
+ positions:Array<{positionId:string;company:string;template:string;descriptionOutcome:"corrected"|"unchanged"|null;outcome:string;failureCode:string|null}>;
  gigDocuments:{pending:number;updated:number;unchanged:number;failed:number};
 }
 export interface ScoutPositionEvaluationSummary {score:number|null;scoreExplanation:string|null;criteriaVersion:number|null;rubricVersion:number|null;profileVersion:string|null;model:string|null;provider:string|null}
@@ -44,7 +47,6 @@ export interface ScoutPromotedDescriptionWork {
  positionId:string;
  gigId:string;
  managedDocumentId:string;
- expectedDocumentVersion:number;
  markdown:string;
  sourceDescription:string;
  sourceProvenance:{

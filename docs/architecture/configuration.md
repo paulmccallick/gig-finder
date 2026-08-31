@@ -53,6 +53,12 @@ Configured JSON description fields resolve `contentFormat` to `auto` and
 the `html` format. The canonical converter decodes declared entity-encoded HTML
 before producing Markdown and records its immutable converter identity while
 retaining only bounded hashes and acquisition provenance for source content.
+Artifact and normalized-description identities may deduplicate identical
+Markdown, but each explicit reacquisition persists its own processing-bound
+provenance. Any promoted managed-document projection therefore cites the exact
+official URL, retrieval time, hashes, configuration, extraction strategy, and
+converter used by that acquisition rather than provenance from a shared
+artifact.
 Direct HTML detail responses continue to use their authoritative HTTP media
 type and therefore resolve as HTML with no configured entity decoding.
 
@@ -106,7 +112,11 @@ each accepted position to its current authoritative observation and the active
 immutable company/source configuration, snapshots the current screening inputs,
 and records the operator reason. Every new reconciliation, description,
 relevance, and candidate-match record is run-bound; completed prior records are
-not reset or edited. Queue messages remain the minimal `{ processingId }`
+not reset or edited. Preview rejects a position when its active configuration
+has no exact-position detail acquisition plan; a listing-only source is not
+treated as an authoritative reacquisition capability. An explicit full rerun
+intentionally reevaluates relevance and eligible candidate match even when the
+normalized Markdown identity deduplicates. Queue messages remain the minimal `{ processingId }`
 transport payload, and durable database work owns all other identity and input
 material.
 
@@ -117,6 +127,14 @@ managed-document service: it updates the exact existing Gig job-description
 document, appends immutable source provenance and a new version only when
 content changes, and never writes managed-document tables directly from Scout
 persistence.
+
+Explicit position-backfill items also own durable terminal reporting. Their
+bounded snapshots retain company and template context plus normalized-description,
+workflow, promoted-document, and failure outcomes without retaining source
+content. Completion of every accepted item terminalizes the run as `completed`,
+`partial`, or `failed`; a later run may explicitly supersede unfinished work,
+which also terminalizes the earlier run rather than leaving it perpetually
+running.
 
 Ordinary application deployment, startup, and migration do not select positions
 or preview, start, or resume an explicit backfill. Upgrading a production company

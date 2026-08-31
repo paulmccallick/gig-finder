@@ -91,6 +91,8 @@ describe("explicit position backfill API", () => {
     const status = {
       runId: "srun_12345678-1234-1234-8234-123456789abc",
       reason,
+      status: "running" as const,
+      completedAt: null,
       selection: { requested: 1, accepted: 1, rejected: 0 },
       stages: {
         reconcile_gig: { pending: 1, completed: 0, failed: 0, superseded: 0 },
@@ -98,7 +100,15 @@ describe("explicit position backfill API", () => {
         screen_relevance: { pending: 0, completed: 0, failed: 0, superseded: 0 },
         score_candidate_match: { pending: 0, completed: 0, failed: 0, superseded: 0 },
       },
-      positionOutcomes: { processing: 1 },
+      positionOutcomes: { pending: 1 },
+      positions: [{
+        positionId: firstPositionId,
+        company: "Example Company",
+        template: "custom",
+        descriptionOutcome: null,
+        outcome: "pending",
+        failureCode: null,
+      }],
       gigDocuments: { pending: 0, updated: 0, unchanged: 0, failed: 0 },
     };
     const scoutStore = {

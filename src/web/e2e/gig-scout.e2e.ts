@@ -63,6 +63,24 @@ function positionProjectionMetadata(positionId: string) {
   };
 }
 
+function storedDescriptionMetadata(positionId: string) {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'import { readFileSync } from "node:fs";',
+    'import path from "node:path";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const row = database.query(`SELECT artifact.file_path filePath, artifact.provenance_json provenance, configuration.version configurationVersion FROM scout_position_descriptions description JOIN scout_description_artifacts artifact ON artifact.id = description.artifact_id JOIN scout_company_configurations configuration ON configuration.id = json_extract(artifact.provenance_json, \'$.configurationVersionId\') WHERE description.position_id = ? ORDER BY description.created_at DESC, description.id DESC LIMIT 1`).get(process.env.E2E_POSITION_ID);',
+    'database.close();',
+    'const provenance = JSON.parse(row.provenance);',
+    'console.log(JSON.stringify({ markdown: readFileSync(path.resolve("tmp/e2e-context/artifacts/gig-scout/descriptions", row.filePath), "utf8"), configurationVersion: row.configurationVersion, converterVersion: provenance.converterVersion }));',
+  ].join("\n");
+  return JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, E2E_POSITION_ID: positionId },
+    encoding: "utf8",
+  })) as { markdown: string; configurationVersion: number; converterVersion: string };
+}
+
 test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   page,
 }) => {
@@ -499,6 +517,10 @@ test("reprocesses encoded descriptions through review and promoted document proj
   const promotedPositionId = positionIdByExternalId("encoded-platforms");
   expect(irrelevantPositionId).toMatch(/^spos_/);
   expect(promotedPositionId).toMatch(/^spos_/);
+  expect(storedDescriptionMetadata(irrelevantPositionId)).toMatchObject({
+    markdown: expect.stringContaining("&lt;h2&gt;Legacy scope&lt;/h2&gt;"),
+    configurationVersion: 1,
+  });
 
   const position = async (positionId: string) => {
     const response = await page.request.get(`/api/gig-scout/positions/${positionId}`);
@@ -546,6 +568,51 @@ test("reprocesses encoded descriptions through review and promoted document proj
     linkedGigId: expect.stringMatching(/^gig_/),
   });
   const documentBefore = promotedDocumentMetadata(promotedPositionId!);
+
+  const upgraded = await page.request.post("/api/gig-scout/companies", {
+    data: {
+      id: "company-e2e-scout",
+      name: "Example Labs",
+      active: true,
+      sources: [{
+        key: "official",
+        type: "json",
+        url: "https://127.0.0.1:3003/jobs",
+        active: true,
+        method: "GET",
+        recordsPath: "jobs",
+        fields: {
+          id: "id",
+          title: "title",
+          url: "url",
+          location: "workplace",
+          description: {
+            path: "description",
+            contentFormat: "html",
+            contentEncoding: "html-entities",
+          },
+        },
+        detailDescription: {
+          response: "json",
+          request: {
+            urlTemplate: "{source.origin}/details/{position.id}",
+            method: "GET",
+          },
+          descriptionPath: "job.description",
+          identity: { idPath: "job.id" },
+          contentFormat: "html",
+          contentEncoding: "html-entities",
+        },
+      }],
+    },
+  });
+  expect(upgraded.status()).toBe(201);
+  expect(await upgraded.json()).toEqual({
+    created: 0,
+    unchanged: 0,
+    versioned: 1,
+    rejected: 0,
+  });
 
   const command = {
     positionIds: [irrelevantPositionId!, promotedPositionId!],

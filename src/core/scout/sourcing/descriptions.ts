@@ -46,6 +46,7 @@ export function normalizeExtractedDescription(
  if (contentEncoding === "html-entities" && contentFormat !== "html")
   throw new Error("description_content_encoding_invalid");
  if (contentFormat === "plain-text") {
+  if (!value.trim()) return null;
   if (value.length > maxDescriptionCharacters) throw new Error("description_too_large");
   return value;
  }
