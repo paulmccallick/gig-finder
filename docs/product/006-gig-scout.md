@@ -23,6 +23,9 @@
   - A page fails, repeats prior results, or cannot be parsed reliably -> Preserve diagnostics and report a non-success outcome rather than silently omitting jobs.
   - The browser or application restarts -> Reconcile unfinished work without duplicating the logical run or its results.
 - **Position Review**: The Positions workspace is a review-first ledger. Each row surfaces the candidate-match score, position, company/location, and first-seen date. Opening a row closes the Agent panel and uses the standard record drawer for an optional note and Pursue, Mark irrelevant, or Defer. Job descriptions and Scout processing diagnostics remain available as supporting detail; stored Scout Markdown can expand in the drawer or open in GigFinder's document view.
+- **Description Normalization**: Configured JSON description fields are normalized to readable Markdown before Scout stores them or sends them to a screening model. Format and encoding are explicit source contracts, so entity-encoded HTML is decoded only for a configuration that declares it; raw or encoded provider descriptions are not retained as artifacts.
+- **Explicit Position Reprocessing**: An operator may preview and start a bounded rerun for reviewed exact position IDs and a reason. The rerun preserves completed descriptions, evaluations, decisions, processing records, and managed-document versions as immutable history while replacing current projections only as each new stage succeeds. It refetches the official description and reruns reconciliation, relevance, and eligible candidate scoring.
+- **Reprocessing Outcomes**: A corrected result previously marked irrelevant by the agent may return to `needs_user_review`. A promoted position remains promoted and absent from review; when its normalized description changes, the existing linked Gig and existing job-description document remain in place and the document receives one new immutable version. Unchanged Markdown does not create a duplicate version.
 
 ## 🛡️ Acceptance Criteria & Guardrails
 
@@ -37,6 +40,10 @@
   - **Given** a Gig availability update, **When** Scout records it, **Then** it does not close the Gig or alter its pipeline stage or outcome.
   - **Given** a position awaiting review, **When** the user records a decision, **Then** only that row leaves the ledger, scroll position and active controls remain stable, and the list and counts refresh from authoritative state.
   - **Given** a position decision fails, **When** the server reports the failure, **Then** the row, drawer, optional note, and actionable error remain available.
+  - **Given** a configured description field, **When** Scout acquires it, **Then** Scout stores and screens normalized Markdown rather than raw literal or entity-encoded HTML.
+  - **Given** an explicit position rerun, **When** a replacement stage fails, **Then** its failure is retained and the prior successful current projection remains usable.
+  - **Given** an agent-irrelevant position becomes relevant after reprocessing, **When** candidate scoring succeeds, **Then** the position returns to review with the new current evaluation.
+  - **Given** a promoted position is reprocessed, **When** its normalized official description changes, **Then** it remains promoted and its existing Gig job-description document advances exactly one version.
 - **Error Boundaries**: One company's exhaustion or unsupported source becomes an explicit company outcome and does not erase other companies' completed results.
 - **Data Validation**: Only official configured sources are scanned; private targeting stays outside tracked adapters; accepted postings have real posting identity and application semantics. Remote, Work at Home, Work from Home, and home-based labels normalize to remote; hybrid and on-site require explicit source evidence, and a country label alone never implies remote. Attempt diagnostics retain normalized title, locations, arrangements, and title/location decisions. Accepted observation provenance binds both display and structured location values. Temporary default title terms are Director, Senior Director, Sr. Director, Senior Vice President, SVP, Vice President, VP Engineering, Head of Engineering, and Head of Technology. Default locations are Seattle, Bellevue, Redmond, Remote, and Washington.
 
@@ -51,12 +58,11 @@
 - **Data Model Changes**: Source attempts persist normalized filter inputs and title/location decisions. Position observations preserve display and structured authoritative locations with normalized work arrangements.
 - **Performance Targets**: Scans run outside request lifetime with bounded per-source work and host-safe concurrency; interactive progress reads remain responsive.
 
-## 🔭 Planned position-processing extension
+## Durable position processing
 
-Issue #120 extends Scout without changing its existing logical-position
-identity or observation deduplication. Company jobs will continue to discover
-and persist official-source results. Durable processing of each logical
-position will run independently so later Gig reconciliation, description
-retrieval, and agent screening do not repeat per observation or delay company
-completion. [ADR 0014](../architecture/decisions/0014-separate-scout-discovery-from-position-processing.md)
-defines the proposed execution and state boundary.
+Scout keeps logical-position identity and observation deduplication separate
+from durable per-position processing. Company jobs discover and persist
+official-source results, while reconciliation, description acquisition,
+relevance, and candidate scoring run independently and recover after restart.
+[ADR 0014](../architecture/decisions/0014-separate-scout-discovery-from-position-processing.md)
+defines this execution and state boundary.

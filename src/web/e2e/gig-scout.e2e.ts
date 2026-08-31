@@ -1,4 +1,67 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+
+interface PositionDetail {
+  id: string;
+  title: string;
+  state: string;
+  stateRevision: number;
+  linkedGigId: string | null;
+  descriptionId: string | null;
+  descriptionMarkdown: string | null;
+  relevanceEvaluationId: string | null;
+  candidateMatchEvaluationId: string | null;
+}
+
+function promotedDocumentMetadata(positionId: string) {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const row = database.query(`SELECT promotion.managed_document_id documentId, document.current_version currentVersion FROM scout_position_promotions promotion JOIN managed_documents document ON document.id = promotion.managed_document_id WHERE promotion.position_id = ? AND promotion.status = \'completed\'`).get(process.env.E2E_POSITION_ID);',
+    'database.close();',
+    'console.log(JSON.stringify(row));',
+  ].join("\n");
+  return JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, E2E_POSITION_ID: positionId },
+    encoding: "utf8",
+  })) as { documentId: string; currentVersion: number };
+}
+
+function positionIdByExternalId(externalId: string) {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const row = database.query("SELECT id FROM scout_positions WHERE external_id = ?").get(process.env.E2E_EXTERNAL_ID);',
+    'database.close();',
+    'console.log(JSON.stringify(row));',
+  ].join("\n");
+  return (JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, E2E_EXTERNAL_ID: externalId },
+    encoding: "utf8",
+  })) as { id: string }).id;
+}
+
+function positionProjectionMetadata(positionId: string) {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const row = database.query(`SELECT state.state, state.linked_gig_id linkedGigId, (SELECT relevance.id FROM scout_relevance_evaluations relevance WHERE relevance.position_id = position.id ORDER BY relevance.created_at DESC, relevance.id DESC LIMIT 1) relevanceEvaluationId, (SELECT match.id FROM scout_candidate_match_evaluations match WHERE match.position_id = position.id ORDER BY match.created_at DESC, match.id DESC LIMIT 1) candidateMatchEvaluationId FROM scout_positions position JOIN scout_position_states state ON state.position_id = position.id WHERE position.id = ?`).get(process.env.E2E_POSITION_ID);',
+    'database.close();',
+    'console.log(JSON.stringify(row));',
+  ].join("\n");
+  return JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, E2E_POSITION_ID: positionId },
+    encoding: "utf8",
+  })) as {
+    state: string;
+    linkedGigId: string | null;
+    relevanceEvaluationId: string | null;
+    candidateMatchEvaluationId: string | null;
+  };
+}
 
 test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   page,
@@ -67,9 +130,17 @@ test("discovers and processes positions from a full Scout run", async ({
   await page
     .getByLabel("Search locations", { exact: true })
     .fill("Synthetic Region");
+  const runResponse = page.waitForResponse(response =>
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/gig-scout/runs"
+  );
   await page.getByRole("button", { name: "Start full scan" }).click();
 
-  await expect(page.getByRole("status")).toContainText("completed");
+  const { run } = await (await runResponse).json() as { run: { id: string } };
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
+    return (await response.json() as { status: string }).status;
+  }).toBe("completed");
   await page.getByText("Company diagnostics").click();
   await expect(page.getByText("2/2 accepted")).toBeVisible();
 
@@ -390,4 +461,184 @@ test("review decisions keep the ledger context and retry a failed promotion", as
   expect(listQueries.at(-1)?.get("offset")).toBe("0");
   expect(listQueries.at(-1)?.get("sort")).toBe("score");
   expect(listQueries.at(-1)?.get("company")).toBe("Synthetic Review Company");
+});
+
+test("reprocesses encoded descriptions through review and promoted document projection", async ({ page }) => {
+  const enabled = await page.request.post("http://127.0.0.1:3004/fixtures/encoded");
+  expect(enabled.status()).toBe(204);
+  const started = await page.request.post("/api/gig-scout/runs", {
+    data: {
+      searchProfile: {
+        terms: ["encoded"],
+        locations: ["Encoded Region"],
+      },
+    },
+  });
+  expect(started.status()).toBe(202);
+  const { run } = await started.json() as { run: { id: string } };
+
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
+    return (await response.json() as { status: string }).status;
+  }).toBe("completed");
+
+  const runPositionsResponse = await page.request.get(
+    `/api/gig-scout/runs/${run.id}/positions?limit=20`,
+  );
+  expect(runPositionsResponse.ok()).toBe(true);
+  const runPositions = await runPositionsResponse.json() as {
+    items: Array<{ id: string; title: string }>;
+  };
+  expect(runPositions.items.find(
+    position => position.title === "Director of Encoded Recovery",
+  )).toBeDefined();
+  expect(runPositions.items.find(
+    position => position.title === "Head of Encoded Platforms",
+  )).toBeDefined();
+  const irrelevantPositionId = positionIdByExternalId("encoded-recovery");
+  const promotedPositionId = positionIdByExternalId("encoded-platforms");
+  expect(irrelevantPositionId).toMatch(/^spos_/);
+  expect(promotedPositionId).toMatch(/^spos_/);
+
+  const position = async (positionId: string) => {
+    const response = await page.request.get(`/api/gig-scout/positions/${positionId}`);
+    expect(response.ok()).toBe(true);
+    return await response.json() as PositionDetail;
+  };
+  await expect.poll(async () => {
+    const response = await page.request.post(
+      "/api/gig-scout/positions/backfill/preview",
+      {
+        data: {
+          positionIds: [irrelevantPositionId, promotedPositionId],
+          reason: "Observe initial E2E processing",
+        },
+      },
+    );
+    const preview = await response.json() as {
+      accepted: Array<{ positionId: string; state: string }>;
+    };
+    return Object.fromEntries(preview.accepted.map(item => [item.positionId, item.state]));
+  }).toEqual({
+    [irrelevantPositionId]: "irrelevant",
+    [promotedPositionId]: "needs_user_review",
+  });
+  const irrelevantBefore = positionProjectionMetadata(irrelevantPositionId);
+  const promotedBefore = await position(promotedPositionId);
+
+  const promotion = await page.request.post(
+    `/api/gig-scout/positions/${promotedPositionId}/decision`,
+    {
+      data: {
+        action: "pursue",
+        changeId: "e2e-promote-encoded-position",
+        expectedStateRevision: promotedBefore.stateRevision,
+        descriptionId: promotedBefore.descriptionId,
+        relevanceEvaluationId: promotedBefore.relevanceEvaluationId,
+        candidateMatchEvaluationId: promotedBefore.candidateMatchEvaluationId,
+      },
+    },
+  );
+  expect(promotion.ok()).toBe(true);
+  expect(await promotion.json()).toBeNull();
+  expect(positionProjectionMetadata(promotedPositionId)).toMatchObject({
+    state: "promoted",
+    linkedGigId: expect.stringMatching(/^gig_/),
+  });
+  const documentBefore = promotedDocumentMetadata(promotedPositionId!);
+
+  const command = {
+    positionIds: [irrelevantPositionId!, promotedPositionId!],
+    reason: "E2E encoded description correction",
+  };
+  const preview = await page.request.post(
+    "/api/gig-scout/positions/backfill/preview",
+    { data: command },
+  );
+  expect(preview.ok()).toBe(true);
+  expect(await preview.json()).toMatchObject({
+    requested: 2,
+    accepted: expect.arrayContaining([
+      expect.objectContaining({ positionId: irrelevantPositionId }),
+      expect.objectContaining({ positionId: promotedPositionId }),
+    ]),
+    rejected: [],
+  });
+
+  const start = await page.request.post("/api/gig-scout/positions/backfill", {
+    data: command,
+  });
+  expect(start.status()).toBe(202);
+  const backfill = await start.json() as { runId: string };
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      `/api/gig-scout/positions/backfill/${backfill.runId}`,
+    );
+    const status = await response.json() as {
+      stages: Record<string, { pending: number; failed: number }>;
+      gigDocuments: { updated: number; failed: number };
+    };
+    return {
+      pending: Object.values(status.stages).reduce(
+        (count, stage) => count + stage.pending,
+        0,
+      ),
+      failed: Object.values(status.stages).reduce(
+        (count, stage) => count + stage.failed,
+        0,
+      ),
+      gigDocuments: status.gigDocuments,
+    };
+  }, { timeout: 30_000 }).toEqual({
+    pending: 0,
+    failed: 0,
+    gigDocuments: expect.objectContaining({ updated: 1, failed: 0 }),
+  });
+
+  const irrelevantAfter = await position(irrelevantPositionId);
+  const irrelevantProjectionAfter = positionProjectionMetadata(irrelevantPositionId);
+  const promotedAfter = positionProjectionMetadata(promotedPositionId);
+  expect(irrelevantAfter.state).toBe("needs_user_review");
+  expect(irrelevantProjectionAfter).toMatchObject({
+    state: "needs_user_review",
+    linkedGigId: null,
+  });
+  expect(irrelevantAfter.relevanceEvaluationId)
+    .not.toBe(irrelevantBefore.relevanceEvaluationId);
+  expect(irrelevantAfter.candidateMatchEvaluationId).not.toBeNull();
+  expect(promotedAfter).toMatchObject({
+    state: "promoted",
+    linkedGigId: expect.stringMatching(/^gig_/),
+  });
+  expect(promotedAfter.candidateMatchEvaluationId)
+    .not.toBe(promotedBefore.candidateMatchEvaluationId);
+
+  const documentAfter = promotedDocumentMetadata(promotedPositionId!);
+  expect(documentAfter).toEqual({
+    documentId: documentBefore.documentId,
+    currentVersion: documentBefore.currentVersion + 1,
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Gig Scout/ }).click();
+  const ledger = page.getByRole("region", { name: "Positions for review" });
+  await expect(ledger.getByText("Director of Encoded Recovery")).toBeVisible();
+  await expect(ledger.getByText("Head of Encoded Platforms")).toHaveCount(0);
+  await ledger.getByRole("button", { name: /Director of Encoded Recovery/ }).click();
+  const drawer = page.getByRole("dialog", { name: "Director of Encoded Recovery" });
+  await drawer.getByRole("button", { name: "Expand description" }).click();
+  const markdown = drawer.locator(".scout-review-description");
+  await expect(markdown).toContainText("## Corrected scope");
+  await expect(markdown).toContainText("Lead recovery teams.");
+  await expect(markdown).not.toContainText("&lt;");
+  const popupPromise = page.waitForEvent("popup");
+  await drawer.getByRole("link", {
+    name: /Open Director of Encoded Recovery description in document view/,
+  }).click();
+  const viewer = await popupPromise;
+  await expect(viewer.getByRole("heading", { name: "Corrected scope" })).toBeVisible();
+  await expect(viewer.getByRole("listitem").filter({
+    hasText: "Lead recovery teams.",
+  })).toBeVisible();
+  await expect(viewer.locator("main")).not.toContainText("&lt;");
 });

@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { scanCompany as scanCompanyCore, type GigScoutHttpPort } from "..";
 import { scoutTemplateCatalog } from "../../../../operations/scout-template-catalog";
 import { customJsonSourceSchema, reusableJsonSourceSchema } from "../../sourcing/contracts";
@@ -317,6 +320,20 @@ describe("reusable JSON templates", () => {
     }).success).toBe(false);
   });
   test("Greenhouse v3 decodes configured listing HTML without changing prior template defaults", async () => {
+    const templateRoot = path.resolve(
+      import.meta.dir,
+      "../../../../../config/scout/templates",
+    );
+    expect(createHash("sha256").update(
+      readFileSync(path.join(templateRoot, "greenhouse.v1.json")),
+    ).digest("hex")).toBe(
+      "ce88eacad9bbe91e3290fe742394945c9e16cf35466bf04039467448dd633efb",
+    );
+    expect(createHash("sha256").update(
+      readFileSync(path.join(templateRoot, "greenhouse.v2.json")),
+    ).digest("hex")).toBe(
+      "7224940e28c77f6dd51362b473ad140628448b23b684aa76779e9bfa1a677456",
+    );
     for (const version of [1, 2]) {
       const definition = scoutTemplateCatalog.resolve({ id: "greenhouse", version });
       expect(definition.fields.description).toMatchObject({
