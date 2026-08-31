@@ -299,16 +299,48 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
   const insertBackfill=database.query(`INSERT INTO scout_runs(id,status,run_type,batch_size,concurrency,screening_cache_key,candidate_profile_json,candidate_profile_version,candidate_profile_artifact_id,candidate_profile_hash,screening_model,screening_provider,screening_model_configuration,operator_reason,request_fingerprint,created_at,company_count) VALUES(?,'running','position_backfill',20,5,'cache-key','{}','profile-v1','profile-artifact-v1','profile-hash-v1','model-v1','provider-v1','configuration-v1',?,?,?,0)`);
   expect(()=>insertBackfill.run("empty-reason","","a".repeat(64),"2026-01-03")).toThrow();
   expect(()=>insertBackfill.run("invalid-fingerprint","Synthetic repair","A".repeat(64),"2026-01-03")).toThrow();
-  insertBackfill.run("valid-backfill","Synthetic repair","a".repeat(64),"2026-01-03");
+  insertBackfill.run("pending-backfill","Synthetic pending repair","a".repeat(64),"2026-01-03");
   expect(()=>insertBackfill.run("duplicate-backfill","Another repair","a".repeat(64),"2026-01-04")).toThrow();
-  database.query(`INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at) VALUES('valid-backfill','position','observation','source','gig','2026-01-03')`).run();
+  insertBackfill.run("completed-backfill","Synthetic completed repair","b".repeat(64),"2026-01-04");
+  database.exec(`
+    INSERT INTO scout_description_artifacts(id,file_path,content_hash,media_type,byte_count,provenance_json,created_at)
+    VALUES('artifact','aa/description.md','description-hash','text/markdown',21,'{}','2026-01-03');
+    INSERT INTO scout_position_descriptions(id,position_id,artifact_id,source_url,retrieved_at,source_content_hash,markdown_content_hash,converter_version,created_at)
+    VALUES('description','position','artifact','https://careers.example.test/1','2026-01-03','source-hash','description-hash','converter-v1','2026-01-03');
+    INSERT INTO changes(id,occurred_at,actor,source,summary,status)
+    VALUES('promotion-change','2026-01-03','Synthetic','test','Synthetic promotion','committed');
+    INSERT INTO scout_position_decisions(id,change_id,position_id,action,origin,actor,expected_state_revision,resulting_state_revision,created_at)
+    VALUES('promotion-decision','promotion-change','position','pursue','system','Synthetic',1,2,'2026-01-03');
+    INSERT INTO scout_position_states(position_id,state,linked_gig_id,current_decision_id,revision,created_at,updated_at)
+    VALUES('position','promoted','gig','promotion-decision',2,'2026-01-03','2026-01-03');
+    INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,gig_id,managed_document_id,status,created_at,updated_at,completed_at)
+    VALUES('promotion','promotion-decision','position','description','gig','document','completed','2026-01-03','2026-01-03','2026-01-03');
+    INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at)
+    VALUES('pending-backfill','position','observation','source','gig','2026-01-03');
+    INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at)
+    VALUES('completed-backfill','position','observation','source','gig','2026-01-04');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,description_id,stage,input_identity,status,attempt_count,document_projection_status,created_at,updated_at)
+    VALUES('pending-acquisition','position','pending-backfill','observation','source','description','acquire_description','pending-acquisition-identity','pending',1,'failed','2026-01-03','2026-01-03');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at)
+    VALUES('completed-reconcile','position','completed-backfill','observation','source','reconcile_gig','completed-reconcile-identity','completed',1,'2026-01-04','2026-01-04','2026-01-04');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,description_id,stage,input_identity,status,attempt_count,document_projection_status,created_at,updated_at,completed_at)
+    VALUES('completed-acquisition','position','completed-backfill','observation','source','description','acquire_description','completed-acquisition-identity','completed',1,'updated','2026-01-04','2026-01-05','2026-01-05');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,description_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at)
+    VALUES('completed-relevance','position','completed-backfill','observation','source','description','screen_relevance','completed-relevance-identity','completed',1,'2026-01-04','2026-01-05','2026-01-05');
+    INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,configuration_source_id,description_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at)
+    VALUES('completed-match','position','completed-backfill','observation','source','description','score_candidate_match','completed-match-identity','completed',1,'2026-01-04','2026-01-05','2026-01-05');
+  `);
 
   await applyStatements(database,new URL("../migrations/0036_bizarre_doomsday.sql",import.meta.url));
   await applyStatements(database,new URL("../migrations/0037_worried_nova.sql",import.meta.url));
 
   expect(tableNames(database)).toContain("scout_description_acquisitions");
   expect(columnNames(database,"scout_position_backfill_items")).toEqual(expect.arrayContaining(["company_name","template_name","initial_state","initial_decision_origin","description_outcome","final_outcome","failure_code","completed_at"]));
-  expect(database.query(`SELECT run_id runId,position_id positionId,observation_id observationId,configuration_source_id configurationSourceId,linked_gig_id linkedGigId,requested_at requestedAt,company_name companyName,final_outcome finalOutcome FROM scout_position_backfill_items`).get()).toEqual({runId:"valid-backfill",positionId:"position",observationId:"observation",configurationSourceId:"source",linkedGigId:"gig",requestedAt:"2026-01-03",companyName:null,finalOutcome:null});
+  expect(database.query(`SELECT description_id descriptionId,attempt_count attemptCount,failure_code failureCode,document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id='pending-acquisition'`).get()).toEqual({descriptionId:null,attemptCount:0,failureCode:null,documentProjectionStatus:null});
+  expect(database.query(`SELECT run_id runId,position_id positionId,observation_id observationId,configuration_source_id configurationSourceId,linked_gig_id linkedGigId,requested_at requestedAt,company_name companyName,template_name templateName,final_outcome finalOutcome,completed_at completedAt FROM scout_position_backfill_items WHERE run_id='pending-backfill'`).get()).toEqual({runId:"pending-backfill",positionId:"position",observationId:"observation",configurationSourceId:"source",linkedGigId:"gig",requestedAt:"2026-01-03",companyName:"Synthetic Company",templateName:"custom",finalOutcome:null,completedAt:null});
+  expect(database.query(`SELECT company_name companyName,template_name templateName,final_outcome finalOutcome,completed_at completedAt FROM scout_position_backfill_items WHERE run_id='completed-backfill'`).get()).toEqual({companyName:"Synthetic Company",templateName:"custom",finalOutcome:"promoted",completedAt:"2026-01-05"});
+  expect(database.query(`SELECT status,completed_at completedAt FROM scout_runs WHERE id='pending-backfill'`).get()).toEqual({status:"running",completedAt:null});
+  expect(database.query(`SELECT status,completed_at completedAt FROM scout_runs WHERE id='completed-backfill'`).get()).toEqual({status:"completed",completedAt:"2026-01-05"});
   expect(()=>database.query(`UPDATE scout_position_backfill_items SET description_outcome='invalid'`).run()).toThrow();
   expect(()=>database.query(`UPDATE scout_position_backfill_items SET final_outcome='invalid'`).run()).toThrow();
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);

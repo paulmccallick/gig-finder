@@ -547,8 +547,13 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
       const source=this.db.query(`SELECT cs.id,cs.settings_json settings FROM scout_positions p JOIN scout_companies c ON c.id=p.company_id JOIN scout_company_configuration_sources cs ON cs.company_configuration_id=c.current_configuration_id AND cs.source_key=p.source_key AND cs.active=1 WHERE p.id=?`).get(positionId) as {id:string;settings:string}|null;
       if(!source){rejected.push({positionId,code:"no_active_configuration"});continue;}
       const configuredSource=JSON.parse(source.settings) as SourceConfiguration;
-      if(!this.detailPlan(configuredSource,{id:position.externalId,title:observation.title,url:position.canonicalUrl})){
+      const detailPlan=this.detailPlan(configuredSource,{id:position.externalId,title:observation.title,url:position.canonicalUrl});
+      if(!detailPlan){
         rejected.push({positionId,code:"description_acquisition_not_configured"});
+        continue;
+      }
+      if(position.externalId===null&&(Boolean(detailPlan.identity?.idPath)||(detailPlan.extractor?.type==="dom"&&Boolean(detailPlan.extractor.idSelector)))){
+        rejected.push({positionId,code:"description_identity_input_missing"});
         continue;
       }
       const {externalId:_externalId,canonicalUrl:_canonicalUrl,...preview}=position;

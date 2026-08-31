@@ -18,7 +18,7 @@ export interface ScoutPositionBackfillCommand {
 export interface ScoutPositionBackfillPreview {
  requested:number;
  accepted:Array<{positionId:string;company:string;title:string;state:ScoutPositionState;linkedGigId:string|null}>;
- rejected:Array<{positionId:string;code:"not_found"|"no_observation"|"no_active_configuration"|"description_acquisition_not_configured"}>;
+ rejected:Array<{positionId:string;code:"not_found"|"no_observation"|"no_active_configuration"|"description_acquisition_not_configured"|"description_identity_input_missing"}>;
 }
 export interface ScoutPositionBackfillStatus {
  runId:string;

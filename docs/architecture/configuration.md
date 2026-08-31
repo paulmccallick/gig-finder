@@ -113,8 +113,10 @@ immutable company/source configuration, snapshots the current screening inputs,
 and records the operator reason. Every new reconciliation, description,
 relevance, and candidate-match record is run-bound; completed prior records are
 not reset or edited. Preview rejects a position when its active configuration
-has no exact-position detail acquisition plan; a listing-only source is not
-treated as an authoritative reacquisition capability. An explicit full rerun
+has no exact-position detail acquisition plan or when that plan requires an
+external-ID identity check but the stored position has no external ID; neither
+a listing-only source nor a detail plan guaranteed to fail identity verification
+is treated as an authoritative reacquisition capability. An explicit full rerun
 intentionally reevaluates relevance and eligible candidate match even when the
 normalized Markdown identity deduplicates. Queue messages remain the minimal `{ processingId }`
 transport payload, and durable database work owns all other identity and input
