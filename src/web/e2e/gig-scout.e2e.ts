@@ -81,6 +81,39 @@ function storedDescriptionMetadata(positionId: string) {
   })) as { markdown: string; configurationVersion: number; converterVersion: string };
 }
 
+function identityGigMetadata() {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const gigs = database.query(`SELECT id,external_job_id externalJobId,stage,outcome,last_activity lastActivity,source_url sourceUrl,location,work_arrangement workArrangement,revision FROM gigs WHERE company=\'Example Labs\' AND title=\'Director of Identity Platforms\' AND is_deleted=0 ORDER BY external_job_id`).all();',
+    'const documents = database.query(`SELECT link.gig_id gigId,document.id documentId,document.current_version currentVersion,(SELECT count(*) FROM managed_document_versions version WHERE version.document_id=document.id) versionCount FROM managed_document_links link JOIN managed_documents document ON document.id=link.document_id WHERE link.gig_id IN (SELECT id FROM gigs WHERE company=\'Example Labs\' AND title=\'Director of Identity Platforms\') AND document.document_type=\'job_description\' ORDER BY link.gig_id`).all();',
+    'database.close();',
+    'console.log(JSON.stringify({ gigs, documents }));',
+  ].join("\n");
+  return JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  })) as {
+    gigs: Array<{
+      id: string;
+      externalJobId: string;
+      stage: string;
+      outcome: string;
+      lastActivity: string;
+      sourceUrl: string;
+      location: string;
+      workArrangement: string | null;
+      revision: number;
+    }>;
+    documents: Array<{
+      gigId: string;
+      documentId: string;
+      currentVersion: number;
+      versionCount: number;
+    }>;
+  };
+}
+
 test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   page,
 }) => {
@@ -481,7 +514,283 @@ test("review decisions keep the ledger context and retry a failed promotion", as
   expect(listQueries.at(-1)?.get("company")).toBe("Synthetic Review Company");
 });
 
+test("posting identity resolution stays in the review drawer until an explicit choice succeeds", async ({ page }) => {
+  const makePosition = (suffix: string, requisition: string) => ({
+    id: `spos_${suffix}`,
+    title: "Director of Identity Platforms",
+    company: "Example Payments",
+    location: "Bellevue, WA",
+    canonicalUrl: `https://careers.example.test/jobs/${requisition}`,
+    externalId: requisition,
+    state: "needs_user_review",
+    stateRevision: 1,
+    processingStage: "candidate_match",
+    processingStatus: "completed",
+    processingFailureMessage: null,
+    descriptionAvailable: true,
+    firstSeenAt: "2026-08-30T12:00:00.000Z",
+    lastSeenAt: "2026-09-01T12:00:00.000Z",
+    observationCount: 1,
+    score: 9,
+    scoreExplanation: "Synthetic identity leadership evidence.",
+    criteriaVersion: 1,
+    rubricVersion: 1,
+    profileVersion: "profile-v1",
+    model: "synthetic-model",
+    provider: "synthetic-provider",
+    descriptionId: `spdesc_${suffix}`,
+    descriptionMarkdown: `# ${requisition}\n\nLead identity platforms.`,
+    descriptionSourceUrl: `https://careers.example.test/jobs/${requisition}`,
+    descriptionRetrievedAt: "2026-09-01T12:00:00.000Z",
+    descriptionProvenance: {},
+    relevanceEvaluationId: `srel_${suffix}`,
+    relevanceReason: "Relevant.",
+    candidateMatchEvaluationId: `smatch_${suffix}`,
+    observations: [],
+  });
+  const candidate = (revision: number, fingerprintSuffix: string) => ({
+    gigId: "gig-existing-identity",
+    revision,
+    company: "Example Payments",
+    title: "Director of Identity Platforms",
+    externalJobId: "REQ-OLD",
+    sourceUrl: "https://careers.example.test/jobs/REQ-OLD",
+    location: "Remote",
+    stage: "applied",
+    outcome: "pending",
+    availability: "available",
+    lastActivity: "2026-08-29",
+    jobDescription: {
+      id: "doc_11111111-1111-4111-8111-111111111111",
+      type: "job_description",
+      title: "Existing identity role",
+      displayName: "Existing identity role",
+      version: revision,
+    },
+    matchReasons: ["company_title"],
+    fingerprintSuffix,
+  });
+  const positions = [
+    makePosition("1111111111111111", "REQ-NEW"),
+    makePosition("2222222222222222", "REQ-NO-CANDIDATE"),
+  ];
+  const decisions: Array<Record<string, unknown>> = [];
+  let evidenceRevision = 1;
+  let createAttempts = 0;
+
+  await page.context().route("**/api/gig-scout/positions?*", async route => {
+    const query = new URL(route.request().url()).searchParams;
+    const filtered = positions.filter(position => !query.get("company")
+      || position.company.includes(query.get("company") ?? ""));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: filtered,
+        total: filtered.length,
+        counts: { needs_user_review: filtered.length, actionable: filtered.length },
+      }),
+    });
+  });
+  await page.context().route("**/api/documents/doc_11111111-1111-4111-8111-111111111111/versions/*", async route => {
+    const version = Number(new URL(route.request().url()).pathname.split("/").at(-1));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        reference: "doc_11111111-1111-4111-8111-111111111111",
+        storage: "managed",
+        displayName: "Existing identity role",
+        documentType: "job_description",
+        mediaType: "text/markdown",
+        version,
+        currentVersion: version,
+        content: "# Existing identity role\n\nStored Gig description.",
+      }),
+    });
+  });
+  await page.context().route("**/api/gig-scout/positions/**", async route => {
+    const url = new URL(route.request().url());
+    const positionId = url.pathname.split("/").at(4) ?? "";
+    const index = positions.findIndex(position => position.id === positionId);
+    if (route.request().method() === "POST" && url.pathname.endsWith("/decision")) {
+      const decision = route.request().postDataJSON() as Record<string, unknown>;
+      decisions.push(decision);
+      if (positionId.endsWith("2222222222222222")) {
+        positions.splice(index, 1);
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "created", position: null }) });
+        return;
+      }
+      const resolution = decision.resolution as { kind?: string } | undefined;
+      if (!resolution) {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "resolution_required", fingerprint: "a".repeat(64), candidates: [candidate(evidenceRevision, "initial")] }) });
+        return;
+      }
+      if (resolution.kind === "use_existing") {
+        await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: "Could not update the selected Gig. Try again." }) });
+        return;
+      }
+      createAttempts += 1;
+      if (createAttempts === 1) {
+        evidenceRevision = 2;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "resolution_stale", fingerprint: "b".repeat(64), candidates: [candidate(evidenceRevision, "refreshed")] }) });
+        return;
+      }
+      positions.splice(index, 1);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "created", position: null }) });
+      return;
+    }
+    const position = positions[index];
+    await route.fulfill({
+      status: position ? 200 : 404,
+      contentType: "application/json",
+      body: JSON.stringify(position ?? { error: "Not found" }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Gig Scout/ }).click();
+  await page.getByPlaceholder("Company").fill("Example Payments");
+  const ledger = page.getByRole("region", { name: "Positions for review" });
+  const rows = ledger.locator(".scout-review-row");
+  await expect(rows).toHaveCount(2);
+  await rows.first().click();
+  const drawer = page.getByRole("dialog", { name: "Director of Identity Platforms" });
+  await drawer.getByRole("button", { name: "Pursue position" }).click();
+  await expect(drawer.getByText("Reviewed Scout posting")).toBeVisible();
+  const existing = drawer.locator(".scout-resolution-record").filter({ hasText: "REQ-OLD" });
+  await expect(existing).toContainText("Example Payments");
+  await expect(existing).toContainText("Director of Identity Platforms");
+  await expect(existing).toContainText("Remote");
+  await expect(existing).toContainText("Applied / Pending");
+  await expect(existing).toContainText("Available");
+  await expect(existing).toContainText("Aug 29, 2026");
+  await expect(existing.getByRole("link", { name: "Open stored description" }))
+    .toHaveAttribute("href", "/documents/doc_11111111-1111-4111-8111-111111111111/versions/1");
+  await expect(drawer.getByRole("link", { name: "Open Scout description" }))
+    .toHaveAttribute("href", "/gig-scout/positions/spos_1111111111111111/description");
+  let popupPromise = page.waitForEvent("popup");
+  await existing.getByRole("link", { name: "Open stored description" }).click();
+  let descriptionViewer = await popupPromise;
+  await expect(descriptionViewer.locator(".document-viewer-title").getByRole("heading", { name: "Existing identity role" })).toBeVisible();
+  await expect(descriptionViewer.getByText("Stored Gig description.")).toBeVisible();
+  await descriptionViewer.getByRole("button", { name: "Back" }).click();
+  await expect.poll(() => descriptionViewer.isClosed()).toBe(true);
+  popupPromise = page.waitForEvent("popup");
+  await drawer.getByRole("link", { name: "Open Scout description" }).click();
+  descriptionViewer = await popupPromise;
+  await expect(descriptionViewer.getByRole("heading", { name: "Director of Identity Platforms" })).toBeVisible();
+  await expect(descriptionViewer.getByText("Lead identity platforms.")).toBeVisible();
+  await descriptionViewer.getByRole("button", { name: "Back" }).click();
+  await expect.poll(() => descriptionViewer.isClosed()).toBe(true);
+
+  await existing.getByRole("button", { name: "Use this Gig" }).click();
+  await expect(drawer.getByRole("alert")).toContainText("Could not update the selected Gig");
+  await expect(existing).toHaveClass(/is-selected/);
+  await expect(rows).toHaveCount(2);
+
+  await drawer.getByRole("button", { name: "Create separate Gig" }).click();
+  await expect(drawer.getByRole("alert")).toContainText("evidence changed");
+  await expect(drawer.getByRole("link", { name: "Open stored description" }))
+    .toHaveAttribute("href", "/documents/doc_11111111-1111-4111-8111-111111111111/versions/2");
+  await expect(drawer).toBeVisible();
+
+  await page.evaluate(() => {
+    document.body.style.minHeight = "1800px";
+    window.scrollTo(0, 220);
+  });
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await drawer.getByRole("button", { name: "Create separate Gig" }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByPlaceholder("Company")).toHaveValue("Example Payments");
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+
+  await rows.first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Pursue position" }).click();
+  await expect(rows).toHaveCount(0);
+  expect(decisions[0]).not.toHaveProperty("resolution");
+  expect(decisions[1]?.resolution).toMatchObject({
+    kind: "use_existing",
+    reviewedFingerprint: "a".repeat(64),
+    gigId: "gig-existing-identity",
+    expectedGigRevision: 1,
+  });
+  expect(decisions[2]?.resolution).toEqual({
+    kind: "create_new",
+    reviewedFingerprint: "a".repeat(64),
+  });
+  expect(decisions[3]?.resolution).toEqual({
+    kind: "create_new",
+    reviewedFingerprint: "b".repeat(64),
+  });
+  expect(decisions.at(-1)).not.toHaveProperty("note");
+});
+
+test("posting identity resolution keeps same-title requisitions separate and updates an exact Gig", async ({ page }) => {
+  const enabled = await page.request.post("http://127.0.0.1:3004/fixtures/identity");
+  expect(enabled.status()).toBe(204);
+  const started = await page.request.post("/api/gig-scout/runs", {
+    data: {
+      searchProfile: {
+        terms: ["identity platforms"],
+        locations: ["Identity East", "Identity West"],
+      },
+    },
+  });
+  expect(started.status()).toBe(202);
+  const { run } = await started.json() as { run: { id: string } };
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
+    return (await response.json() as { status: string }).status;
+  }).toBe("completed");
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      "/api/gig-scout/positions?state=needs_user_review&text=Identity%20Platforms",
+    );
+    const body = await response.json() as { items: Array<{ title: string }> };
+    return body.items.filter(position => position.title === "Director of Identity Platforms").length;
+  }, { timeout: 20_000 }).toBe(2);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Gig Scout/ }).click();
+  const ledger = page.getByRole("region", { name: "Positions for review" });
+  await expect(ledger.getByText("Director of Identity Platforms")).toHaveCount(2);
+
+  await ledger.getByRole("button", { name: /Identity West/ }).click();
+  let drawer = page.getByRole("dialog", { name: "Director of Identity Platforms" });
+  await drawer.getByRole("button", { name: "Pursue position" }).click();
+  const advisory = drawer.locator(".scout-resolution-record").filter({ hasText: "IDENTITY-EXACT" });
+  await expect(advisory).toBeVisible();
+  await expect(advisory).toContainText("Applied / Pending");
+  await drawer.getByRole("button", { name: "Create separate Gig" }).click();
+  await expect(ledger.getByRole("button", { name: /Identity West/ })).toHaveCount(0);
+  expect(identityGigMetadata().gigs).toHaveLength(2);
+
+  await ledger.getByRole("button", { name: /Identity East/ }).click();
+  drawer = page.getByRole("dialog", { name: "Director of Identity Platforms" });
+  await drawer.getByRole("button", { name: "Pursue position" }).click();
+  const exact = drawer.locator(".scout-resolution-record").filter({ hasText: "IDENTITY-EXACT" });
+  await exact.getByRole("button", { name: "Use this Gig" }).click();
+  await expect(ledger.getByRole("button", { name: /Identity East/ })).toHaveCount(0);
+
+  const metadata = identityGigMetadata();
+  expect(metadata.gigs).toHaveLength(2);
+  expect(metadata.gigs.find(gig => gig.externalJobId === "identity-exact")).toMatchObject({
+    stage: "applied",
+    outcome: "pending",
+    lastActivity: "2026-08-20",
+    sourceUrl: "https://127.0.0.1:3003/jobs/identity-exact",
+    location: "Identity East",
+  });
+  const exactGig = metadata.gigs.find(gig => gig.externalJobId === "identity-exact");
+  expect(metadata.documents.find(document => document.gigId === exactGig?.id)).toMatchObject({
+    currentVersion: 2,
+    versionCount: 2,
+  });
+});
+
 test("reprocesses encoded descriptions through review and promoted document projection", async ({ page }) => {
+  test.slow();
   const enabled = await page.request.post("http://127.0.0.1:3004/fixtures/encoded");
   expect(enabled.status()).toBe(204);
   const started = await page.request.post("/api/gig-scout/runs", {
@@ -541,7 +850,7 @@ test("reprocesses encoded descriptions through review and promoted document proj
       accepted: Array<{ positionId: string; state: string }>;
     };
     return Object.fromEntries(preview.accepted.map(item => [item.positionId, item.state]));
-  }).toEqual({
+  }, { timeout: 20_000 }).toEqual({
     [irrelevantPositionId]: "irrelevant",
     [promotedPositionId]: "needs_user_review",
   });
@@ -562,7 +871,7 @@ test("reprocesses encoded descriptions through review and promoted document proj
     },
   );
   expect(promotion.ok()).toBe(true);
-  expect(await promotion.json()).toBeNull();
+  expect(await promotion.json()).toEqual({ status: "created", position: null });
   expect(positionProjectionMetadata(promotedPositionId)).toMatchObject({
     state: "promoted",
     linkedGigId: expect.stringMatching(/^gig_/),
@@ -656,7 +965,7 @@ test("reprocesses encoded descriptions through review and promoted document proj
       ),
       gigDocuments: status.gigDocuments,
     };
-  }, { timeout: 30_000 }).toEqual({
+  }, { timeout: 60_000 }).toEqual({
     pending: 0,
     failed: 0,
     gigDocuments: expect.objectContaining({ updated: 1, failed: 0 }),

@@ -26,6 +26,7 @@ type WorkspacePosition = {
 };
 
 type WorkspaceDetail = WorkspacePosition & {
+  externalId: string | null;
   descriptionId: string | null;
   descriptionMarkdown: string | null;
   descriptionSourceUrl: string | null;
@@ -52,12 +53,76 @@ type PromotionDetail = WorkspaceDetail & {
   promotionFailureMessage?: string;
 };
 
+type PostingResolution =
+  | { kind: "create_new"; reviewedFingerprint: string }
+  | {
+      kind: "use_existing";
+      reviewedFingerprint: string;
+      gigId: string;
+      expectedGigRevision: number;
+    };
+
+type GigPostingCandidate = {
+  gigId: string;
+  revision: number;
+  company: string;
+  title: string;
+  externalJobId: string | null;
+  sourceUrl: string | null;
+  location: string | null;
+  stage: string;
+  outcome: string;
+  availability: string;
+  lastActivity: string;
+  jobDescription: {
+    id: string;
+    type: string;
+    title: string | null;
+    displayName: string;
+    version?: number;
+  } | null;
+};
+
+type ResolutionReview = {
+  fingerprint: string;
+  candidates: GigPostingCandidate[];
+};
+
+type DecisionOutcome =
+  | PromotionDetail
+  | ({ status: "resolution_required" | "resolution_stale" } & ResolutionReview)
+  | { status: "resolution_invalid" }
+  | { status: "created" | "updated"; position: PromotionDetail | null }
+  | { error?: string };
+
 export interface ScoutPositionReviewProps {
   onPositionOpenChange(open: boolean): void;
 }
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString();
+}
+
+function formatComparisonDate(value: string): string {
+  return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function titleCase(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function CandidateDescriptionLink({ candidate }: { candidate: GigPostingCandidate }) {
+  const document = candidate.jobDescription;
+  if (!document?.version) return <span className="scout-resolution-unavailable">No stored description</span>;
+  return <a
+    href={`/documents/${encodeURIComponent(document.id)}/versions/${document.version}`}
+    target="_blank"
+    rel="opener"
+  >Open stored description</a>;
 }
 
 async function readResponseJson<T>(response: Response): Promise<T | null> {
@@ -118,15 +183,18 @@ function RelevanceSettings(): JSX.Element {
   </details>;
 }
 
-function PositionReviewDrawer({
+export function PositionReviewDrawer({
   detail,
   error,
   note,
   reviewAt,
+  resolutionReview,
+  resolutionChoice,
   onClose,
   onNoteChange,
   onReviewAtChange,
   onDecide,
+  onResolve,
   onRetryPromotion,
   submittingAction,
 }: {
@@ -134,12 +202,15 @@ function PositionReviewDrawer({
   error: string | null;
   note: string;
   reviewAt: string;
+  resolutionReview: ResolutionReview | null;
+  resolutionChoice: PostingResolution | null;
   onClose(): void;
   onNoteChange(value: string): void;
   onReviewAtChange(value: string): void;
   onDecide(action: "irrelevant" | "defer" | "pursue"): void;
+  onResolve(resolution: PostingResolution): void;
   onRetryPromotion(): void;
-  submittingAction: "pursue" | "irrelevant" | "defer" | "retry" | null;
+  submittingAction: "pursue" | "irrelevant" | "defer" | "retry" | "resolve" | null;
 }): JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -219,15 +290,61 @@ function PositionReviewDrawer({
             Private note (optional)
             <textarea value={note} maxLength={2000} disabled={submittingAction !== null} onChange={event => onNoteChange(event.target.value)} />
           </label>
-          <div className="scout-review-decision-actions">
-            <button type="button" disabled={submittingAction !== null} onClick={() => onDecide("pursue")}>Pursue position</button>
-            <button type="button" disabled={submittingAction !== null} onClick={() => onDecide("irrelevant")}>Mark irrelevant</button>
-          </div>
-          <label className="scout-review-defer">
-            Review again at
-            <input type="datetime-local" value={reviewAt} disabled={submittingAction !== null} onChange={event => onReviewAtChange(event.target.value)} />
-          </label>
-          <button type="button" className="clear-button" onClick={() => onDecide("defer")} disabled={!reviewAt || submittingAction !== null}>Defer review</button>
+          {resolutionReview ? <div className="scout-resolution-comparison">
+            <p className="scout-resolution-intro">GigFinder found existing records that may describe this posting. Review the stored evidence and choose explicitly.</p>
+            <article className="scout-resolution-record is-reviewed">
+              <header><span>Reviewed Scout posting</span><strong>{detail.company}</strong><h4>{detail.title}</h4></header>
+              <dl className="scout-resolution-fields">
+                <div><dt>Requisition ID</dt><dd>{detail.externalId ?? "Not listed"}</dd></div>
+                <div><dt>Location</dt><dd>{detail.location ?? "Not listed"}</dd></div>
+                <div className="is-wide"><dt>Official URL</dt><dd><a href={detail.canonicalUrl} target="_blank" rel="noreferrer">{detail.canonicalUrl}</a></dd></div>
+              </dl>
+              <a href={descriptionHref} target="_blank" rel="opener">Open Scout description</a>
+            </article>
+            <div className="scout-resolution-candidates">
+              {resolutionReview.candidates.map(candidate => {
+                const resolution: PostingResolution = {
+                  kind: "use_existing",
+                  reviewedFingerprint: resolutionReview.fingerprint,
+                  gigId: candidate.gigId,
+                  expectedGigRevision: candidate.revision,
+                };
+                const selected = resolutionChoice?.kind === "use_existing"
+                  && resolutionChoice.gigId === candidate.gigId;
+                return <article className={`scout-resolution-record${selected ? " is-selected" : ""}`} key={candidate.gigId}>
+                  <header><span>Existing Gig</span><strong>{candidate.company}</strong><h4>{candidate.title}</h4></header>
+                  <dl className="scout-resolution-fields">
+                    <div><dt>Requisition ID</dt><dd>{candidate.externalJobId ?? "Not listed"}</dd></div>
+                    <div><dt>Location</dt><dd>{candidate.location ?? "Not listed"}</dd></div>
+                    <div><dt>Stage / outcome</dt><dd>{titleCase(candidate.stage)} / {titleCase(candidate.outcome)}</dd></div>
+                    <div><dt>Availability</dt><dd>{titleCase(candidate.availability)}</dd></div>
+                    <div><dt>Last activity</dt><dd>{formatComparisonDate(candidate.lastActivity)}</dd></div>
+                    <div className="is-wide"><dt>Official URL</dt><dd>{candidate.sourceUrl ? <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">{candidate.sourceUrl}</a> : "Not stored"}</dd></div>
+                  </dl>
+                  <div className="scout-resolution-record-actions">
+                    <CandidateDescriptionLink candidate={candidate} />
+                    <button type="button" disabled={submittingAction !== null} onClick={() => onResolve(resolution)}>Use this Gig</button>
+                  </div>
+                </article>;
+              })}
+            </div>
+            <button
+              type="button"
+              className={`scout-resolution-create${resolutionChoice?.kind === "create_new" ? " is-selected" : ""}`}
+              disabled={submittingAction !== null}
+              onClick={() => onResolve({ kind: "create_new", reviewedFingerprint: resolutionReview.fingerprint })}
+            >Create separate Gig</button>
+          </div> : <>
+            <div className="scout-review-decision-actions">
+              <button type="button" disabled={submittingAction !== null} onClick={() => onDecide("pursue")}>Pursue position</button>
+              <button type="button" disabled={submittingAction !== null} onClick={() => onDecide("irrelevant")}>Mark irrelevant</button>
+            </div>
+            <label className="scout-review-defer">
+              Review again at
+              <input type="datetime-local" value={reviewAt} disabled={submittingAction !== null} onChange={event => onReviewAtChange(event.target.value)} />
+            </label>
+            <button type="button" className="clear-button" onClick={() => onDecide("defer")} disabled={!reviewAt || submittingAction !== null}>Defer review</button>
+          </>}
           {detail.promotionStatus === "failed" && <div className="scout-review-promotion-error">
             <p role="alert">{detail.promotionFailureMessage ?? "Promotion failed."}</p>
             <button type="button" disabled={submittingAction !== null} onClick={onRetryPromotion}>Retry promotion</button>
@@ -298,7 +415,9 @@ export function ScoutPositionReview({
   const [detail, setDetail] = useState<PromotionDetail | null>(null);
   const [note, setNote] = useState("");
   const [reviewAt, setReviewAt] = useState("");
-  const [submittingAction, setSubmittingAction] = useState<"pursue" | "irrelevant" | "defer" | "retry" | null>(null);
+  const [resolutionReview, setResolutionReview] = useState<ResolutionReview | null>(null);
+  const [resolutionChoice, setResolutionChoice] = useState<PostingResolution | null>(null);
+  const [submittingAction, setSubmittingAction] = useState<"pursue" | "irrelevant" | "defer" | "retry" | "resolve" | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const refreshRequestRef = useRef(false);
   const pendingScrollRef = useRef<{ x: number; y: number } | null>(null);
@@ -400,6 +519,8 @@ export function ScoutPositionReview({
     setDetail(null);
     setNote("");
     setReviewAt("");
+    setResolutionReview(null);
+    setResolutionChoice(null);
     setDrawerError(null);
     setSubmittingAction(null);
     onPositionOpenChange(false);
@@ -408,6 +529,8 @@ export function ScoutPositionReview({
     if (selectedRef.current !== id) {
       setNote("");
       setReviewAt("");
+      setResolutionReview(null);
+      setResolutionChoice(null);
     }
     selectedRef.current = id;
     onPositionOpenChange(true);
@@ -455,10 +578,11 @@ export function ScoutPositionReview({
       setSubmittingAction(null);
     }
   };
-  const decide = async (action: "irrelevant" | "defer" | "pursue") => {
+  const decide = async (action: "irrelevant" | "defer" | "pursue", resolution?: PostingResolution) => {
     if (submittingAction !== null || !detail?.descriptionId || !detail.relevanceEvaluationId || !detail.candidateMatchEvaluationId) return;
     const positionId = detail.id;
-    setSubmittingAction(action);
+    setSubmittingAction(resolution ? "resolve" : action);
+    if (resolution) setResolutionChoice(resolution);
     try {
       const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}/decision`, {
         method: "POST",
@@ -472,15 +596,20 @@ export function ScoutPositionReview({
           descriptionId: detail.descriptionId,
           relevanceEvaluationId: detail.relevanceEvaluationId,
           candidateMatchEvaluationId: detail.candidateMatchEvaluationId,
+          resolution,
         }),
       });
-      const outcome = await readResponseJson<PromotionDetail | { error?: string }>(response);
+      const outcome = await readResponseJson<DecisionOutcome>(response);
       if (selectedRef.current !== positionId) return;
       if (!response.ok) {
         if (response.status === 409) {
           const refreshed = await fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}`, { cache: "no-store" });
           const refreshedDetail = await readResponseJson<PromotionDetail>(refreshed);
-          if (refreshed.ok && refreshedDetail && selectedRef.current === positionId) setDetail(refreshedDetail);
+          if (refreshed.ok && refreshedDetail && selectedRef.current === positionId) {
+            setDetail(refreshedDetail);
+            setResolutionReview(null);
+            setResolutionChoice(null);
+          }
           setDrawerError("This position was revised. Review the latest details before deciding.");
           return;
         }
@@ -491,6 +620,23 @@ export function ScoutPositionReview({
         setDetail(outcome);
         setDrawerError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
         return;
+      }
+      if (outcome && "status" in outcome) {
+        if (outcome.status === "resolution_required" || outcome.status === "resolution_stale") {
+          setResolutionReview({
+            fingerprint: outcome.fingerprint,
+            candidates: outcome.candidates,
+          });
+          setResolutionChoice(null);
+          setDrawerError(outcome.status === "resolution_stale"
+            ? "The Gig evidence changed. Review the refreshed comparison before choosing again."
+            : null);
+          return;
+        }
+        if (outcome.status === "resolution_invalid") {
+          setDrawerError("That Gig is no longer available for this posting. Review the comparison and choose again.");
+          return;
+        }
       }
       completeDecision(positionId);
     } catch {
@@ -550,10 +696,13 @@ export function ScoutPositionReview({
       error={drawerError}
       note={note}
       reviewAt={reviewAt}
+      resolutionReview={resolutionReview}
+      resolutionChoice={resolutionChoice}
       onClose={closeDrawer}
       onNoteChange={setNote}
       onReviewAtChange={setReviewAt}
       onDecide={action => void decide(action)}
+      onResolve={resolution => void decide("pursue", resolution)}
       onRetryPromotion={() => void retryPromotion()}
       submittingAction={submittingAction}
     />}

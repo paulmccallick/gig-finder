@@ -57,7 +57,103 @@ describe("Gig Scout company API",()=>{
 });
 
 describe("Gig Scout position mutation API",()=>{
-  test("uses the trusted actor and returns stable stale and validation errors",async()=>{
+  const reviewedDecision = {
+    changeId: "accepted",
+    action: "pursue",
+    note: "Optional review context",
+    expectedStateRevision: 2,
+    descriptionId: "spdesc_synthetic",
+    relevanceEvaluationId: "srel_synthetic",
+    candidateMatchEvaluationId: "smatch_synthetic",
+    resolution: {
+      kind: "use_existing",
+      reviewedFingerprint: "a".repeat(64),
+      gigId: "gig-synthetic",
+      expectedGigRevision: 3,
+    },
+  };
+
+  function decisionHandler(decide: (input: Record<string, unknown>) => unknown) {
+    const calls:Array<Record<string,unknown>>=[];
+    const scoutPositions={
+      decide(_positionId:string,input:Record<string,unknown>){calls.push(input);return decide(input);},
+    };
+    const handler=createWebHandler({gigFinder:application,agentApi:{messages:async()=>new Response(null),list:()=>Response.json({conversations:[]}),load:()=>Response.json({error:"Not found"},{status:404})},uploadHandler:async()=>new Response(null),discardStagedDocument:()=>false,requestLogger:()=>logger,scoutPositions:scoutPositions as never});
+    const request=(body:string)=>handler(new Request("http://localhost/api/gig-scout/positions/position-1/decision",{method:"POST",headers:{"content-type":"application/json"},body}),requestServer);
+    return { calls, request };
+  }
+
+  test("accepts only the reviewed decision and resolution fields with the trusted actor",async()=>{
+    const { calls, request } = decisionHandler(() => ({ status: "updated" }));
+    const accepted = await request(JSON.stringify({
+      ...reviewedDecision,
+      actor: "Forged caller",
+    }));
+    expect(accepted.status).toBe(200);
+    expect(calls).toEqual([{ ...reviewedDecision, actor: "User" }]);
+
+    const rejected = await request(JSON.stringify({
+      ...reviewedDecision,
+      gig: { stage: "applied" },
+    }));
+    expect(rejected.status).toBe(422);
+    expect(await rejected.json()).toEqual({
+      error: "Scout position decision accepts only reviewed decision and resolution fields.",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("returns every stable posting identity outcome with HTTP 200", async () => {
+    const outcomes = [
+      { status: "created" },
+      { status: "updated" },
+      { status: "resolution_required", fingerprint: "b".repeat(64), candidates: [] },
+      { status: "resolution_stale", fingerprint: "c".repeat(64), candidates: [] },
+      { status: "resolution_invalid" },
+    ];
+    let index = 0;
+    const { request } = decisionHandler(() => outcomes[index++]);
+    for (const outcome of outcomes) {
+      const response = await request(JSON.stringify(reviewedDecision));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(outcome);
+    }
+  });
+
+  test("binds each candidate document link to its current reviewed version", async () => {
+    const documentId = createVersionedDocument();
+    const { request } = decisionHandler(() => ({
+      status: "resolution_required",
+      fingerprint: "d".repeat(64),
+      candidates: [{
+        gigId: "gig-document",
+        revision: 1,
+        company: "Example Company",
+        title: "Director",
+        externalJobId: null,
+        sourceUrl: null,
+        location: null,
+        stage: "identified",
+        outcome: "pending",
+        availability: "unknown",
+        lastActivity: "2026-08-08",
+        jobDescription: {
+          id: documentId,
+          type: "job_description",
+          title: "Role Brief",
+          displayName: "Role Brief",
+        },
+        matchReasons: ["company_title"],
+      }],
+    }));
+    const response = await request(JSON.stringify(reviewedDecision));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      candidates: [{ jobDescription: { id: documentId, version: 2 } }],
+    });
+  });
+
+  test("retains 409 for revised review evidence and returns 422 for malformed commands",async()=>{
     const calls:Array<Record<string,unknown>>=[];
     const scoutPositions={
       decide(_positionId:string,input:Record<string,unknown>){calls.push(input);if(input.changeId==="stale")throw new Error("This position was revised and requires review again.");if(input.changeId==="invalid")throw new Error("Decision note must contain 1 to 2000 characters.");return{ok:true};},
@@ -68,6 +164,9 @@ describe("Gig Scout position mutation API",()=>{
     expect(calls[0]).toMatchObject({changeId:"accepted",actor:"User"});
     const stale=await decide("stale");expect(stale.status).toBe(409);expect(await stale.json()).toMatchObject({error:"This position was revised and requires review again."});
     const invalid=await decide("invalid");expect(invalid.status).toBe(422);expect(await invalid.json()).toMatchObject({error:"Decision note must contain 1 to 2000 characters."});
+    const malformed = await handler(new Request("http://localhost/api/gig-scout/positions/position-1/decision",{method:"POST",headers:{"content-type":"application/json"},body:"{"}),requestServer);
+    expect(malformed.status).toBe(422);
+    expect(await malformed.json()).toEqual({ error: "Request body must be valid JSON." });
   });
 });
 
