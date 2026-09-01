@@ -13,21 +13,25 @@
 ## 🛠️ Functional Specifications
 
 - **Trigger**: The user opens Opportunities, selects active or archived work, changes a filter, or opens a gig.
-- **Input Data**: Gig identity, company, role, stage, status, dates, location and work-mode details, compensation, notes, links, and related records where captured.
+- **Input Data**: Gig identity, company, role, requisition ID, stage, status, dates, location and work-mode details, compensation, notes, links, and related records where captured. The preferred current official-posting identity is normalized company plus a current nonblank requisition ID; normalization trims whitespace and compares case-insensitively while preserving display values.
 - **Happy Path**:
   1. The user searches or filters the pipeline and sees matching gigs grouped in a meaningful workflow order.
   2. The user opens a gig to review its details, application material, and related context.
+  3. When the user accepts an official posting, `GigDomainService` resolves candidates and applies the posting to a newly created or explicitly selected Gig.
 - **Alternative Paths**:
   - No gigs match -> Explain that filters hid the results and offer a reset.
   - A gig closes -> Keep the same record and show it in the archive rather than copying or moving it.
+  - Gigs share a normalized company and title -> Treat the title match as advisory and allow a separate Gig after explicit resolution.
 
 ## 🛡️ Acceptance Criteria & Guardrails
 
 - **Scenarios**:
   - **Given** active and closed gigs, **When** the user switches between pipeline and archive, **Then** each gig appears once in the appropriate view.
   - **Given** search or filter criteria, **When** the user applies them, **Then** summaries and visible groups describe the same result set.
+  - **Given** a current Gig and an official posting with the same normalized company and nonblank requisition ID, **When** the posting is accepted, **Then** the Gig is a candidate that requires explicit confirmation rather than an automatic match.
+  - **Given** two postings with the same normalized company and title but different requisition IDs, **When** the user explicitly creates a separate Gig, **Then** both Gigs retain their own current posting identity.
 - **Error Boundaries**: A data-load failure is explicit and does not present partial results as complete.
-- **Data Validation**: Gig state uses the shared domain vocabulary and preserves record identity across lifecycle changes.
+- **Data Validation**: Gig state uses the shared domain vocabulary and preserves record identity across lifecycle changes. Prior company, requisition-ID, and official-URL values remain available in revision history for reference only and do not participate in current posting matching.
 
 ## 🛑 Out of Scope
 
@@ -37,5 +41,5 @@
 ## 📈 Consequences & Impact
 
 - **UX/UI Impact**: Opportunities provide the primary board, detail, urgency, filtering, and historical-outcome experience.
-- **Data Model Changes**: None; this requirement describes the existing Gig and related-record contracts.
+- **Data Model Changes**: Each Gig row holds one current posting identity. Existing `gig_history` revisions retain prior identity values for reference.
 - **Performance Targets**: Search, filtering, and active/archive switching should feel immediate for a personal pipeline.

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, unique, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 const recordMetadata = {
   revision: integer("revision").notNull().default(1),
@@ -175,7 +175,24 @@ export const scoutRuns=sqliteTable("scout_runs",{id:text("id").primaryKey(),stat
  uniqueIndex("scout_runs_position_backfill_fingerprint_idx").on(table.requestFingerprint).where(sql`${table.runType}='position_backfill'`),
  check("scout_runs_position_backfill_contract_check",sql`(${table.runType}='full' AND ${table.sourceRunId} IS NULL AND ${table.operatorReason} IS NULL AND ${table.requestFingerprint} IS NULL) OR (${table.runType}='legacy_backfill' AND ${table.sourceRunId} IS NOT NULL AND ${table.operatorReason} IS NULL AND ${table.requestFingerprint} IS NULL) OR (${table.runType}='position_backfill' AND ${table.sourceRunId} IS NULL AND ${table.operatorReason} IS NOT NULL AND length(${table.operatorReason}) BETWEEN 1 AND 500 AND ${table.operatorReason}=trim(${table.operatorReason}) AND ${table.requestFingerprint} IS NOT NULL AND length(${table.requestFingerprint})=64 AND ${table.requestFingerprint} NOT GLOB '*[^0-9a-f]*' AND ${table.screeningCacheKey} IS NOT NULL AND ${table.candidateProfileJson} IS NOT NULL AND json_valid(${table.candidateProfileJson}) AND ${table.candidateProfileVersion} IS NOT NULL AND ${table.candidateProfileArtifactId} IS NOT NULL AND ${table.candidateProfileHash} IS NOT NULL AND ${table.screeningModel} IS NOT NULL AND ${table.screeningProvider} IS NOT NULL AND ${table.screeningModelConfiguration} IS NOT NULL)`),
 ]);
-export const scoutRunCompanies=sqliteTable("scout_run_companies",{id:text("id").primaryKey(),runId:text("run_id").notNull().references(()=>scoutRuns.id),companyId:text("company_id").notNull().references(()=>scoutCompanies.id),companyConfigurationId:text("company_configuration_id").notNull().references(()=>scoutCompanyConfigurations.id),status:text("status").notNull(),startedAt:text("started_at"),completedAt:text("completed_at"),failureCode:text("failure_code"),failureMessage:text("failure_message")});
+export const scoutRunCompanies=sqliteTable("scout_run_companies",{
+ id:text("id").primaryKey(),
+ runId:text("run_id").notNull().references(()=>scoutRuns.id),
+ companyId:text("company_id").notNull().references(()=>scoutCompanies.id),
+ companyName:text("company_name").notNull(),
+ companyConfigurationId:text("company_configuration_id").notNull().references(()=>scoutCompanyConfigurations.id),
+ status:text("status",{enum:["queued","succeeded","partial","failed"]}).notNull().default("queued"),
+ startedAt:text("started_at"),
+ completedAt:text("completed_at"),
+ failureCode:text("failure_code"),
+ failureMessage:text("failure_message"),
+},table=>[
+ unique("scout_run_companies_run_company_unique").on(table.runId,table.companyId),
+ index("scout_run_companies_run_idx").on(table.runId,table.status),
+ check("scout_run_companies_status_check",sql`${table.status} in ('queued','succeeded','partial','failed')`),
+ check("scout_run_companies_failure_code_check",sql`${table.failureCode} is null or length(${table.failureCode}) <= 100`),
+ check("scout_run_companies_failure_message_check",sql`${table.failureMessage} is null or length(${table.failureMessage}) <= 500`),
+]);
 export const scoutRunSources=sqliteTable("scout_run_sources",{id:text("id").primaryKey(),runCompanyId:text("run_company_id").notNull().references(()=>scoutRunCompanies.id),configurationSourceId:text("configuration_source_id").notNull().references(()=>scoutCompanyConfigurationSources.id),status:text("status").notNull(),candidateCount:integer("candidate_count").notNull(),acceptedCount:integer("accepted_count").notNull(),rejectedCount:integer("rejected_count").notNull()});
 export const scoutSourceAttempts=sqliteTable("scout_source_attempts",{id:text("id").primaryKey(),runSourceId:text("run_source_id").notNull().references(()=>scoutRunSources.id),attemptNumber:integer("attempt_number").notNull(),sourceMethod:text("source_method").notNull(),stage:text("stage").notNull(),requestCount:integer("request_count").notNull(),responseCount:integer("response_count").notNull(),sourceReportedTotal:integer("source_reported_total"),recordsReceived:integer("records_received").notNull(),recordsParsed:integer("records_parsed").notNull(),recordsEvaluable:integer("records_evaluable").notNull(),recordsEvaluated:integer("records_evaluated").notNull(),candidateCount:integer("candidate_count").notNull(),acceptedCount:integer("accepted_count").notNull(),rejectedCount:integer("rejected_count").notNull(),pagesRequested:integer("pages_requested").notNull(),pagesValidated:integer("pages_validated").notNull(),uniqueIdentities:integer("unique_identities").notNull(),validationStatus:text("validation_status").notNull(),filterDecisionsJson:text("filter_decisions_json").notNull().default("[]"),startedAt:text("started_at").notNull(),completedAt:text("completed_at").notNull(),failureCode:text("failure_code"),failureMessage:text("failure_message")});
 export const scoutAttemptDiagnostics=sqliteTable("scout_attempt_diagnostics",{id:text("id").primaryKey(),sourceAttemptId:text("source_attempt_id").notNull().references(()=>scoutSourceAttempts.id),code:text("code").notNull(),category:text("category").notNull(),count:integer("count").notNull(),message:text("message").notNull()});
@@ -287,4 +304,32 @@ export const managedDocumentVersions = sqliteTable("managed_document_versions", 
   check("managed_document_versions_source_description_check",sql`${table.sourceDescription} is null or length(${table.sourceDescription}) between 1 and 500`),
   check("managed_document_versions_source_provenance_check",sql`${table.sourceProvenanceJson} is null or (length(${table.sourceProvenanceJson}) between 2 and 4000 and json_valid(${table.sourceProvenanceJson}) and json_type(${table.sourceProvenanceJson})='object')`),
 ]);
-export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{id:text("id").primaryKey(),decisionId:text("decision_id").notNull().unique().references(()=>scoutPositionDecisions.id),positionId:text("position_id").notNull().unique().references(()=>scoutPositions.id),descriptionId:text("description_id").notNull().references(()=>scoutPositionDescriptions.id),gigId:text("gig_id").references(()=>gigs.id),managedDocumentId:text("managed_document_id").references(()=>managedDocuments.id),status:text("status",{enum:["pending","completed","failed"]}).notNull(),failureCode:text("failure_code"),failureMessage:text("failure_message"),attemptCount:integer("attempt_count").notNull().default(0),createdAt:text("created_at").notNull(),updatedAt:text("updated_at").notNull(),completedAt:text("completed_at")});
+export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{
+  id:text("id").primaryKey(),
+  decisionId:text("decision_id").notNull().unique().references(()=>scoutPositionDecisions.id),
+  positionId:text("position_id").notNull().references(()=>scoutPositions.id),
+  descriptionId:text("description_id").notNull().references(()=>scoutPositionDescriptions.id),
+  observationId:text("observation_id").references(()=>scoutPositionObservations.id),
+  resolutionKind:text("resolution_kind",{enum:["create_new","use_existing"]}),
+  requestedGigId:text("requested_gig_id"),
+  expectedGigRevision:integer("expected_gig_revision"),
+  resolutionFingerprint:text("resolution_fingerprint"),
+  gigId:text("gig_id").references(()=>gigs.id),
+  managedDocumentId:text("managed_document_id").references(()=>managedDocuments.id),
+  status:text("status",{enum:["pending","completed","failed"]}).notNull(),
+  failureCode:text("failure_code"),
+  failureMessage:text("failure_message"),
+  attemptCount:integer("attempt_count").notNull().default(0),
+  createdAt:text("created_at").notNull(),
+  updatedAt:text("updated_at").notNull(),
+  completedAt:text("completed_at"),
+},table=>[
+  index("scout_position_promotions_position_idx").on(table.positionId,table.createdAt),
+  check("scout_position_promotions_status_check",sql`${table.status} in ('pending','completed','failed')`),
+  check("scout_position_promotions_resolution_check",sql`
+    (${table.resolutionKind} is null and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and ${table.resolutionFingerprint} is null)
+    or (${table.resolutionKind}='create_new' and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and ${table.resolutionFingerprint} is not null and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
+    or (${table.resolutionKind}='use_existing' and ${table.requestedGigId} is not null and length(trim(${table.requestedGigId}))>0 and ${table.expectedGigRevision} is not null and ${table.expectedGigRevision}>0 and ${table.resolutionFingerprint} is not null and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
+  `),
+  check("scout_position_promotions_review_check",sql`${table.status}='completed' or (${table.observationId} is not null and ${table.resolutionKind} is not null)`),
+]);

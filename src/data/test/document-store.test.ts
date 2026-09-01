@@ -108,6 +108,35 @@ beforeEach(() => {
 afterEach(() => database.close());
 
 describe("managed document persistence", () => {
+  test("stores structured source provenance on the immutable creation version", () => {
+    const documents = new ManagedDocumentService(store);
+    const sourceDescription = "Gig Scout official posting retrieved from official configuration 2.";
+    const sourceProvenance = {
+      officialUrl: "https://careers.example.test/jobs/143",
+      retrievedAt: "2026-07-27T11:59:00.000Z",
+      sourceContentHash: "a".repeat(64),
+      extractedContentHash: "b".repeat(64),
+      sourceKey: "official",
+      configurationVersion: 2,
+      extractionStrategy: "json-field-v1",
+      converterVersion: "scout-description-v2",
+    };
+
+    const created = documents.create(context("Capture sourced job description"), {
+      links: [{ entityType: "gig", entityId: gig.id }],
+      documentType: "job_description",
+      title: "Official job description",
+      mediaType: "text/markdown",
+      sourceDescription,
+      sourceProvenance,
+      content: "# Official job description",
+    });
+
+    expect(store.documents.listVersions(created.document.id)).toMatchObject([
+      { version: 1, sourceDescription, sourceProvenance },
+    ]);
+  });
+
   test("stores profile-owned context and materializes its current Markdown version", async () => {
     const temporaryRoot = path.resolve(import.meta.dir, "../../../tmp");
     await mkdir(temporaryRoot, { recursive: true });

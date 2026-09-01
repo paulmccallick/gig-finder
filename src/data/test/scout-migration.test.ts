@@ -353,3 +353,221 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
   database.close();
 });
+
+test("0038 and 0039 preserve exact reviewed promotion attempts",async()=>{
+  const database=new Database(":memory:");
+  database.exec("PRAGMA foreign_keys=ON");
+  database.exec(`
+    CREATE TABLE gigs(id text PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE gig_history(history_id integer PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE managed_documents(id text PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE managed_document_versions(id integer PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE tasks(id text PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE task_history(history_id integer PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE people(id text PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE person_history(history_id integer PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE interactions(id text PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE interaction_history(history_id integer PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE changes(id text PRIMARY KEY);
+    CREATE TABLE scout_positions(id text PRIMARY KEY);
+    CREATE TABLE scout_position_observations(id text PRIMARY KEY, position_id text NOT NULL REFERENCES scout_positions(id));
+    CREATE TABLE scout_position_descriptions(id text PRIMARY KEY, position_id text NOT NULL REFERENCES scout_positions(id));
+    CREATE TABLE scout_position_decisions(id text PRIMARY KEY, change_id text NOT NULL REFERENCES changes(id), position_id text NOT NULL REFERENCES scout_positions(id));
+    CREATE TABLE scout_position_states(position_id text PRIMARY KEY REFERENCES scout_positions(id), state text NOT NULL, linked_gig_id text REFERENCES gigs(id), deferred_until text, current_decision_id text, revision integer NOT NULL, updated_at text NOT NULL);
+    CREATE TABLE scout_position_state_history(history_id integer PRIMARY KEY, marker text NOT NULL);
+    CREATE TABLE scout_position_promotions(
+      id text PRIMARY KEY,
+      decision_id text NOT NULL UNIQUE REFERENCES scout_position_decisions(id),
+      position_id text NOT NULL UNIQUE REFERENCES scout_positions(id),
+      description_id text NOT NULL REFERENCES scout_position_descriptions(id),
+      gig_id text REFERENCES gigs(id),
+      managed_document_id text REFERENCES managed_documents(id),
+      status text NOT NULL,
+      failure_code text,
+      failure_message text,
+      attempt_count integer NOT NULL DEFAULT 0,
+      created_at text NOT NULL,
+      updated_at text NOT NULL,
+      completed_at text
+    );
+    INSERT INTO gigs VALUES('gig-completed','gig-survives');
+    INSERT INTO gig_history VALUES(1,'gig-history-survives');
+    INSERT INTO managed_documents VALUES('document-completed','document-survives');
+    INSERT INTO managed_document_versions VALUES(1,'document-version-survives');
+    INSERT INTO tasks VALUES('task','task-survives');
+    INSERT INTO task_history VALUES(1,'task-history-survives');
+    INSERT INTO people VALUES('person','person-survives');
+    INSERT INTO person_history VALUES(1,'person-history-survives');
+    INSERT INTO interactions VALUES('interaction','interaction-survives');
+    INSERT INTO interaction_history VALUES(1,'interaction-history-survives');
+    INSERT INTO scout_position_state_history VALUES(1,'state-history-survives');
+    INSERT INTO scout_positions VALUES('completed'),('pending'),('failed'),('new-create'),('new-existing');
+    INSERT INTO scout_position_observations VALUES
+      ('observation-completed','completed'),
+      ('observation-pending','pending'),
+      ('observation-failed','failed'),
+      ('observation-create','new-create'),
+      ('observation-existing','new-existing');
+    INSERT INTO scout_position_descriptions VALUES
+      ('description-completed','completed'),
+      ('description-pending','pending'),
+      ('description-failed','failed'),
+      ('description-create','new-create'),
+      ('description-existing','new-existing');
+    INSERT INTO changes VALUES('change-completed'),('change-pending'),('change-failed'),('change-create'),('change-existing');
+    INSERT INTO scout_position_decisions VALUES
+      ('decision-completed','change-completed','completed'),
+      ('decision-pending','change-pending','pending'),
+      ('decision-failed','change-failed','failed'),
+      ('decision-create','change-create','new-create'),
+      ('decision-existing','change-existing','new-existing');
+    INSERT INTO scout_position_states VALUES
+      ('completed','promoted','gig-completed',NULL,'decision-completed',2,'2026-01-01'),
+      ('pending','processing',NULL,NULL,'decision-pending',4,'2026-01-02'),
+      ('failed','processing',NULL,NULL,'decision-failed',6,'2026-01-03');
+    INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,gig_id,managed_document_id,status,failure_code,failure_message,attempt_count,created_at,updated_at,completed_at) VALUES
+      ('promotion-completed','decision-completed','completed','description-completed','gig-completed','document-completed','completed',NULL,NULL,1,'2026-01-01','2026-01-01','2026-01-01'),
+      ('promotion-pending','decision-pending','pending','description-pending',NULL,NULL,'pending',NULL,NULL,0,'2026-01-02','2026-01-02',NULL),
+      ('promotion-failed','decision-failed','failed','description-failed',NULL,NULL,'failed','promotion_failed','Synthetic legacy failure',2,'2026-01-03','2026-01-03',NULL);
+  `);
+  const preservedBefore={
+    gigs:database.query(`SELECT * FROM gigs`).all(),
+    gigHistory:database.query(`SELECT * FROM gig_history`).all(),
+    documents:database.query(`SELECT * FROM managed_documents`).all(),
+    documentVersions:database.query(`SELECT * FROM managed_document_versions`).all(),
+    tasks:database.query(`SELECT * FROM tasks`).all(),
+    taskHistory:database.query(`SELECT * FROM task_history`).all(),
+    people:database.query(`SELECT * FROM people`).all(),
+    personHistory:database.query(`SELECT * FROM person_history`).all(),
+    interactions:database.query(`SELECT * FROM interactions`).all(),
+    interactionHistory:database.query(`SELECT * FROM interaction_history`).all(),
+    decisions:database.query(`SELECT * FROM scout_position_decisions ORDER BY id`).all(),
+    stateHistory:database.query(`SELECT * FROM scout_position_state_history`).all(),
+  };
+
+  await applyStatements(database,new URL("../migrations/0038_gig_posting_resolution.sql",import.meta.url));
+
+  expect(columnNames(database,"scout_position_promotions")).toEqual(expect.arrayContaining([
+    "observation_id","resolution_kind","requested_gig_id","expected_gig_revision","resolution_fingerprint",
+  ]));
+  expect(database.query(`SELECT * FROM scout_position_promotions WHERE id='promotion-completed'`).get()).toMatchObject({
+    status:"completed",gig_id:"gig-completed",managed_document_id:"document-completed",
+    observation_id:null,resolution_kind:null,requested_gig_id:null,expected_gig_revision:null,resolution_fingerprint:null,
+  });
+  expect(database.query(`SELECT count(*) count FROM scout_position_promotions WHERE id IN ('promotion-pending','promotion-failed')`).get()).toEqual({count:0});
+  expect(database.query(`SELECT position_id positionId,state,linked_gig_id linkedGigId,current_decision_id currentDecisionId,revision FROM scout_position_states ORDER BY position_id`).all()).toEqual([
+    {positionId:"completed",state:"promoted",linkedGigId:"gig-completed",currentDecisionId:"decision-completed",revision:2},
+    {positionId:"failed",state:"needs_user_review",linkedGigId:null,currentDecisionId:"decision-failed",revision:6},
+    {positionId:"pending",state:"needs_user_review",linkedGigId:null,currentDecisionId:"decision-pending",revision:4},
+  ]);
+  expect({
+    gigs:database.query(`SELECT * FROM gigs`).all(),
+    gigHistory:database.query(`SELECT * FROM gig_history`).all(),
+    documents:database.query(`SELECT * FROM managed_documents`).all(),
+    documentVersions:database.query(`SELECT * FROM managed_document_versions`).all(),
+    tasks:database.query(`SELECT * FROM tasks`).all(),
+    taskHistory:database.query(`SELECT * FROM task_history`).all(),
+    people:database.query(`SELECT * FROM people`).all(),
+    personHistory:database.query(`SELECT * FROM person_history`).all(),
+    interactions:database.query(`SELECT * FROM interactions`).all(),
+    interactionHistory:database.query(`SELECT * FROM interaction_history`).all(),
+    decisions:database.query(`SELECT * FROM scout_position_decisions ORDER BY id`).all(),
+    stateHistory:database.query(`SELECT * FROM scout_position_state_history`).all(),
+  }).toEqual(preservedBefore);
+
+  const fingerprint="a".repeat(64);
+  database.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,observation_id,status,resolution_kind,resolution_fingerprint,created_at,updated_at) VALUES('promotion-create','decision-create','new-create','description-create','observation-create','pending','create_new',?,'2026-01-04','2026-01-04')`).run(fingerprint);
+  database.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,observation_id,status,resolution_kind,requested_gig_id,expected_gig_revision,resolution_fingerprint,created_at,updated_at) VALUES('promotion-existing','decision-existing','new-existing','description-existing','observation-existing','failed','use_existing','reviewed-gig-without-fk',7,?,'2026-01-05','2026-01-05')`).run(fingerprint);
+  expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint FROM scout_position_promotions WHERE id IN ('promotion-create','promotion-existing') ORDER BY id`).all()).toEqual([
+    {observationId:"observation-create",kind:"create_new",gigId:null,expectedRevision:null,fingerprint},
+    {observationId:"observation-existing",kind:"use_existing",gigId:"reviewed-gig-without-fk",expectedRevision:7,fingerprint},
+  ]);
+  expect(()=>database.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,status,created_at,updated_at) VALUES('invalid-missing-review','decision-pending','pending','description-pending','pending','2026-01-06','2026-01-06')`).run()).toThrow();
+  expect(()=>database.query(`UPDATE scout_position_promotions SET requested_gig_id='unexpected' WHERE id='promotion-create'`).run()).toThrow();
+  expect(()=>database.query(`UPDATE scout_position_promotions SET expected_gig_revision=0 WHERE id='promotion-existing'`).run()).toThrow();
+  const rejectsNullRequiredValue=(promotionId:string,column:"requested_gig_id"|"expected_gig_revision"|"resolution_fingerprint",restoreValue:string|number)=>{
+    let rejected=false;
+    try{database.query(`UPDATE scout_position_promotions SET ${column}=NULL WHERE id=?`).run(promotionId)}catch{rejected=true}
+    database.query(`UPDATE scout_position_promotions SET ${column}=? WHERE id=?`).run(restoreValue,promotionId);
+    return rejected;
+  };
+  expect([
+    rejectsNullRequiredValue("promotion-create","resolution_fingerprint",fingerprint),
+    rejectsNullRequiredValue("promotion-existing","resolution_fingerprint",fingerprint),
+    rejectsNullRequiredValue("promotion-existing","requested_gig_id","reviewed-gig-without-fk"),
+    rejectsNullRequiredValue("promotion-existing","expected_gig_revision",7),
+  ]).toEqual([true,true,true,true]);
+  expect(()=>database.query(`UPDATE scout_position_promotions SET observation_id='missing-observation' WHERE id='promotion-create'`).run()).toThrow();
+  expect(database.query(`PRAGMA foreign_key_list(scout_position_promotions)`).all()).not.toContainEqual(expect.objectContaining({from:"requested_gig_id"}));
+  await applyStatements(database,new URL("../migrations/0039_loud_susan_delgado.sql",import.meta.url));
+  database.exec(`
+    INSERT INTO changes VALUES('change-create-retry');
+    INSERT INTO scout_position_decisions VALUES('decision-create-retry','change-create-retry','new-create');
+  `);
+  database.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,observation_id,status,resolution_kind,resolution_fingerprint,created_at,updated_at) VALUES('promotion-create-retry','decision-create-retry','new-create','description-create','observation-create','pending','create_new',?,'2026-01-06','2026-01-06')`).run("b".repeat(64));
+  expect(database.query(`SELECT decision_id decisionId,resolution_fingerprint fingerprint FROM scout_position_promotions WHERE position_id='new-create' ORDER BY created_at`).all()).toEqual([
+    {decisionId:"decision-create",fingerprint},
+    {decisionId:"decision-create-retry",fingerprint:"b".repeat(64)},
+  ]);
+  expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
+  database.close();
+});
+
+test("0040 adds the company display snapshot without weakening run-company invariants", async () => {
+  const database = new Database(":memory:");
+  database.exec("PRAGMA foreign_keys=ON");
+  database.exec(`
+    CREATE TABLE scout_companies(id text PRIMARY KEY,name text NOT NULL);
+    CREATE TABLE scout_runs(id text PRIMARY KEY);
+    CREATE TABLE scout_company_configurations(id text PRIMARY KEY);
+    CREATE TABLE scout_run_companies(
+      id text PRIMARY KEY,
+      run_id text NOT NULL REFERENCES scout_runs(id),
+      company_id text NOT NULL REFERENCES scout_companies(id),
+      company_configuration_id text NOT NULL REFERENCES scout_company_configurations(id),
+      status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','succeeded','partial','failed')),
+      started_at text,
+      completed_at text,
+      failure_code text CHECK(failure_code IS NULL OR length(failure_code) <= 100),
+      failure_message text CHECK(failure_message IS NULL OR length(failure_message) <= 500),
+      UNIQUE(run_id, company_id)
+    );
+    CREATE INDEX scout_run_companies_run_idx ON scout_run_companies(run_id,status);
+    INSERT INTO scout_companies VALUES('company','Original Display');
+    INSERT INTO scout_runs VALUES('run');
+    INSERT INTO scout_runs VALUES('second-run');
+    INSERT INTO scout_company_configurations VALUES('configuration');
+    INSERT INTO scout_run_companies(id,run_id,company_id,company_configuration_id,status)
+    VALUES('run-company','run','company','configuration','queued');
+  `);
+  const migration = [...new Bun.Glob("0040_*.sql").scanSync(new URL("../migrations", import.meta.url).pathname)][0];
+  expect(migration).toBeDefined();
+  if (!migration) {
+    database.close();
+    return;
+  }
+
+  await applyStatements(database, new URL(`../migrations/${migration}`, import.meta.url));
+  expect(database.query(`PRAGMA table_info(scout_run_companies)`).all()).toContainEqual(
+    expect.objectContaining({ name: "company_name", notnull: 1 }),
+  );
+  database.query(`UPDATE scout_companies SET name='Renamed Display' WHERE id='company'`).run();
+  expect(database.query(`SELECT company_name companyName FROM scout_run_companies WHERE id='run-company'`).get()).toEqual({
+    companyName: "Original Display",
+  });
+  database.query(`INSERT INTO scout_run_companies(id,run_id,company_id,company_name,company_configuration_id) VALUES('default-status','second-run','company','Original Display','configuration')`).run();
+  expect(database.query(`SELECT status FROM scout_run_companies WHERE id='default-status'`).get()).toEqual({ status: "queued" });
+  expect(() => database.query(`INSERT INTO scout_run_companies(id,run_id,company_id,company_name,company_configuration_id,status) VALUES('duplicate','run','company','Original Display','configuration','queued')`).run()).toThrow("UNIQUE constraint failed");
+  expect(() => database.query(`UPDATE scout_run_companies SET status='invalid' WHERE id='run-company'`).run()).toThrow("CHECK constraint failed");
+  expect(() => database.query(`UPDATE scout_run_companies SET failure_code=? WHERE id='run-company'`).run("x".repeat(101))).toThrow("CHECK constraint failed");
+  expect(() => database.query(`UPDATE scout_run_companies SET failure_message=? WHERE id='run-company'`).run("x".repeat(501))).toThrow("CHECK constraint failed");
+  expect(database.query(`SELECT name FROM sqlite_master WHERE type='index' AND name='scout_run_companies_run_idx'`).get()).toEqual({
+    name: "scout_run_companies_run_idx",
+  });
+  expect(database.query(`PRAGMA index_info(scout_run_companies_run_idx)`).all()).toEqual([
+    expect.objectContaining({ seqno: 0, name: "run_id" }),
+    expect.objectContaining({ seqno: 1, name: "status" }),
+  ]);
+  expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
+  database.close();
+});

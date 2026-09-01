@@ -116,6 +116,7 @@ export async function runScoutHarness(
       const result = await scanCompany(
           {
             companyId: company.id,
+            companyName: company.name,
             configurationVersionId: "direct-harness",
             sources: [source],
             searchProfile: {

@@ -273,6 +273,7 @@ export function resolveScoutSearchProfile(
 export const companyScanRequestSchema = z
   .object({
     companyId: z.string().trim().min(1).max(100),
+    companyName: z.string().trim().min(1).max(200),
     configurationVersionId: z.string().trim().min(1).max(100),
     sources: z.array(sourceConfigurationSchema).min(1).max(50),
     searchProfile: scoutSearchProfileSchema,
@@ -349,6 +350,7 @@ export interface FilterDecision {
   workArrangements: WorkArrangement[];
 }
 export interface NormalizedPosition {
+  company: string;
   sourceKey: string;
   externalId: string | null;
   canonicalUrl: string;

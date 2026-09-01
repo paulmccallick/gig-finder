@@ -2,6 +2,7 @@ import {
   companyScanRequestSchema,
   type CompanyScanRequest,
   type CompanyScanResult,
+  type SourceOutcome,
   scoutRuntimePolicySchema,
   type ScoutRuntimePolicy,
 } from "../sourcing/contracts";
@@ -21,10 +22,10 @@ export async function scanCompany(
   const input = companyScanRequestSchema.parse(request);
   const clock = dependencies.clock ?? { now: () => new Date() };
   const policy = scoutRuntimePolicySchema.parse(dependencies.policy ?? {});
-  const sources = [];
+  const sources: SourceOutcome[] = [];
   for (const source of input.sources.filter((item) => item.active))
-    sources.push(
-      await scanSource(
+    {
+      const outcome = await scanSource(
         source,
         input.searchProfile,
         policy,
@@ -36,8 +37,15 @@ export async function scanCompany(
           },
         },
         dependencies.signal,
-      ),
-    );
+      );
+      sources.push({
+        ...outcome,
+        positions: outcome.positions.map((position) => ({
+          ...position,
+          company: input.companyName,
+        })),
+      });
+    }
   return {
     companyId: input.companyId,
     configurationVersionId: input.configurationVersionId,

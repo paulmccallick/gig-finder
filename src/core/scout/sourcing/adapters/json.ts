@@ -86,7 +86,7 @@ export class JsonSourceAdapter implements SourceAdapter {
       );
     return extractJsonScriptEnvelope(source, body);
   }
-  enrichmentRequest(source: SourceConfiguration, position: NormalizedPosition) {
+  enrichmentRequest(source: SourceConfiguration, position: Omit<NormalizedPosition, "company">) {
     if (source.type !== "json" || !("template" in source)) return null;
     if (!position.location || !/^\d+\s+locations?(?:\s*[-–—].*)?$/iu.test(position.location.trim()))
       return null;
@@ -98,7 +98,7 @@ export class JsonSourceAdapter implements SourceAdapter {
       url: position.canonicalUrl,
     });
   }
-  enrich(source: SourceConfiguration, position: NormalizedPosition, body: string) {
+  enrich(source: SourceConfiguration, position: Omit<NormalizedPosition, "company">, body: string) {
     if (source.type !== "json" || !("template" in source)) return position;
     const detail = this.templates.resolve(source.template).detailDescription;
     if (!detail?.locationPaths.length) return position;

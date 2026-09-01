@@ -11,6 +11,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "synthetic-company",
+        companyName: "Granite Labs",
         configurationVersionId: "synthetic-config",
         searchProfile: profile,
         sources: [
@@ -70,6 +71,7 @@ describe("scanCompany", () => {
       "json-match",
       null,
     ]);
+    expect(result.positions.every((position) => position.company === "Granite Labs")).toBeTrue();
     for (const source of result.sources) {
       const attempt = source.attempts[0]!;
       expect(attempt.recordsEvaluated).toBe(attempt.recordsReceived);
@@ -88,6 +90,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -152,6 +155,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -185,6 +189,7 @@ describe("scanCompany", () => {
       scanCompany(
         {
           companyId: "company-1",
+          companyName: "Synthetic Company",
           configurationVersionId: "config-1",
           sources: [
             {
@@ -226,6 +231,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -265,6 +271,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -305,6 +312,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
         {
           companyId: "company-1",
+          companyName: "Synthetic Company",
           configurationVersionId: "config-1",
           sources: [
             {
@@ -344,6 +352,7 @@ describe("scanCompany", () => {
       scanCompany(
         {
           companyId: "company-1",
+          companyName: "Synthetic Company",
           configurationVersionId: "config-1",
           sources: [
             {
@@ -406,6 +415,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -450,6 +460,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -497,6 +508,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {

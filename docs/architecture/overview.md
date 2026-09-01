@@ -60,6 +60,7 @@ flowchart LR
 - [ADR 0014: Separate Scout discovery from position processing](decisions/0014-separate-scout-discovery-from-position-processing.md) retains company scans as the discovery boundary while durable logical-position stages run independently with database-authoritative progress.
 - [ADR 0015: Keep business logic out of operations](decisions/0015-keep-business-logic-out-of-operations.md) keeps queue and process coordination separate from domain decisions.
 - [ADR 0016: Mutate domain-owned tables through the owning domain service](decisions/0016-own-domain-table-mutations.md) requires cross-domain mutations to use the owning domain's capability.
+- [ADR 0017: Own Gig posting identity resolution in the Gig domain](decisions/0017-own-gig-posting-identity-resolution.md) assigns posting resolution and acceptance to the Gig domain while Scout orchestrates the reviewed workflow.
 
 Runtime settings are documented in [Configuration](configuration.md), environment
 roles in [Infrastructure environments](infrastructure.md), and production layout

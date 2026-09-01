@@ -50,7 +50,7 @@ export function extractJson(
   source: Extract<SourceConfiguration, { recordsPath: string }>,
   body: string,
 ): {
-  positions: NormalizedPosition[];
+  positions: Array<Omit<NormalizedPosition, "company">>;
   hasNext: boolean;
   surfaceVerified: boolean;
   sourceReportedTotal: number | null;
@@ -67,7 +67,7 @@ export function extractJson(
       sourceReportedTotal: null,
       recordsReceived: 0,
     };
-  const positions = records.flatMap((record): NormalizedPosition[] => {
+  const positions = records.flatMap((record): Array<Omit<NormalizedPosition, "company">> => {
     if (!record || typeof record !== "object") return [];
     const read = (path: string | undefined) =>
       path ? atPath(record, path) : undefined;

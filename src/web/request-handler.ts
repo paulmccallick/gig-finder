@@ -13,6 +13,63 @@ const documentUploadTimeoutSeconds = 60;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const trustedUserActor="User";
 const scoutMutation=<T>(operation:()=>T)=>{try{return operation();}catch(reason){const message=reason instanceof Error?reason.message:"Invalid Scout position request.";throw new WebRequestError(message,message.includes("revised")?409:422);}};
+const scoutDecisionFields = new Set([
+  "changeId",
+  "action",
+  "note",
+  "reviewAt",
+  "expectedStateRevision",
+  "descriptionId",
+  "relevanceEvaluationId",
+  "candidateMatchEvaluationId",
+  "resolution",
+]);
+
+async function scoutDecisionBody(request: Request): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (error) {
+    throw new WebRequestError("Request body must be valid JSON.", 422, {
+      cause: error,
+    });
+  }
+  if (!isRecord(body)) {
+    throw new WebRequestError("Scout position decision must be an object.", 422);
+  }
+  if (Object.keys(body).some(field => !scoutDecisionFields.has(field))) {
+    throw new WebRequestError(
+      "Scout position decision accepts only reviewed decision and resolution fields.",
+      422,
+    );
+  }
+  return body;
+}
+
+async function scoutDecisionResponse(
+  outcome: unknown,
+  gigFinder: GigFinderApplication,
+): Promise<unknown> {
+  if (!isRecord(outcome)
+    || (outcome.status !== "resolution_required" && outcome.status !== "resolution_stale")
+    || !Array.isArray(outcome.candidates)) return outcome;
+  const candidates = await Promise.all(outcome.candidates.map(async candidate => {
+    if (!isRecord(candidate) || !isRecord(candidate.jobDescription)
+      || typeof candidate.jobDescription.id !== "string") return candidate;
+    const result = await gigFinder.documentReader.get(candidate.jobDescription.id);
+    return result.status === "ok" && result.record.storage === "managed"
+      ? {
+          ...candidate,
+          jobDescription: {
+            ...candidate.jobDescription,
+            version: result.record.version,
+          },
+        }
+      : candidate;
+  }));
+  return { ...outcome, candidates };
+}
+
 const scoutBackfillRequest = <T>(operation: () => T) => {
   try {
     return operation();
@@ -300,7 +357,7 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+$/)){
         const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const position=scoutPositions?.get(positionId);response=request.method!=="GET"?json({error:"Method not allowed"},405):position?json(position):json({error:"Scout position not found"},404);
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/decision$/)){
-        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.decide(positionId,{...body,actor:trustedUserActor} as never)));}
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await scoutDecisionBody(request);const outcome=scoutMutation(()=>scoutPositions.decide(positionId,{...body,actor:trustedUserActor} as never));response=json(await scoutDecisionResponse(outcome,gigFinder));}
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/restore$/)){
         if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.restore(positionId,{...body,actor:trustedUserActor} as never)));}
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/reverse$/)){
@@ -308,7 +365,7 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/notes$/)){
         if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.addNote(positionId,{...body,actor:trustedUserActor} as never)),201);}
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/promotion\/retry$/)){
-        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");response=json(scoutMutation(()=>scoutPositions.retryPromotion(positionId)),202);}
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const outcome=scoutMutation(()=>scoutPositions.retryPromotion(positionId));response=json(await scoutDecisionResponse(outcome,gigFinder),202);}
       } else if (url.pathname === "/api/gig-scout/runs") {
         if (!scout) {
           response = json({ error: "Gig Scout unavailable" }, 503);

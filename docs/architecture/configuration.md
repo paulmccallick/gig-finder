@@ -85,8 +85,8 @@ Director, Senior Vice President, SVP, Vice President, VP Engineering, Head of
 Engineering, and Head of Technology. It resolves an omitted or empty location
 dimension to Seattle, Bellevue, Redmond, Remote, and Washington. A non-empty
 explicit dimension replaces its defaults. Scout persists the resolved profile
-as the run's immutable snapshot and dispatches it uniformly; these values do
-not enter company configurations or reusable templates.
+and configured company display name with the run so recovery retains the
+original observation context; neither value changes company configuration.
 
 After JSON or DOM normalization, the common sourcing validation path applies
 the captured profile to structured title and location data. Optional

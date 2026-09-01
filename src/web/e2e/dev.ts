@@ -105,6 +105,19 @@ const gigs: GigData[] = [
     recruiterSource: null, bonus: null, equity: null, otherCompensation: null,
     tagsJson: "[]", hasJobDescription: false, hasInterviewPrep: false, availability: "unknown", availabilityUpdatedAt: null,
   },
+  {
+    id: "gig-identity-existing", company: "Example Labs", title: "Director of Identity Platforms",
+    externalJobId: "IDENTITY-EXACT", stage: "applied", outcome: "pending",
+    statusSummary: "Synthetic application in progress", lastActivity: "2026-08-20",
+    nextActionDescription: "Prepare identity platform examples", nextActionDue: "2026-09-05",
+    fitRating: "strong", fitSummary: "Strong synthetic identity leadership scope",
+    payCurrency: null, payMinimum: null, payMaximum: null, payPeriod: null, payNotes: null,
+    sourceUrl: "https://legacy.example.test/jobs/identity-exact", location: "Remote",
+    workArrangement: "remote", postedDate: "2026-08-10", businessUnitTeam: "Identity",
+    recruiterSource: "Synthetic referral", bonus: null, equity: null, otherCompensation: null,
+    tagsJson: "[]", hasJobDescription: true, hasInterviewPrep: false,
+    availability: "available", availabilityUpdatedAt: "2026-08-20T12:00:00.000Z",
+  },
 ];
 const person: PersonData = {
   id: "person-one", name: "Alex Example", company: "Example Labs", title: "VP Product",
@@ -145,6 +158,18 @@ const documentContent = [
   "",
   "<script>window.compromised = true</script>",
 ].join("\n");
+const identityDocument: ManagedDocumentData = {
+  id: "doc_22222222-2222-4222-8222-222222222222",
+  links: [{ entityType: "gig", entityId: "gig-identity-existing" }],
+  documentType: "job_description",
+  title: "Example Labs — Director of Identity Platforms",
+  description: null,
+  mediaType: "text/markdown",
+  sourceDescription: "Synthetic pre-Scout identity fixture",
+  filePath: null,
+  uploadProvenance: null,
+};
+const identityDocumentContent = "# Existing identity platform role\n\nOriginal synthetic role description.";
 
 const database = openDatabase(databasePath);
 migrateDatabase(database);
@@ -157,6 +182,11 @@ store.change(change, transaction => {
     document,
     content: documentContent,
     contentHash: createHash("sha256").update(documentContent).digest("hex"),
+  });
+  transaction.documents.create({
+    document: identityDocument,
+    content: identityDocumentContent,
+    contentHash: createHash("sha256").update(identityDocumentContent).digest("hex"),
   });
 });
 const scoutImport = importScoutCompany(
@@ -200,6 +230,7 @@ if (scoutImport.rejected)
 database.close();
 
 let encodedFixturesEnabled = false;
+let identityFixturesEnabled = false;
 const scoutSource = Bun.serve({
   hostname: "127.0.0.1",
   port: scoutSourcePort,
@@ -240,6 +271,23 @@ const scoutSource = Bun.serve({
           description: "Build and lead the orchard technology team.",
         },
     ];
+    if (identityFixturesEnabled) jobs.push(
+      {
+        id: "identity-exact",
+        title: "Director of Identity Platforms",
+        url: `https://127.0.0.1:${scoutSourcePort}/jobs/identity-exact`,
+        workplace: "Identity East",
+        description: "Lead the exact synthetic identity platform organization.",
+      },
+      {
+        id: "identity-separate",
+        title: "Director of Identity Platforms",
+        url: `https://127.0.0.1:${scoutSourcePort}/jobs/identity-separate`,
+        workplace: "Identity West",
+        description: "Lead a separate synthetic identity platform organization.",
+      },
+    );
+    identityFixturesEnabled = false;
     if (encodedFixturesEnabled) jobs.push(
         {
           id: "encoded-recovery",
@@ -270,6 +318,13 @@ const screeningProvider = Bun.serve({
       && new URL(request.url).pathname === "/fixtures/encoded"
     ) {
       encodedFixturesEnabled = true;
+      return new Response(null, { status: 204 });
+    }
+    if (
+      request.method === "POST"
+      && new URL(request.url).pathname === "/fixtures/identity"
+    ) {
+      identityFixturesEnabled = true;
       return new Response(null, { status: 204 });
     }
     const body = request.method === "POST" ? await request.clone().text() : "";

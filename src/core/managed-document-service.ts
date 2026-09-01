@@ -87,6 +87,7 @@ export class ManagedDocumentService {
           document: { id, links: parsed.links, documentType: parsed.documentType, title: parsed.title, description: parsed.description, mediaType: parsed.mediaType, sourceDescription: parsed.sourceDescription, filePath: profileTitle ? profileDocumentFilePath(id, profileTitle) : null, uploadProvenance: parsed.uploadProvenance },
           content: parsed.content,
           contentHash,
+          sourceProvenance: parsed.sourceProvenance,
         });
       });
       return { document: result.value, changeId: result.changeId, changed: true };

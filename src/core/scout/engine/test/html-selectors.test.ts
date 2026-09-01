@@ -19,6 +19,7 @@ test("same-host HTTP detail links inherit HTTPS from the listing surface", async
   const result = await scanCompany(
     {
       companyId: "synthetic-company",
+      companyName: "Synthetic Company",
       configurationVersionId: "synthetic-config",
       sources: [
         {
@@ -69,6 +70,7 @@ test("selector HTML extraction avoids navigation links and validates two pages",
   const result = await scanCompany(
     {
       companyId: "synthetic-company",
+      companyName: "Synthetic Company",
       configurationVersionId: "synthetic-config",
       sources: [source],
     },
@@ -91,6 +93,7 @@ test("selector HTML extraction supports an explicit pagination URL template", as
   const result = await scanCompany(
     {
       companyId: "synthetic-company",
+      companyName: "Synthetic Company",
       configurationVersionId: "synthetic-config",
       sources: [
         {
@@ -132,6 +135,7 @@ test("selector HTML extraction requires explicit empty-state evidence", async ()
     scanCompany(
       {
         companyId: "synthetic-company",
+        companyName: "Synthetic Company",
         configurationVersionId: "synthetic-config",
         sources: [source],
       },
@@ -157,6 +161,7 @@ test("selector HTML extraction reports missing title and URL nodes", async () =>
   const result = await scanCompany(
     {
       companyId: "synthetic-company",
+      companyName: "Synthetic Company",
       configurationVersionId: "synthetic-config",
       sources: [source],
     },

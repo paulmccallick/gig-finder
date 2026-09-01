@@ -16,14 +16,14 @@ import path from "node:path";
 const databases: ReturnType<typeof openDatabase>[] = [];
 const temporaryDirectories:string[]=[];
 afterEach(() => {databases.splice(0).forEach((db) => db.close());temporaryDirectories.splice(0).forEach(directory=>rmSync(directory,{recursive:true,force:true}));});
-function setup() {
+function setup(companyName = "Example Company") {
   const db = openDatabase(":memory:");
   databases.push(db);
   migrateDatabase(db);
   importScoutCompany(
     {
       id: "company-1",
-      name: "Example Company",
+      name: companyName,
       active: true,
       sources: [
         {
@@ -46,14 +46,126 @@ function setup() {
   return new SqliteScoutRunStore(db);
 }
 
+test("pending and recovered company jobs retain the configured display company", () => {
+  const store = setup("Granite Labs");
+  const database = databases.at(-1)!;
+  const run = store.startOrReuse(20, 5, "2026-08-27T12:00:00Z").run;
+
+  const pending = store.pendingJobs(10)[0]!;
+  expect(pending.companyName).toBe("Granite Labs");
+
+  store.markDispatched([pending.runCompanyId], "2026-08-27T12:00:01Z");
+  database.query(`UPDATE scout_companies SET name='Renamed Granite Labs',updated_at='2026-08-27T12:00:02Z' WHERE id='company-1'`).run();
+  const recoveredStore = new SqliteScoutRunStore(database);
+  expect(recoveredStore.nonterminalJobs(10)[0]).toMatchObject({
+    runId: run.id,
+    companyName: "Granite Labs",
+  });
+});
+
 test("Scout run persistence never mutates managed-document tables directly",()=>{
   const source=readFileSync(new URL("../scout-run-store.ts",import.meta.url),"utf8");
   expect(source).not.toMatch(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+`?managed_(?:documents|document_versions|document_links)`?/i);
   expect(source).not.toMatch(/\b(?:FROM|JOIN)\s+`?managed_(?:documents|document_versions|document_links)`?/i);
 });
 
+test("exact requisition and URL Gig candidates remain reviewable", async () => {
+  setup();
+  const database = databases.at(-1)!;
+  const descriptionsRoot = mkdtempSync(path.join(process.cwd(), "tmp", "scout-candidate-review-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const screening = {
+    profile: { summary: "Synthetic candidate" },
+    profileVersion: "profile-v1",
+    profileArtifactId: "profile-artifact-v1",
+    profileHash: "profile-hash-v1",
+    model: "synthetic-model",
+    provider: "synthetic-provider",
+    modelConfiguration: "structured-v1",
+  };
+  const store = new SqliteScoutRunStore(database, descriptionsRoot, screening);
+  store.startOrReuse(20, 5, "2026-09-01T12:00:00Z");
+  const job = store.pendingJobs(1)[0]!;
+  const positions = [
+    {
+      company: job.companyName,
+      sourceKey: "official",
+      externalId: "REQ-EXACT",
+      canonicalUrl: "https://careers.example.test/jobs/requisition-candidate",
+      title: "Director of Requisition Review",
+      location: "Remote",
+      description: "Lead the synthetic requisition review organization.",
+      provenance: {
+        sourceKey: "official",
+        sourceUrl: "https://careers.example.test/jobs",
+        description: "listing" as const,
+        descriptionUrl: "https://careers.example.test/jobs/requisition-candidate",
+      },
+    },
+    {
+      company: job.companyName,
+      sourceKey: "official",
+      externalId: "REQ-DIFFERENT",
+      canonicalUrl: "https://careers.example.test/jobs/url-candidate",
+      title: "Director of URL Review",
+      location: "Remote",
+      description: "Lead the synthetic URL review organization.",
+      provenance: {
+        sourceKey: "official",
+        sourceUrl: "https://careers.example.test/jobs",
+        description: "listing" as const,
+        descriptionUrl: "https://careers.example.test/jobs/url-candidate",
+      },
+    },
+  ];
+  prepareAndComplete(store, job, {
+    companyId: job.companyId,
+    configurationVersionId: job.configurationVersionId,
+    positions,
+    sources: [{ sourceKey: "official", status: "succeeded_with_results", positions, attempts: [] }],
+  }, "2026-09-01T12:00:01Z");
+  database.exec(`
+    INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-requisition','Example Company','Existing requisition candidate','REQ-EXACT','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
+    INSERT INTO gigs(id,company,title,source_url,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-url','Example Company','Existing URL candidate','https://careers.example.test/jobs/url-candidate','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
+  `);
+  const model: ScoutScreeningModel = {
+    async screenRelevance() {
+      return {
+        value: { decision: "passes_relevance", reason: "Synthetic leadership role", confidence: .99, evidence: ["Leadership"], ambiguities: [] },
+        metrics: { provider: screening.provider, model: screening.model, modelConfiguration: screening.modelConfiguration, inputTokens: 1, outputTokens: 1, latencyMs: 1 },
+      };
+    },
+    async scoreCandidateMatch() {
+      return {
+        value: { score: 8, scoreExplanation: "Synthetic candidate match" },
+        metrics: { provider: screening.provider, model: screening.model, modelConfiguration: screening.modelConfiguration, inputTokens: 1, outputTokens: 1, latencyMs: 1 },
+      };
+    },
+  };
+  const processor = new ScoutPositionProcessor(store, model, () => "2026-09-01T12:00:02Z");
+  while (store.pendingPositionJobs(20)[0]) {
+    await processor.process(store.pendingPositionJobs(20)[0]!.id);
+  }
+
+  expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states ORDER BY position_id`).all()).toEqual([
+    { state: "needs_user_review", linkedGigId: null },
+    { state: "needs_user_review", linkedGigId: null },
+  ]);
+  expect(store.workspace({ state: "needs_user_review", sort: "title", direction: "asc", offset: 0, limit: 20 })).toMatchObject({
+    total: 2,
+    items: [
+      { title: "Director of Requisition Review" },
+      { title: "Director of URL Review" },
+    ],
+  });
+  expect(database.query(`SELECT count(*) count FROM changes WHERE summary='Promoted exact-matched Scout position'`).get()).toEqual({ count: 0 });
+});
+
 const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
   const position = {
+    company: job.companyName,
     sourceKey: "official",
     externalId: "job-1",
     canonicalUrl: "https://careers.example.test/jobs/1",
@@ -95,6 +207,123 @@ const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
     ],
   };
 };
+
+test("reviewed posting intent binds the exact observation, description, and submitted resolution",()=>{
+  setup();
+  const database=databases.at(-1)!;
+  const descriptionsRoot=mkdtempSync(path.join(process.cwd(),"tmp","scout-reviewed-posting-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const reviewedStore=new SqliteScoutRunStore(database,descriptionsRoot);
+  const run=reviewedStore.startOrReuse(20,5,"2026-09-01T12:00:00Z").run;
+  const job=reviewedStore.pendingJobs(1)[0]!;
+  const reviewedPosition={
+    company:job.companyName,
+    sourceKey:"official",
+    externalId:"reviewed-42",
+    canonicalUrl:"https://careers.example.test/jobs/reviewed-42",
+    title:"Director of Synthetic Systems",
+    location:"Remote",
+    locations:[{label:"Remote USA",workArrangement:"remote" as const}],
+    workArrangement:"remote" as const,
+    description:"Exact reviewed Markdown.",
+    provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/reviewed-42"},
+  };
+  prepareAndComplete(reviewedStore,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[reviewedPosition],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[reviewedPosition],attempts:[]}]} ,"2026-09-01T12:00:01Z");
+  const binding=database.query(`SELECT p.id positionId,o.id observationId,d.id descriptionId FROM scout_positions p JOIN scout_position_observations o ON o.position_id=p.id JOIN scout_position_descriptions d ON d.position_id=p.id WHERE p.external_id='reviewed-42'`).get() as {positionId:string;observationId:string;descriptionId:string};
+  const criteria=database.query(`SELECT id FROM scout_relevance_criteria ORDER BY version DESC LIMIT 1`).get() as {id:string};
+  const rubric=database.query(`SELECT id FROM scout_candidate_match_rubrics ORDER BY version DESC LIMIT 1`).get() as {id:string};
+  database.query(`INSERT INTO scout_relevance_evaluations(id,position_id,description_id,criteria_id,input_identity,decision,reason,confidence,evidence_json,ambiguities_json,provider,model,model_configuration,latency_ms,created_at) VALUES('reviewed-relevance',?,?,?,'reviewed-relevance-input','passes_relevance','Synthetic relevant role',990,'[]','[]','synthetic','synthetic','synthetic',1,'2026-09-01T12:00:02Z')`).run(binding.positionId,binding.descriptionId,criteria.id);
+  database.query(`INSERT INTO scout_candidate_match_evaluations(id,position_id,relevance_evaluation_id,input_identity,profile_version,profile_artifact_id,profile_hash,rubric_id,score,score_explanation,provider,model,model_configuration,latency_ms,created_at) VALUES('reviewed-match',?,'reviewed-relevance','reviewed-match-input','synthetic-v1','synthetic-artifact','synthetic-hash',?,8,'Synthetic match','synthetic','synthetic','synthetic',1,'2026-09-01T12:00:03Z')`).run(binding.positionId,rubric.id);
+  database.query(`INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,description_id,relevance_evaluation_id,rubric_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at) VALUES('reviewed-match-processing',?,?,?,?,?,?,'score_candidate_match','reviewed-match-input','completed',1,'2026-09-01T12:00:03Z','2026-09-01T12:00:03Z','2026-09-01T12:00:03Z')`).run(binding.positionId,run.id,binding.observationId,binding.descriptionId,"reviewed-relevance",rubric.id);
+  database.query(`UPDATE scout_position_states SET state='needs_user_review',revision=7,updated_at='2026-09-01T12:00:03Z' WHERE position_id=?`).run(binding.positionId);
+  database.query(`UPDATE scout_positions SET title='Later mutable title',canonical_url='https://careers.example.test/jobs/later',location='Later mutable location' WHERE id=?`).run(binding.positionId);
+  database.query(`UPDATE scout_companies SET name='Later mutable company',updated_at='2026-09-01T12:00:03Z' WHERE id='company-1'`).run();
+
+  const decisionsBefore=database.query(`SELECT count(*) count FROM scout_position_decisions`).get();
+  const review=reviewedStore.reviewPosting(binding.positionId)!;
+  expect(review.observationId).toBe(binding.observationId);
+  expect(review.posting).toEqual({
+    company:"Example Company",
+    sourceKey:"official",
+    externalId:"reviewed-42",
+    canonicalUrl:reviewedPosition.canonicalUrl,
+    title:reviewedPosition.title,
+    location:"Remote",
+    locations:[{label:"Remote USA",workArrangement:"remote"}],
+    workArrangement:"remote",
+    description:"Exact reviewed Markdown.",
+    provenance:reviewedPosition.provenance,
+  });
+  expect(review.markdown).toBe("Exact reviewed Markdown.");
+  expect(JSON.parse(review.sourceDescription)).toMatchObject({
+    scoutDescriptionId:binding.descriptionId,
+    officialSourceUrl:"https://careers.example.test/jobs",
+    sourceKey:"official",
+    extractionStrategy:"search-result-v1",
+  });
+  expect(review.sourceProvenance).toEqual({
+    officialUrl:"https://careers.example.test/jobs",
+    retrievedAt:"2026-09-01T12:00:01Z",
+    sourceContentHash:createHash("sha256").update("Exact reviewed Markdown.").digest("hex"),
+    extractedContentHash:createHash("sha256").update("Exact reviewed Markdown.").digest("hex"),
+    sourceKey:"official",
+    configurationVersion:1,
+    extractionStrategy:"search-result-v1",
+    converterVersion:"html-to-markdown-v2",
+  });
+  expect(database.query(`SELECT count(*) count FROM scout_position_decisions`).get()).toEqual(decisionsBefore);
+  expect(database.query(`SELECT count(*) count FROM scout_position_promotions`).get()).toEqual({count:0});
+
+  const command={positionId:binding.positionId,action:"pursue" as const,actor:"Synthetic Reviewer",changeId:"reviewed-pursue",expectedStateRevision:review.detail.stateRevision,descriptionId:review.detail.descriptionId!,relevanceEvaluationId:review.detail.relevanceEvaluationId!,candidateMatchEvaluationId:review.detail.candidateMatchEvaluationId!};
+  const resolution={kind:"use_existing" as const,reviewedFingerprint:"b".repeat(64),gigId:"reviewed-existing-gig",expectedGigRevision:9};
+  expect(()=>reviewedStore.beginPursue({...command,candidateMatchEvaluationId:"stale-match"},resolution,"2026-09-01T12:00:04Z")).toThrow("revised");
+  expect(database.query(`SELECT count(*) count FROM changes WHERE id='reviewed-pursue'`).get()).toEqual({count:0});
+  expect(database.query(`SELECT count(*) count FROM scout_position_decisions WHERE change_id='reviewed-pursue'`).get()).toEqual({count:0});
+  expect(database.query(`SELECT count(*) count FROM scout_position_promotions`).get()).toEqual({count:0});
+
+  const work=reviewedStore.beginPursue(command,resolution,"2026-09-01T12:00:05Z");
+  expect(work).toMatchObject({
+    positionId:binding.positionId,
+    observationId:binding.observationId,
+    descriptionId:binding.descriptionId,
+    changeId:"reviewed-pursue",
+    actor:"Synthetic Reviewer",
+    posting:review.posting,
+    markdown:"Exact reviewed Markdown.",
+    sourceDescription:review.sourceDescription,
+    sourceProvenance:review.sourceProvenance,
+    resolution,
+  });
+  expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
+  expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"processing",linkedGigId:null});
+  database.query(`UPDATE scout_companies SET name='Renamed again before retry',updated_at='2026-09-01T12:00:05Z' WHERE id='company-1'`).run();
+  expect(reviewedStore.promotionWork(binding.positionId)?.posting.company).toBe("Example Company");
+
+  const releasedDetail=reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue","resolution_stale","2026-09-01T12:00:05.500Z");
+  expect(reviewedStore.promotionWork(binding.positionId)).toBeNull();
+  expect(database.query(`SELECT status,failure_code failureCode FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({status:"failed",failureCode:"resolution_stale"});
+  expect(database.query(`SELECT state,revision,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"needs_user_review",revision:9,currentDecisionId:null});
+  expect(releasedDetail).toMatchObject({
+    id:binding.positionId,
+    state:"needs_user_review",
+    stateRevision:9,
+  });
+  expect(database.query(`SELECT id,change_id changeId FROM scout_position_decisions WHERE change_id='reviewed-pursue'`).get()).toMatchObject({changeId:"reviewed-pursue"});
+
+  const refreshedReview=reviewedStore.reviewPosting(binding.positionId)!;
+  const replacementCommand={...command,changeId:"reviewed-pursue-after-race",expectedStateRevision:refreshedReview.detail.stateRevision};
+  const replacementResolution={kind:"create_new" as const,reviewedFingerprint:"c".repeat(64)};
+  const replacementWork=reviewedStore.beginPursue(replacementCommand,replacementResolution,"2026-09-01T12:00:05.750Z");
+  expect(replacementWork).toMatchObject({changeId:"reviewed-pursue-after-race",resolution:replacementResolution});
+  expect(database.query(`SELECT count(*) count FROM scout_position_decisions WHERE change_id IN ('reviewed-pursue','reviewed-pursue-after-race')`).get()).toEqual({count:2});
+  reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue-after-race","resolution_invalid","2026-09-01T12:00:05.875Z");
+  expect(database.query(`SELECT state,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"needs_user_review",currentDecisionId:null});
+
+  database.exec("PRAGMA ignore_check_constraints=ON");
+  database.query(`UPDATE scout_position_promotions SET resolution_fingerprint=NULL WHERE position_id=?`).run(binding.positionId);
+  database.exec("PRAGMA ignore_check_constraints=OFF");
+  expect(()=>reviewedStore.beginPursue(replacementCommand,replacementResolution,"2026-09-01T12:00:06Z")).toThrow("Reviewed Scout promotion intent is unavailable.");
+});
 
 test("company result preparation remains nonterminal and is replay safe", () => {
   const store = setup();
@@ -294,6 +523,7 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
     configurationVersionId: job.configurationVersionId,
     positions: [
       {
+        company: job.companyName,
         sourceKey: "official",
         externalId: "role-1",
         canonicalUrl: "https://careers.example.test/jobs/1",
@@ -404,16 +634,11 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
   const position=store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).items[0]!;
   expect(store.positionDetail(position.id)?.observations).toHaveLength(1);
   expect(store.workspace({text:"does not match",state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).counts).toEqual({actionable:0,processing:0,needs_user_review:0,irrelevant:0,deferred:0});
-  new DataStore(databases.at(-1)!).change({actor:"Synthetic test",source:"test",summary:"Create exact Gig"},transaction=>transaction.gigs.create({id:"gig-exact",company:"Example Company",title:"Systems Gardener",externalJobId:"role-1",stage:"identified",outcome:"pending",statusSummary:"Tracked",lastActivity:"2026-01-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false,availability:"unknown",availabilityUpdatedAt:null}));
-  expect(store.backfillPositions(run.id,20,"2026-01-01T00:00:05Z")).toMatchObject({sourceRunId:run.id,selection:{selected:1,complete:true}});
-  store.reconcileGig(store.pendingPositionJobs(20)[0]!,"2026-01-01T00:00:06Z");
-  expect(store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).total).toBe(0);
-  expect(databases.at(-1)!.query("SELECT state,linked_gig_id linkedGigId,revision FROM scout_position_states WHERE position_id=?").get(position.id)).toEqual({state:"promoted",linkedGigId:"gig-exact",revision:2});
 });
 test("backfill binds failed description recovery to a newly imported source configuration exactly once",()=>{
   const store=setup(),database=databases.at(-1)!;
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run,job=store.pendingJobs(1)[0]!;
-  const position={sourceKey:"official",externalId:"role-transition",canonicalUrl:"https://careers.example.test/jobs/role-transition",title:"Synthetic Transition Lead",location:"Remote",description:null,provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"none" as const,descriptionUrl:"https://careers.example.test/jobs/role-transition"}};
+  const position={company:job.companyName,sourceKey:"official",externalId:"role-transition",canonicalUrl:"https://careers.example.test/jobs/role-transition",title:"Synthetic Transition Lead",location:"Remote",description:null,provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"none" as const,descriptionUrl:"https://careers.example.test/jobs/role-transition"}};
   prepareAndComplete(store,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]},"2026-01-01T00:00:01Z");
   store.reconcileGig(store.pendingPositionJobs(1)[0]!,"2026-01-01T00:00:02Z");
   const failed=store.pendingPositionJobs(1)[0]!;
@@ -483,7 +708,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const store=new SqliteScoutRunStore(database,descriptionsRoot,screening);
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run;
   const job=store.pendingJobs(1)[0]!;
-  const position={sourceKey:"official",externalId:"screen-1",canonicalUrl:"https://careers.example.test/jobs/screen-1",title:"Director of Synthetic Technology",location:"Remote",description:"Lead the synthetic technology organization.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/screen-1"}};
+  const position={company:job.companyName,sourceKey:"official",externalId:"screen-1",canonicalUrl:"https://careers.example.test/jobs/screen-1",title:"Director of Synthetic Technology",location:"Remote",description:"Lead the synthetic technology organization.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/screen-1"}};
   prepareAndComplete(store,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[{sourceMethod:"json",stage:"listing",requestCount:1,responseCount:1,candidateCount:1,acceptedCount:1,rejectedCount:0,validationStatus:"verified",startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:00:01Z",diagnostics:[]}]}]},"2026-01-01T00:00:01Z");
   expect(database.query(`SELECT count(*) count FROM scout_position_descriptions`).get()).toEqual({count:1});
   const laterStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Later Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
@@ -555,29 +780,37 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(resurfaced).toMatchObject({state:"needs_user_review",stateRevision:deferredAgain.stateRevision+1});
   database.query(`INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,canonical_url,title,first_seen_at,last_seen_at) VALUES('other-position','company-1','official','canonical_url','https://careers.example.test/other','https://careers.example.test/other','Other role','2026-01-01','2026-01-01')`).run();
   expect(()=>changedStore.appendPositionNote({positionId:"other-position",decisionId:deferDecision.id,actor:"Reviewer",body:"Wrong position"},"2026-01-01T00:00:12Z")).toThrow("does not belong");
+  const pursueCommand={positionId:review.id,action:"pursue" as const,actor:"Reviewer",changeId:"change-pursue",expectedStateRevision:resurfaced.stateRevision,...identities};
+  const pursuePosting=changedStore.reviewPosting(review.id)!;
+  const pursueResolution={kind:"create_new" as const,reviewedFingerprint:promotionApplication.gigs.resolvePosting(pursuePosting.posting).fingerprint};
+  changedStore.beginPursue(pursueCommand,pursueResolution,"2026-01-01T00:00:12Z");
   database.exec(`CREATE TRIGGER synthetic_promotion_failure BEFORE INSERT ON managed_documents BEGIN SELECT RAISE(ABORT,'Synthetic promotion failure'); END`);
-  const failed=positions.decide(review.id,{action:"pursue",actor:"Reviewer",changeId:"change-pursue",expectedStateRevision:resurfaced.stateRevision,...identities});
-  expect(failed).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureCode:"promotion_failed"});
+  expect(()=>positions.retryPromotion(review.id)).toThrow("Synthetic promotion failure");
+  expect(changedStore.reviewDetail(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureCode:"promotion_failed"});
   expect(database.query(`SELECT status,description_id descriptionId FROM scout_position_promotions WHERE position_id=?`).get(review.id)).toEqual({status:"failed",descriptionId:identities.descriptionId});
-  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
+  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig-posting"});
   expect(database.query(`SELECT count(*) count FROM managed_documents`).get()).toEqual({count:0});
-  const replayedFailure=positions.decide(review.id,{action:"pursue",actor:"Forged replay",changeId:"change-pursue",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"});
-  expect(replayedFailure).toMatchObject({state:"processing",promotionStatus:"failed"});
+  const replayedWork=changedStore.beginPursue({...pursueCommand,actor:"Forged replay",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"},{kind:"create_new",reviewedFingerprint:"d".repeat(64)},"2026-01-01T00:00:13Z");
+  expect(replayedWork).toMatchObject({actor:"Reviewer",resolution:pursueResolution});
   database.exec(`DROP TRIGGER synthetic_promotion_failure`);
   const promotionWork=changedStore.promotionWork(review.id)!;
-  const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotionWork.gigId}],documentType:"job_description",title:`${promotionWork.company} — ${promotionWork.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",content:promotionWork.markdown,uploadProvenance:null}).document;
-  expect(positions.retryPromotion(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureMessage:"Reviewed Scout document replay does not match the persisted promotion."});
+  const promotedGig=(database.query(`SELECT entity_id id FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get() as {id:string}).id;
+  const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotedGig}],documentType:"job_description",title:`${promotionWork.posting.company} — ${promotionWork.posting.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",sourceProvenance:{...promotionWork.sourceProvenance,converterVersion:"wrong-converter-v1"},content:promotionWork.markdown,uploadProvenance:null}).document;
+  expect(()=>positions.retryPromotion(review.id)).toThrow("Reviewed Scout document replay does not match the persisted promotion.");
+  expect(changedStore.reviewDetail(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureMessage:"Reviewed Scout document replay does not match the persisted promotion."});
   database.query(`UPDATE managed_documents SET source_description=? WHERE id=?`).run(promotionWork.sourceDescription,mismatchedDocument.id);
+  expect(()=>positions.retryPromotion(review.id)).toThrow("Reviewed Scout document version does not match the persisted promotion.");
+  database.query(`UPDATE managed_document_versions SET source_description=?,source_provenance_json=? WHERE document_id=? AND version=1`).run(promotionWork.sourceDescription,JSON.stringify(promotionWork.sourceProvenance),mismatchedDocument.id);
   const promoted=positions.retryPromotion(review.id);
-  expect(promoted).toBeNull();
-  expect(positions.decide(review.id,{action:"pursue",actor:"Forged replay",changeId:"change-pursue",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"})).toBeNull();
+  expect(promoted).toEqual({status:"created",position:null});
+  expect(positions.retryPromotion(review.id)).toBeNull();
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
   const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};
   expect(JSON.parse(promotedProvenance.sourceDescription)).toMatchObject({scoutDescriptionId:identities.descriptionId,officialSourceUrl:"https://careers.example.test/jobs/screen-1/detail",retrievedAt:"2026-01-01T00:00:05.500Z",sourceKey:"official",configurationVersionId:expect.any(String),extractionStrategy:"json-field-v1",converterVersion:"detail-converter-v2"});
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=(SELECT gig_id FROM scout_position_promotions WHERE position_id=?)`).get(review.id)).toEqual({count:1});
-  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
+  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig-posting"});
   expect(database.query(`SELECT count(*) count FROM changes WHERE id IN ('change-pursue:gig','change-pursue:document')`).get()).toEqual({count:2});
   database.exec(`DELETE FROM managed_document_links; DELETE FROM managed_document_versions; DELETE FROM scout_position_promotions; DELETE FROM managed_documents; UPDATE scout_position_states SET state='needs_user_review',linked_gig_id=NULL,deferred_until=NULL,current_decision_id=NULL WHERE position_id<>'other-position'; DELETE FROM scout_position_notes; DELETE FROM scout_position_decisions; DELETE FROM changes WHERE id LIKE 'change-%'; DELETE FROM gigs;`);
   database.query(`UPDATE scout_position_processing SET run_id=? WHERE stage='screen_relevance' AND status='completed'`).run(run.id);
@@ -590,7 +823,7 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(changedStore.pendingPositionJobs(10)).toContainEqual(expect.objectContaining({stage:"score_candidate_match"}));
 });
 
-test("Gig identity changes restart an incomplete bounded position backfill",()=>{
+test("incomplete bounded position backfill resumes from its durable position checkpoint",()=>{
   const store=setup(),database=databases.at(-1)!;
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run;
   const sourceJob=store.pendingJobs(1)[0]!;
@@ -603,10 +836,10 @@ test("Gig identity changes restart an incomplete bounded position backfill",()=>
   database.query(`INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES(?,?,?,?,?,'{}','2026-01-01')`).run("observation-a",runSourceId,"position-a","Synthetic A","https://careers.example.test/a");
   database.query(`INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES(?,?,?,?,?,'{}','2026-01-01')`).run("observation-b",runSourceId,"position-b","Synthetic B","https://careers.example.test/b");
   expect(store.backfillPositions(run.id,1,"2026-01-01T00:00:00Z")).toMatchObject({sourceRunId:run.id,selection:{selected:2,complete:false}});
-  database.query(`INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-a','Example Company','Synthetic Role','external-a','identified','pending','Tracked','2026-01-01','good','[]',0,0,1,0,'2026-01-01','2026-01-01')`).run();
   expect(store.backfillPositions(run.id,1,"2026-01-01T00:00:01Z")).toMatchObject({sourceRunId:run.id,selection:{selected:2,complete:false}});
-  const current=store.pendingPositionJobs(10).filter(job=>job.positionId==="position-a");
-  expect(current).toHaveLength(1);
+  expect(store.backfillPositions(run.id,1,"2026-01-01T00:00:02Z")).toMatchObject({sourceRunId:run.id,selection:{selected:2,complete:true}});
+  const current=store.pendingPositionJobs(10).filter(job=>job.positionId==="position-a"||job.positionId==="position-b");
+  expect(current.map(job=>job.positionId).sort()).toEqual(["position-a","position-b"]);
   expect(database.query(`SELECT 1 FROM scout_position_states WHERE position_id='position-outside'`).get()).toBeNull();
   expect(database.query(`SELECT source_run_id sourceRunId FROM scout_position_backfill`).get()).toEqual({sourceRunId:run.id});
 });
@@ -773,12 +1006,11 @@ test("explicit position backfill starts atomically and reuses its durable finger
   expect(database.query(`SELECT status,completed_at completedAt FROM scout_position_processing WHERE id=?`).get(completedProcessingId)).toEqual({status:"completed",completedAt:"2026-08-28T12:00:01Z"});
   expect(store.backfillStatus(first.runId)).toEqual(first);
   expect(store.backfillStatus(sourceRun.id)).toBeNull();
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('backfill-gig','Example Company','Synthetic Systems Gardener','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/1','[]',1,0,1,0,'2026-08-28','2026-08-28')`).run();
   store.reconcileGig(newProcessing.id,"2026-08-28T12:00:04.500Z");
   expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:0,failed:0});
   const distinctReason=store.startBackfill({positionIds:[positionId],reason:"Reprocess for a separate defect"},"2026-08-28T12:00:05Z");
   expect(distinctReason.runId).not.toBe(first.runId);
-  expect(database.query(`SELECT linked_gig_id linkedGigId FROM scout_position_backfill_items WHERE run_id=?`).get(distinctReason.runId)).toEqual({linkedGigId:"backfill-gig"});
+  expect(database.query(`SELECT linked_gig_id linkedGigId FROM scout_position_backfill_items WHERE run_id=?`).get(distinctReason.runId)).toEqual({linkedGigId:null});
   expect(distinctReason.gigDocuments).toEqual({pending:0,updated:0,unchanged:0,failed:0});
   expect(()=>store.backfillPositions(distinctReason.runId,20,"2026-08-28T12:00:06Z")).toThrow("source run not found");
   expect(database.query(`SELECT count(*) count FROM scout_runs WHERE run_type='legacy_backfill' AND source_run_id=?`).get(distinctReason.runId)).toEqual({count:0});
@@ -794,7 +1026,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   const store=new SqliteScoutRunStore(database,descriptionsRoot,screening);
   store.startOrReuse(20,5,"2026-08-29T01:00:00Z");
   const companyJob=store.pendingJobs(1)[0]!;
-  const position={sourceKey:"official",externalId:"promoted-143",canonicalUrl:"https://careers.example.test/jobs/promoted-143",title:"Director of Synthetic Platforms",location:"Remote",description:"Original official description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/promoted-143"}};
+  const position={company:companyJob.companyName,sourceKey:"official",externalId:"promoted-143",canonicalUrl:"https://careers.example.test/jobs/promoted-143",title:"Director of Synthetic Platforms",location:"Remote",description:"Original official description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/promoted-143"}};
   prepareAndComplete(store,companyJob,{companyId:companyJob.companyId,configurationVersionId:companyJob.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]} ,"2026-08-29T01:00:01Z");
   const model:ScoutScreeningModel={
     async screenRelevance(){return{value:{decision:"passes_relevance",reason:"Synthetic relevant role",confidence:.99,evidence:["Technology leadership"],ambiguities:[]},metrics:{provider:screening.provider,model:screening.model,modelConfiguration:screening.modelConfiguration,inputTokens:1,outputTokens:1,latencyMs:1}};},
@@ -806,9 +1038,11 @@ test("real processor durably records promoted document outcomes and reconciles a
   const review=store.reviewDetail(positionId)!;
   const application=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
   const positions=new ScoutPositionService(store,application.gigs,application.documents);
-  positions.decide(positionId,{action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!});
+  const reviewedPosting=store.reviewPosting(positionId)!;
+  store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:application.gigs.resolvePosting(reviewedPosting.posting).fingerprint},"2026-08-29T01:00:02Z");
+  positions.retryPromotion(positionId);
   const promotion=database.query(`SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`).get(positionId) as {gigId:string;managedDocumentId:string};
-  expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(1);
+  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:1,sourceDescription:reviewedPosting.sourceDescription,sourceProvenance:reviewedPosting.sourceProvenance}]);
 
   importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{source.origin}/details/{position.id}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-29T01:00:03Z"));
   const corrected={markdown:"Corrected official description.",sourceContentHash:"a".repeat(64),extractedContentHash:"b".repeat(64),sourceUrl:"https://careers.example.test/details/promoted-143",retrievedAt:"2026-08-29T01:00:04Z",converterVersion:"scout-description-v2",strategyVersion:"json-field-v1"};
@@ -831,7 +1065,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   const replayedPreparation=store.prepareDescriptionCompletion(firstAcquire,corrected,"2026-08-29T01:00:05Z");
   expect(replayedPreparation).toEqual(prepared);
   await new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:05Z",undefined,application.documents).process(firstAcquire);
-  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:2,sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance},{version:1,sourceDescription:null,sourceProvenance:null}]);
+  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:2,sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance},{version:1,sourceDescription:reviewedPosting.sourceDescription,sourceProvenance:reviewedPosting.sourceProvenance}]);
   expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(firstAcquire)).toEqual({documentProjectionStatus:"updated"});
   expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
   database.query(`UPDATE scout_position_processing SET document_projection_status='unchanged' WHERE id=?`).run(firstAcquire);
@@ -909,8 +1143,8 @@ test("position backfill reruns the complete pipeline",async()=>{
   store.startOrReuse(20,5,"2026-08-28T14:00:00Z");
   const companyJob=store.pendingJobs(1)[0]!;
   const positions=[
-    {sourceKey:"official",externalId:"pipeline-1",canonicalUrl:"https://careers.example.test/jobs/pipeline-1",title:"Director of Synthetic Platforms",location:"Remote",description:"Historical platform leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-1"}},
-    {sourceKey:"official",externalId:"pipeline-2",canonicalUrl:"https://careers.example.test/jobs/pipeline-2",title:"Director of Synthetic Infrastructure",location:"Remote",description:"Historical infrastructure leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-2"}},
+    {company:companyJob.companyName,sourceKey:"official",externalId:"pipeline-1",canonicalUrl:"https://careers.example.test/jobs/pipeline-1",title:"Director of Synthetic Platforms",location:"Remote",description:"Historical platform leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-1"}},
+    {company:companyJob.companyName,sourceKey:"official",externalId:"pipeline-2",canonicalUrl:"https://careers.example.test/jobs/pipeline-2",title:"Director of Synthetic Infrastructure",location:"Remote",description:"Historical infrastructure leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-2"}},
   ];
   prepareAndComplete(store,companyJob,{companyId:companyJob.companyId,configurationVersionId:companyJob.configurationVersionId,positions,sources:[{sourceKey:"official",status:"succeeded_with_results",positions,attempts:[]}]} ,"2026-08-28T14:00:01Z");
   const model:ScoutScreeningModel={

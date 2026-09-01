@@ -101,6 +101,55 @@ export interface GigRecord extends Gig {
   interactions?: InteractionReference[];
 }
 
+export const gigPostingMatchReasons = [
+  "company_requisition",
+  "company_url",
+  "company_title",
+] as const;
+export type GigPostingMatchReason = (typeof gigPostingMatchReasons)[number];
+
+export interface GigPostingCandidate {
+  gigId: string;
+  revision: number;
+  company: string;
+  title: string;
+  externalJobId: string | null;
+  sourceUrl: string | null;
+  location: string | null;
+  stage: PipelineStage;
+  outcome: Outcome;
+  availability: GigAvailability;
+  lastActivity: string;
+  jobDescription: DocumentSummary | null;
+  matchReasons: GigPostingMatchReason[];
+}
+
+export const postingResolutionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("create_new"),
+    reviewedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  }).strict(),
+  z.object({
+    kind: z.literal("use_existing"),
+    reviewedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    gigId: z.string().trim().min(1),
+    expectedGigRevision: z.number().int().positive(),
+  }).strict(),
+]);
+export type PostingResolution = z.infer<typeof postingResolutionSchema>;
+
+export type AcceptPostingResult =
+  | { status: "created"; gig: GigRecord }
+  | { status: "updated"; gig: GigRecord }
+  | { status: "resolution_required"; fingerprint: string; candidates: GigPostingCandidate[] }
+  | { status: "resolution_stale"; fingerprint: string; candidates: GigPostingCandidate[] }
+  | { status: "resolution_invalid" };
+
+export interface PostingCandidateResolution {
+  fingerprint: string;
+  candidates: GigPostingCandidate[];
+}
+
 const gigDateSchema=z.string().regex(/^\d{4}-\d{2}-\d{2}$/,"Must use YYYY-MM-DD.").refine(isCalendarDate,"Must be a valid calendar date.");
 const gigNullableTextSchema=z.string().trim().nullable();
 export const gigNextActionSchema=z.object({description:z.string().trim().min(1).describe("What the candidate should do next."),due:gigDateSchema.nullable().describe("Due date, or null.")}).strict();
