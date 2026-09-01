@@ -18,6 +18,7 @@ export interface ScoutCompanyJob {
   runId: string;
   runCompanyId: string;
   companyId: string;
+  companyName: string;
   configurationVersionId: string;
   sources: SourceConfiguration[];
   searchProfile: ScoutSearchProfile;

@@ -16,6 +16,9 @@ const bounded = (value: unknown, fallback: string) =>
 const retryable = (error: unknown) =>
   !(error instanceof DOMException && error.name === "AbortError") &&
   (!String(error).match(/http_4\d\d/) || String(error).includes("http_429"));
+type SourceScanResult = Omit<SourceOutcome, "positions"> & {
+  positions: Array<Omit<NormalizedPosition, "company">>;
+};
 export async function scanSource(
   source: SourceConfiguration,
   searchProfile: ScoutSearchProfile,
@@ -24,12 +27,12 @@ export async function scanSource(
   clock: GigScoutClock,
   templates: TemplateResolver,
   signal?: AbortSignal,
-): Promise<SourceOutcome> {
-  const positions = [];
+): Promise<SourceScanResult> {
+  const positions: Array<Omit<NormalizedPosition, "company">> = [];
   const attempts: SourceAttempt[] = [];
   const attemptPositions: Array<{
     attempt: SourceAttempt;
-    positions: NormalizedPosition[];
+    positions: Array<Omit<NormalizedPosition, "company">>;
   }> = [];
   let surfaceVerified = false;
   let terminalError: unknown;
@@ -406,10 +409,13 @@ export async function scanSource(
 }
 
 function applyValidation(
-  batches: Array<{ attempt: SourceAttempt; positions: NormalizedPosition[] }>,
-  accepted: NormalizedPosition[],
+  batches: Array<{
+    attempt: SourceAttempt;
+    positions: Array<Omit<NormalizedPosition, "company">>;
+  }>,
+  accepted: Array<Omit<NormalizedPosition, "company">>,
   rejected: Array<{
-    position: NormalizedPosition;
+    position: Omit<NormalizedPosition, "company">;
     code: string;
     message: string;
   }>,

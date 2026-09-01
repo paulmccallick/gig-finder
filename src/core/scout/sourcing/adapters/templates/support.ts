@@ -46,7 +46,7 @@ export function normalize(
     descriptionContentEncoding?: DescriptionContentEncoding;
     descriptionUrl?: unknown;
   },
-): NormalizedPosition | null {
+): Omit<NormalizedPosition, "company"> | null {
   const title = text(value.title).trim(),
     url = absolute(text(value.url), source.url);
   if (!title || !url) return null;
@@ -85,7 +85,7 @@ export function normalize(
   };
 }
 export function page(
-  positions: NormalizedPosition[],
+  positions: Array<Omit<NormalizedPosition, "company">>,
   records: unknown[],
   surfaceVerified: boolean,
   total: number | null,

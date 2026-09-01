@@ -190,12 +190,13 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
   private jobs(where: string, limit: number) {
     const rows = this.db
       .query(
-        `SELECT rc.run_id,rc.id run_company_id,rc.company_id,rc.company_configuration_id,r.search_profile_json,group_concat(s.settings_json,char(30)) settings FROM scout_run_companies rc JOIN scout_runs r ON r.id=rc.run_id JOIN scout_run_outbox o ON o.run_company_id=rc.id JOIN scout_company_configuration_sources s ON s.company_configuration_id=rc.company_configuration_id AND s.active=1 WHERE ${where} GROUP BY rc.id ORDER BY o.created_at,o.id LIMIT ?`,
+        `SELECT rc.run_id,rc.id run_company_id,rc.company_id,c.name company_name,rc.company_configuration_id,r.search_profile_json,group_concat(s.settings_json,char(30)) settings FROM scout_run_companies rc JOIN scout_companies c ON c.id=rc.company_id JOIN scout_runs r ON r.id=rc.run_id JOIN scout_run_outbox o ON o.run_company_id=rc.id JOIN scout_company_configuration_sources s ON s.company_configuration_id=rc.company_configuration_id AND s.active=1 WHERE ${where} GROUP BY rc.id ORDER BY o.created_at,o.id LIMIT ?`,
       )
       .all(limit) as Array<{
       run_id: string;
       run_company_id: string;
       company_id: string;
+      company_name: string;
       company_configuration_id: string;
       settings: string;
       search_profile_json: string;
@@ -204,6 +205,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
       runId: row.run_id,
       runCompanyId: row.run_company_id,
       companyId: row.company_id,
+      companyName: row.company_name,
       configurationVersionId: row.company_configuration_id,
       searchProfile: JSON.parse(row.search_profile_json),
       sources: row.settings

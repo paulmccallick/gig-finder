@@ -358,6 +358,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [{
           key: "official",
@@ -446,6 +447,7 @@ describe("reusable JSON templates", () => {
       scanCompany(
         {
           companyId: company,
+          companyName: "Synthetic Company",
           configurationVersionId: `config-${company}`,
           sources: [
             {
@@ -518,6 +520,7 @@ describe("reusable JSON templates", () => {
       const result = await scanCompany(
         {
           companyId: "company-1",
+          companyName: "Synthetic Company",
           configurationVersionId: "config-1",
           sources: [
             {
@@ -560,6 +563,7 @@ describe("reusable JSON templates", () => {
       const result = await scanCompany(
         {
           companyId: "company-1",
+          companyName: "Synthetic Company",
           configurationVersionId: "config-1",
           sources: [
             {
@@ -587,6 +591,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -643,6 +648,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompanyCore(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         searchProfile: {
           terms: [...profile.terms],
@@ -730,6 +736,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompanyCore(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         searchProfile: { terms: ["Vice President"], locations: ["Remote"] },
         sources: [{
@@ -777,6 +784,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         searchProfile: { terms: ["Director"], locations: ["Remote"] },
         sources: [{
@@ -824,6 +832,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -884,6 +893,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -928,6 +938,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -973,6 +984,7 @@ describe("reusable JSON templates", () => {
     await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -1011,6 +1023,7 @@ describe("reusable JSON templates", () => {
     await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -1053,6 +1066,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -1104,6 +1118,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {
@@ -1143,6 +1158,7 @@ describe("reusable JSON templates", () => {
     const result = await scanCompany(
       {
         companyId: "company-1",
+        companyName: "Synthetic Company",
         configurationVersionId: "config-1",
         sources: [
           {

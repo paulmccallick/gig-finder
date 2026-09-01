@@ -16,14 +16,14 @@ import path from "node:path";
 const databases: ReturnType<typeof openDatabase>[] = [];
 const temporaryDirectories:string[]=[];
 afterEach(() => {databases.splice(0).forEach((db) => db.close());temporaryDirectories.splice(0).forEach(directory=>rmSync(directory,{recursive:true,force:true}));});
-function setup() {
+function setup(companyName = "Example Company") {
   const db = openDatabase(":memory:");
   databases.push(db);
   migrateDatabase(db);
   importScoutCompany(
     {
       id: "company-1",
-      name: "Example Company",
+      name: companyName,
       active: true,
       sources: [
         {
@@ -46,6 +46,22 @@ function setup() {
   return new SqliteScoutRunStore(db);
 }
 
+test("pending and recovered company jobs retain the configured display company", () => {
+  const store = setup("Visa");
+  const database = databases.at(-1)!;
+  const run = store.startOrReuse(20, 5, "2026-08-27T12:00:00Z").run;
+
+  const pending = store.pendingJobs(10)[0]!;
+  expect(pending.companyName).toBe("Visa");
+
+  store.markDispatched([pending.runCompanyId], "2026-08-27T12:00:01Z");
+  const recoveredStore = new SqliteScoutRunStore(database);
+  expect(recoveredStore.nonterminalJobs(10)[0]).toMatchObject({
+    runId: run.id,
+    companyName: "Visa",
+  });
+});
+
 test("Scout run persistence never mutates managed-document tables directly",()=>{
   const source=readFileSync(new URL("../scout-run-store.ts",import.meta.url),"utf8");
   expect(source).not.toMatch(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+`?managed_(?:documents|document_versions|document_links)`?/i);
@@ -54,6 +70,7 @@ test("Scout run persistence never mutates managed-document tables directly",()=>
 
 const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
   const position = {
+    company: job.companyName,
     sourceKey: "official",
     externalId: "job-1",
     canonicalUrl: "https://careers.example.test/jobs/1",
@@ -294,6 +311,7 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
     configurationVersionId: job.configurationVersionId,
     positions: [
       {
+        company: job.companyName,
         sourceKey: "official",
         externalId: "role-1",
         canonicalUrl: "https://careers.example.test/jobs/1",
@@ -413,7 +431,7 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
 test("backfill binds failed description recovery to a newly imported source configuration exactly once",()=>{
   const store=setup(),database=databases.at(-1)!;
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run,job=store.pendingJobs(1)[0]!;
-  const position={sourceKey:"official",externalId:"role-transition",canonicalUrl:"https://careers.example.test/jobs/role-transition",title:"Synthetic Transition Lead",location:"Remote",description:null,provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"none" as const,descriptionUrl:"https://careers.example.test/jobs/role-transition"}};
+  const position={company:job.companyName,sourceKey:"official",externalId:"role-transition",canonicalUrl:"https://careers.example.test/jobs/role-transition",title:"Synthetic Transition Lead",location:"Remote",description:null,provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"none" as const,descriptionUrl:"https://careers.example.test/jobs/role-transition"}};
   prepareAndComplete(store,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]},"2026-01-01T00:00:01Z");
   store.reconcileGig(store.pendingPositionJobs(1)[0]!,"2026-01-01T00:00:02Z");
   const failed=store.pendingPositionJobs(1)[0]!;
@@ -483,7 +501,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const store=new SqliteScoutRunStore(database,descriptionsRoot,screening);
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run;
   const job=store.pendingJobs(1)[0]!;
-  const position={sourceKey:"official",externalId:"screen-1",canonicalUrl:"https://careers.example.test/jobs/screen-1",title:"Director of Synthetic Technology",location:"Remote",description:"Lead the synthetic technology organization.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/screen-1"}};
+  const position={company:job.companyName,sourceKey:"official",externalId:"screen-1",canonicalUrl:"https://careers.example.test/jobs/screen-1",title:"Director of Synthetic Technology",location:"Remote",description:"Lead the synthetic technology organization.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/screen-1"}};
   prepareAndComplete(store,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[{sourceMethod:"json",stage:"listing",requestCount:1,responseCount:1,candidateCount:1,acceptedCount:1,rejectedCount:0,validationStatus:"verified",startedAt:"2026-01-01T00:00:00Z",completedAt:"2026-01-01T00:00:01Z",diagnostics:[]}]}]},"2026-01-01T00:00:01Z");
   expect(database.query(`SELECT count(*) count FROM scout_position_descriptions`).get()).toEqual({count:1});
   const laterStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Later Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
@@ -794,7 +812,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   const store=new SqliteScoutRunStore(database,descriptionsRoot,screening);
   store.startOrReuse(20,5,"2026-08-29T01:00:00Z");
   const companyJob=store.pendingJobs(1)[0]!;
-  const position={sourceKey:"official",externalId:"promoted-143",canonicalUrl:"https://careers.example.test/jobs/promoted-143",title:"Director of Synthetic Platforms",location:"Remote",description:"Original official description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/promoted-143"}};
+  const position={company:companyJob.companyName,sourceKey:"official",externalId:"promoted-143",canonicalUrl:"https://careers.example.test/jobs/promoted-143",title:"Director of Synthetic Platforms",location:"Remote",description:"Original official description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/promoted-143"}};
   prepareAndComplete(store,companyJob,{companyId:companyJob.companyId,configurationVersionId:companyJob.configurationVersionId,positions:[position],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[position],attempts:[]}]} ,"2026-08-29T01:00:01Z");
   const model:ScoutScreeningModel={
     async screenRelevance(){return{value:{decision:"passes_relevance",reason:"Synthetic relevant role",confidence:.99,evidence:["Technology leadership"],ambiguities:[]},metrics:{provider:screening.provider,model:screening.model,modelConfiguration:screening.modelConfiguration,inputTokens:1,outputTokens:1,latencyMs:1}};},
@@ -909,8 +927,8 @@ test("position backfill reruns the complete pipeline",async()=>{
   store.startOrReuse(20,5,"2026-08-28T14:00:00Z");
   const companyJob=store.pendingJobs(1)[0]!;
   const positions=[
-    {sourceKey:"official",externalId:"pipeline-1",canonicalUrl:"https://careers.example.test/jobs/pipeline-1",title:"Director of Synthetic Platforms",location:"Remote",description:"Historical platform leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-1"}},
-    {sourceKey:"official",externalId:"pipeline-2",canonicalUrl:"https://careers.example.test/jobs/pipeline-2",title:"Director of Synthetic Infrastructure",location:"Remote",description:"Historical infrastructure leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-2"}},
+    {company:companyJob.companyName,sourceKey:"official",externalId:"pipeline-1",canonicalUrl:"https://careers.example.test/jobs/pipeline-1",title:"Director of Synthetic Platforms",location:"Remote",description:"Historical platform leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-1"}},
+    {company:companyJob.companyName,sourceKey:"official",externalId:"pipeline-2",canonicalUrl:"https://careers.example.test/jobs/pipeline-2",title:"Director of Synthetic Infrastructure",location:"Remote",description:"Historical infrastructure leadership description.",provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/pipeline-2"}},
   ];
   prepareAndComplete(store,companyJob,{companyId:companyJob.companyId,configurationVersionId:companyJob.configurationVersionId,positions,sources:[{sourceKey:"official",status:"succeeded_with_results",positions,attempts:[]}]} ,"2026-08-28T14:00:01Z");
   const model:ScoutScreeningModel={

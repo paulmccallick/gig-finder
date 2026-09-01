@@ -6,12 +6,12 @@ import type {
 } from "./contracts";
 import { positionMatchesSearchProfile } from "./matching";
 export { positionMatchesSearchProfile } from "./matching";
-export function validatePositions(
-  positions: NormalizedPosition[],
+export function validatePositions<Position extends Pick<NormalizedPosition, "sourceKey" | "externalId" | "canonicalUrl" | "title" | "location" | "locations" | "workArrangement">>(
+  positions: Position[],
   surfaceVerified: boolean,
   searchProfile: ScoutSearchProfile = { terms: [], titleVariants: [], locations: [] },
 ) {
-  const accepted: NormalizedPosition[] = [];
+  const accepted: Position[] = [];
   const seen = new Set<string>();
   let duplicateIdentities = 0;
   let invalidTitles = 0;
@@ -19,7 +19,7 @@ export function validatePositions(
   let titleMismatches = 0;
   let locationMismatches = 0;
   const rejectedPositions: Array<{
-    position: NormalizedPosition;
+    position: Position;
     code: string;
     message: string;
   }> = [];

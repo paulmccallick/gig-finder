@@ -49,6 +49,7 @@ const job: ScoutCompanyJob = {
   runId: "run-1",
   runCompanyId: "run-company-1",
   companyId: "company-1",
+  companyName: "Synthetic Company",
   configurationVersionId: "configuration-1",
   sources: [],
   searchProfile: { terms: [], locations: [] },

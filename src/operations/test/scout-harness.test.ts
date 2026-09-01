@@ -4,6 +4,7 @@ import {
   paginationEvidenceIsValid,
 } from "../scout-harness";
 const position = {
+  company: "Synthetic Company",
   sourceKey: "official",
   externalId: "role-1",
   canonicalUrl: "https://careers.example.test/jobs/role-1",

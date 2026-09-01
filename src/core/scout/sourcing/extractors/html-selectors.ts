@@ -121,7 +121,7 @@ export async function extractHtmlSelectors(
     });
 
   await rewriter.transform(new Response(body)).text();
-  const positions: NormalizedPosition[] = [];
+  const positions: Array<Omit<NormalizedPosition, "company">> = [];
   let titleBearingNodes = 0;
   let urlBearingNodes = 0;
   for (const listing of listings) {

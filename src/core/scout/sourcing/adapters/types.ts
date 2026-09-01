@@ -6,7 +6,7 @@ import type {
 import type { PlannedRequest } from "../source-plan";
 
 export interface SourcePage {
-  positions: NormalizedPosition[];
+  positions: Array<Omit<NormalizedPosition, "company">>;
   hasNext: boolean;
   nextPageUrl?: string | null;
   surfaceVerified: boolean;
@@ -45,11 +45,11 @@ export interface SourceAdapter {
   ): SourcePage | Promise<SourcePage>;
   enrichmentRequest?(
     source: SourceConfiguration,
-    position: NormalizedPosition,
+    position: Omit<NormalizedPosition, "company">,
   ): PlannedRequest | null;
   enrich?(
     source: SourceConfiguration,
-    position: NormalizedPosition,
+    position: Omit<NormalizedPosition, "company">,
     body: string,
-  ): NormalizedPosition;
+  ): Omit<NormalizedPosition, "company">;
 }

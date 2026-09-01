@@ -38,7 +38,7 @@ try{
     const template="template" in source?`${source.template.id}@${source.template.version}`:"custom";
     let selectedSource=source.url;
     try{
-      const result=await scanCompany({companyId:row.companyId,configurationVersionId:row.configurationVersionId,sources:[source],searchProfile:{terms:[],locations:[]}},{http,templates:scoutTemplateCatalog,policy:{maxPages:2,maxRequests:20,maxRecords:200,sourceDurationMs:60_000,retries:1}});
+      const result=await scanCompany({companyId:row.companyId,companyName:row.company,configurationVersionId:row.configurationVersionId,sources:[source],searchProfile:{terms:[],locations:[]}},{http,templates:scoutTemplateCatalog,policy:{maxPages:2,maxRequests:20,maxRecords:200,sourceDurationMs:60_000,retries:1}});
       const position=result.positions[0];
       if(!position){reports.push({company:row.company,sourceKey:row.sourceKey,source:source.url,template,strategy:null,outcome:result.sources[0]?.status==="succeeded_empty_verified"?"no_current_position":"search_blocked",failureCode:result.sources[0]?.attempts.at(-1)?.failure?.code??result.sources[0]?.status});continue;}
       if(position.description){reports.push({company:row.company,sourceKey:row.sourceKey,source:position.canonicalUrl,template,strategy:"search-result-v1",outcome:"description_succeeded",failureCode:null});continue;}

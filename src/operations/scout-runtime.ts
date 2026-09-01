@@ -103,6 +103,7 @@ export class ScoutRuntime {
           const result = await scanCompany(
             {
               companyId: payload.companyId,
+              companyName: payload.companyName,
               configurationVersionId: payload.configurationVersionId,
               sources: payload.sources,
               searchProfile: payload.searchProfile,
