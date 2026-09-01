@@ -1,4 +1,5 @@
 import type { PostingResolution } from "../../gigs";
+import type { ManagedDocumentSourceProvenance } from "../../documents";
 import type { NormalizedPosition } from "../sourcing/contracts";
 
 export const scoutPositionStates = ["processing","needs_user_review","irrelevant","rejected","deferred","promoted"] as const;
@@ -46,6 +47,7 @@ export interface ScoutPostingReview {
  posting:NormalizedPosition;
  markdown:string;
  sourceDescription:string;
+ sourceProvenance:ManagedDocumentSourceProvenance;
 }
 export interface ScoutPromotionWork {
  positionId:string;
@@ -56,12 +58,8 @@ export interface ScoutPromotionWork {
  posting:NormalizedPosition;
  markdown:string;
  sourceDescription:string;
+ sourceProvenance:ManagedDocumentSourceProvenance;
  resolution:PostingResolution;
-}
-export interface LegacyScoutPromotionWork {
- positionId:string;descriptionId:string;changeId:string;actor:string;gigId:string;
- company:string;title:string;externalId:string|null;location:string|null;sourceUrl:string;
- markdown:string;sourceDescription:string;
 }
 export interface ScoutPromotedDescriptionWork {
  processingId:string;
@@ -99,7 +97,7 @@ export interface ScoutPositionStore {
  restoreAgentIrrelevant(input:{positionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
  reverseDecision(input:{positionId:string;decisionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
  appendPositionNote(input:{positionId:string;decisionId?:string;actor:string;body:string},now:string):void;
- promotionWork(positionId:string):LegacyScoutPromotionWork|null;
+ promotionWork(positionId:string):ScoutPromotionWork|null;
  failPromotion(positionId:string,message:string,now:string):void;
  completePromotion(positionId:string,gigId:string,managedDocumentId:string,now:string):void;
  resurfaceDue(now:string):number;

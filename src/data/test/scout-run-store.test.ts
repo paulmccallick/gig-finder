@@ -165,6 +165,16 @@ test("reviewed posting intent binds the exact observation, description, and subm
     sourceKey:"official",
     extractionStrategy:"search-result-v1",
   });
+  expect(review.sourceProvenance).toEqual({
+    officialUrl:"https://careers.example.test/jobs",
+    retrievedAt:"2026-09-01T12:00:01Z",
+    sourceContentHash:createHash("sha256").update("Exact reviewed Markdown.").digest("hex"),
+    extractedContentHash:createHash("sha256").update("Exact reviewed Markdown.").digest("hex"),
+    sourceKey:"official",
+    configurationVersion:1,
+    extractionStrategy:"search-result-v1",
+    converterVersion:"html-to-markdown-v2",
+  });
   expect(database.query(`SELECT count(*) count FROM scout_position_decisions`).get()).toEqual(decisionsBefore);
   expect(database.query(`SELECT count(*) count FROM scout_position_promotions`).get()).toEqual({count:0});
 
@@ -185,6 +195,7 @@ test("reviewed posting intent binds the exact observation, description, and subm
     posting:review.posting,
     markdown:"Exact reviewed Markdown.",
     sourceDescription:review.sourceDescription,
+    sourceProvenance:review.sourceProvenance,
     resolution,
   });
   expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
@@ -657,23 +668,26 @@ test("screening persists bounded comments and exposes only the score explanation
   database.query(`INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,canonical_url,title,first_seen_at,last_seen_at) VALUES('other-position','company-1','official','canonical_url','https://careers.example.test/other','https://careers.example.test/other','Other role','2026-01-01','2026-01-01')`).run();
   expect(()=>changedStore.appendPositionNote({positionId:"other-position",decisionId:deferDecision.id,actor:"Reviewer",body:"Wrong position"},"2026-01-01T00:00:12Z")).toThrow("does not belong");
   const pursueCommand={positionId:review.id,action:"pursue" as const,actor:"Reviewer",changeId:"change-pursue",expectedStateRevision:resurfaced.stateRevision,...identities};
-  const pursueResolution={kind:"create_new" as const,reviewedFingerprint:"c".repeat(64)};
+  const pursuePosting=changedStore.reviewPosting(review.id)!;
+  const pursueResolution={kind:"create_new" as const,reviewedFingerprint:promotionApplication.gigs.resolvePosting(pursuePosting.posting).fingerprint};
   changedStore.beginPursue(pursueCommand,pursueResolution,"2026-01-01T00:00:12Z");
   database.exec(`CREATE TRIGGER synthetic_promotion_failure BEFORE INSERT ON managed_documents BEGIN SELECT RAISE(ABORT,'Synthetic promotion failure'); END`);
-  const failed=positions.retryPromotion(review.id);
-  expect(failed).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureCode:"promotion_failed"});
+  expect(()=>positions.retryPromotion(review.id)).toThrow("Synthetic promotion failure");
+  expect(changedStore.reviewDetail(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureCode:"promotion_failed"});
   expect(database.query(`SELECT status,description_id descriptionId FROM scout_position_promotions WHERE position_id=?`).get(review.id)).toEqual({status:"failed",descriptionId:identities.descriptionId});
-  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
+  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig-posting"});
   expect(database.query(`SELECT count(*) count FROM managed_documents`).get()).toEqual({count:0});
   const replayedWork=changedStore.beginPursue({...pursueCommand,actor:"Forged replay",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"},{kind:"create_new",reviewedFingerprint:"d".repeat(64)},"2026-01-01T00:00:13Z");
   expect(replayedWork).toMatchObject({actor:"Reviewer",resolution:pursueResolution});
   database.exec(`DROP TRIGGER synthetic_promotion_failure`);
   const promotionWork=changedStore.promotionWork(review.id)!;
-  const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotionWork.gigId}],documentType:"job_description",title:`${promotionWork.company} — ${promotionWork.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",content:promotionWork.markdown,uploadProvenance:null}).document;
-  expect(positions.retryPromotion(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureMessage:"Reviewed Scout document replay does not match the persisted promotion."});
+  const promotedGig=(database.query(`SELECT entity_id id FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get() as {id:string}).id;
+  const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotedGig}],documentType:"job_description",title:`${promotionWork.posting.company} — ${promotionWork.posting.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",content:promotionWork.markdown,uploadProvenance:null}).document;
+  expect(()=>positions.retryPromotion(review.id)).toThrow("Reviewed Scout document replay does not match the persisted promotion.");
+  expect(changedStore.reviewDetail(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureMessage:"Reviewed Scout document replay does not match the persisted promotion."});
   database.query(`UPDATE managed_documents SET source_description=? WHERE id=?`).run(promotionWork.sourceDescription,mismatchedDocument.id);
   const promoted=positions.retryPromotion(review.id);
-  expect(promoted).toBeNull();
+  expect(promoted).toEqual({status:"created",position:null});
   expect(positions.retryPromotion(review.id)).toBeNull();
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
@@ -681,7 +695,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};
   expect(JSON.parse(promotedProvenance.sourceDescription)).toMatchObject({scoutDescriptionId:identities.descriptionId,officialSourceUrl:"https://careers.example.test/jobs/screen-1/detail",retrievedAt:"2026-01-01T00:00:05.500Z",sourceKey:"official",configurationVersionId:expect.any(String),extractionStrategy:"json-field-v1",converterVersion:"detail-converter-v2"});
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=(SELECT gig_id FROM scout_position_promotions WHERE position_id=?)`).get(review.id)).toEqual({count:1});
-  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
+  expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig-posting"});
   expect(database.query(`SELECT count(*) count FROM changes WHERE id IN ('change-pursue:gig','change-pursue:document')`).get()).toEqual({count:2});
   database.exec(`DELETE FROM managed_document_links; DELETE FROM managed_document_versions; DELETE FROM scout_position_promotions; DELETE FROM managed_documents; UPDATE scout_position_states SET state='needs_user_review',linked_gig_id=NULL,deferred_until=NULL,current_decision_id=NULL WHERE position_id<>'other-position'; DELETE FROM scout_position_notes; DELETE FROM scout_position_decisions; DELETE FROM changes WHERE id LIKE 'change-%'; DELETE FROM gigs;`);
   database.query(`UPDATE scout_position_processing SET run_id=? WHERE stage='screen_relevance' AND status='completed'`).run(run.id);
@@ -910,7 +924,8 @@ test("real processor durably records promoted document outcomes and reconciles a
   const review=store.reviewDetail(positionId)!;
   const application=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
   const positions=new ScoutPositionService(store,application.gigs,application.documents);
-  store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:"e".repeat(64)},"2026-08-29T01:00:02Z");
+  const reviewedPosting=store.reviewPosting(positionId)!;
+  store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:application.gigs.resolvePosting(reviewedPosting.posting).fingerprint},"2026-08-29T01:00:02Z");
   positions.retryPromotion(positionId);
   const promotion=database.query(`SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`).get(positionId) as {gigId:string;managedDocumentId:string};
   expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(1);
