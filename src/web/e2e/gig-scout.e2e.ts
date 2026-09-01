@@ -85,7 +85,7 @@ function identityGigMetadata() {
   const script = [
     'import { Database } from "bun:sqlite";',
     'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
-    'const gigs = database.query(`SELECT id,external_job_id externalJobId,stage,outcome,last_activity lastActivity,source_url sourceUrl,location,work_arrangement workArrangement,revision FROM gigs WHERE company=\'Example Labs\' AND title=\'Director of Identity Platforms\' AND is_deleted=0 ORDER BY external_job_id`).all();',
+    'const gigs = database.query(`SELECT id,company,title,external_job_id externalJobId,stage,outcome,last_activity lastActivity,source_url sourceUrl,location,work_arrangement workArrangement,revision FROM gigs WHERE company=\'Example Labs\' AND title=\'Director of Identity Platforms\' AND is_deleted=0 ORDER BY external_job_id`).all();',
     'const documents = database.query(`SELECT link.gig_id gigId,document.id documentId,document.current_version currentVersion,(SELECT count(*) FROM managed_document_versions version WHERE version.document_id=document.id) versionCount FROM managed_document_links link JOIN managed_documents document ON document.id=link.document_id WHERE link.gig_id IN (SELECT id FROM gigs WHERE company=\'Example Labs\' AND title=\'Director of Identity Platforms\') AND document.document_type=\'job_description\' ORDER BY link.gig_id`).all();',
     'database.close();',
     'console.log(JSON.stringify({ gigs, documents }));',
@@ -96,6 +96,8 @@ function identityGigMetadata() {
   })) as {
     gigs: Array<{
       id: string;
+      company: string;
+      title: string;
       externalJobId: string;
       stage: string;
       outcome: string;
@@ -764,7 +766,14 @@ test("posting identity resolution keeps same-title requisitions separate and upd
   await expect(advisory).toContainText("Applied / Pending");
   await drawer.getByRole("button", { name: "Create separate Gig" }).click();
   await expect(ledger.getByRole("button", { name: /Identity West/ })).toHaveCount(0);
-  expect(identityGigMetadata().gigs).toHaveLength(2);
+  const separateMetadata = identityGigMetadata();
+  expect(separateMetadata.gigs).toHaveLength(2);
+  expect(separateMetadata.gigs.find(gig => gig.externalJobId === "identity-separate")).toMatchObject({
+    company: "Example Labs",
+    title: "Director of Identity Platforms",
+    externalJobId: "identity-separate",
+    sourceUrl: "https://127.0.0.1:3003/jobs/identity-separate",
+  });
 
   await ledger.getByRole("button", { name: /Identity East/ }).click();
   drawer = page.getByRole("dialog", { name: "Director of Identity Platforms" });

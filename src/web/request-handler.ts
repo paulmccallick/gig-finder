@@ -23,7 +23,6 @@ const scoutDecisionFields = new Set([
   "relevanceEvaluationId",
   "candidateMatchEvaluationId",
   "resolution",
-  "actor",
 ]);
 
 async function scoutDecisionBody(request: Request): Promise<Record<string, unknown>> {

@@ -83,14 +83,20 @@ describe("Gig Scout position mutation API",()=>{
     return { calls, request };
   }
 
-  test("accepts only the reviewed decision and resolution fields with the trusted actor",async()=>{
+  test("accepts only reviewed decision and resolution fields and injects the trusted actor",async()=>{
     const { calls, request } = decisionHandler(() => ({ status: "updated" }));
-    const accepted = await request(JSON.stringify({
+    const accepted = await request(JSON.stringify(reviewedDecision));
+    expect(accepted.status).toBe(200);
+    expect(calls).toEqual([{ ...reviewedDecision, actor: "User" }]);
+
+    const callerActor = await request(JSON.stringify({
       ...reviewedDecision,
       actor: "Forged caller",
     }));
-    expect(accepted.status).toBe(200);
-    expect(calls).toEqual([{ ...reviewedDecision, actor: "User" }]);
+    expect(callerActor.status).toBe(422);
+    expect(await callerActor.json()).toEqual({
+      error: "Scout position decision accepts only reviewed decision and resolution fields.",
+    });
 
     const rejected = await request(JSON.stringify({
       ...reviewedDecision,
@@ -159,7 +165,7 @@ describe("Gig Scout position mutation API",()=>{
       decide(_positionId:string,input:Record<string,unknown>){calls.push(input);if(input.changeId==="stale")throw new Error("This position was revised and requires review again.");if(input.changeId==="invalid")throw new Error("Decision note must contain 1 to 2000 characters.");return{ok:true};},
     };
     const handler=createWebHandler({gigFinder:application,agentApi:{messages:async()=>new Response(null),list:()=>Response.json({conversations:[]}),load:()=>Response.json({error:"Not found"},{status:404})},uploadHandler:async()=>new Response(null),discardStagedDocument:()=>false,requestLogger:()=>logger,scoutPositions:scoutPositions as never});
-    const decide=(changeId:string)=>handler(new Request("http://localhost/api/gig-scout/positions/position-1/decision",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({changeId,actor:"Forged caller"})}),requestServer);
+    const decide=(changeId:string)=>handler(new Request("http://localhost/api/gig-scout/positions/position-1/decision",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({changeId})}),requestServer);
     expect((await decide("accepted")).status).toBe(200);
     expect(calls[0]).toMatchObject({changeId:"accepted",actor:"User"});
     const stale=await decide("stale");expect(stale.status).toBe(409);expect(await stale.json()).toMatchObject({error:"This position was revised and requires review again."});
