@@ -471,8 +471,40 @@ test("review decisions keep the ledger context and retry a failed promotion", as
       return;
     }
     if (route.request().method() === "POST" && url.pathname.endsWith("/promotion/retry")) {
-      positions.splice(index, 1);
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      const position = { ...positions[index]!, stateRevision: 2 };
+      delete position.promotionStatus;
+      delete position.promotionFailureMessage;
+      positions[index] = position;
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "resolution_stale",
+          fingerprint: "c".repeat(64),
+          position,
+          candidates: [{
+            gigId: "gig-retry-candidate",
+            revision: 2,
+            company: "Synthetic Review Company",
+            title: "Retry Director",
+            externalJobId: "RETRY-2",
+            sourceUrl: "https://careers.example.test/jobs/retry-2",
+            location: "Remote",
+            stage: "identified",
+            outcome: "pending",
+            availability: "unknown",
+            lastActivity: "2026-09-01",
+            jobDescription: {
+              id: "doc_retry",
+              type: "job_description",
+              title: "Retry brief",
+              displayName: "Retry brief",
+              version: 2,
+            },
+            matchReasons: ["company_requisition"],
+          }],
+        }),
+      });
       return;
     }
     const position = positions[index];
@@ -516,6 +548,13 @@ test("review decisions keep the ledger context and retry a failed promotion", as
   drawer = page.getByRole("dialog", { name: "Retry Director" });
   await expect(drawer.getByText("Synthetic promotion failure.")).toBeVisible();
   await drawer.getByRole("button", { name: "Retry promotion" }).click();
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("alert")).toContainText("evidence changed");
+  await expect(drawer.getByText("Reviewed Scout posting")).toBeVisible();
+  await expect(drawer.getByRole("link", { name: "Open stored description" }))
+    .toHaveAttribute("href", "/documents/doc_retry/versions/2");
+  await expect(ledger.getByText("Retry Director")).toBeVisible();
+  await drawer.getByRole("button", { name: "Create separate Gig" }).click();
   await expect(ledger.getByText("Retry Director")).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "View" }))
     .toContainText("needs user review (20)");

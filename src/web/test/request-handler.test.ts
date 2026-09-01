@@ -159,6 +159,56 @@ describe("Gig Scout position mutation API",()=>{
     });
   });
 
+  test("retry enriches stale candidate documents through the decision response path", async () => {
+    const documentId = createVersionedDocument();
+    const position = { id: "position-1", state: "needs_user_review", stateRevision: 4 };
+    const scoutPositions = {
+      retryPromotion() {
+        return {
+          status: "resolution_stale",
+          fingerprint: "e".repeat(64),
+          position,
+          candidates: [{
+            gigId: "gig-document",
+            revision: 2,
+            company: "Example Company",
+            title: "Director",
+            externalJobId: "REQ-2",
+            sourceUrl: "https://careers.example.test/jobs/REQ-2",
+            location: "Remote",
+            stage: "identified",
+            outcome: "pending",
+            availability: "unknown",
+            lastActivity: "2026-09-01",
+            jobDescription: {
+              id: documentId,
+              type: "job_description",
+              title: "Role Brief",
+              displayName: "Role Brief",
+            },
+            matchReasons: ["company_requisition"],
+          }],
+        };
+      },
+    };
+    const handler = createWebHandler({
+      gigFinder: application,
+      agentApi: { messages: async () => new Response(null), list: () => Response.json({ conversations: [] }), load: () => Response.json({ error: "Not found" }, { status: 404 }) },
+      uploadHandler: async () => new Response(null),
+      discardStagedDocument: () => false,
+      requestLogger: () => logger,
+      scoutPositions: scoutPositions as never,
+    });
+    const response = await handler(new Request("http://localhost/api/gig-scout/positions/position-1/promotion/retry", { method: "POST" }), requestServer);
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({
+      status: "resolution_stale",
+      position,
+      candidates: [{ jobDescription: { id: documentId, version: 2 } }],
+    });
+  });
+
   test("retains 409 for revised review evidence and returns 422 for malformed commands",async()=>{
     const calls:Array<Record<string,unknown>>=[];
     const scoutPositions={

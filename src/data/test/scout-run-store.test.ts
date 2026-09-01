@@ -55,6 +55,7 @@ test("pending and recovered company jobs retain the configured display company",
   expect(pending.companyName).toBe("Granite Labs");
 
   store.markDispatched([pending.runCompanyId], "2026-08-27T12:00:01Z");
+  database.query(`UPDATE scout_companies SET name='Renamed Granite Labs',updated_at='2026-08-27T12:00:02Z' WHERE id='company-1'`).run();
   const recoveredStore = new SqliteScoutRunStore(database);
   expect(recoveredStore.nonterminalJobs(10)[0]).toMatchObject({
     runId: run.id,
@@ -66,6 +67,100 @@ test("Scout run persistence never mutates managed-document tables directly",()=>
   const source=readFileSync(new URL("../scout-run-store.ts",import.meta.url),"utf8");
   expect(source).not.toMatch(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+`?managed_(?:documents|document_versions|document_links)`?/i);
   expect(source).not.toMatch(/\b(?:FROM|JOIN)\s+`?managed_(?:documents|document_versions|document_links)`?/i);
+});
+
+test("exact requisition and URL Gig candidates remain reviewable", async () => {
+  setup();
+  const database = databases.at(-1)!;
+  const descriptionsRoot = mkdtempSync(path.join(process.cwd(), "tmp", "scout-candidate-review-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const screening = {
+    profile: { summary: "Synthetic candidate" },
+    profileVersion: "profile-v1",
+    profileArtifactId: "profile-artifact-v1",
+    profileHash: "profile-hash-v1",
+    model: "synthetic-model",
+    provider: "synthetic-provider",
+    modelConfiguration: "structured-v1",
+  };
+  const store = new SqliteScoutRunStore(database, descriptionsRoot, screening);
+  store.startOrReuse(20, 5, "2026-09-01T12:00:00Z");
+  const job = store.pendingJobs(1)[0]!;
+  const positions = [
+    {
+      company: job.companyName,
+      sourceKey: "official",
+      externalId: "REQ-EXACT",
+      canonicalUrl: "https://careers.example.test/jobs/requisition-candidate",
+      title: "Director of Requisition Review",
+      location: "Remote",
+      description: "Lead the synthetic requisition review organization.",
+      provenance: {
+        sourceKey: "official",
+        sourceUrl: "https://careers.example.test/jobs",
+        description: "listing" as const,
+        descriptionUrl: "https://careers.example.test/jobs/requisition-candidate",
+      },
+    },
+    {
+      company: job.companyName,
+      sourceKey: "official",
+      externalId: "REQ-DIFFERENT",
+      canonicalUrl: "https://careers.example.test/jobs/url-candidate",
+      title: "Director of URL Review",
+      location: "Remote",
+      description: "Lead the synthetic URL review organization.",
+      provenance: {
+        sourceKey: "official",
+        sourceUrl: "https://careers.example.test/jobs",
+        description: "listing" as const,
+        descriptionUrl: "https://careers.example.test/jobs/url-candidate",
+      },
+    },
+  ];
+  prepareAndComplete(store, job, {
+    companyId: job.companyId,
+    configurationVersionId: job.configurationVersionId,
+    positions,
+    sources: [{ sourceKey: "official", status: "succeeded_with_results", positions, attempts: [] }],
+  }, "2026-09-01T12:00:01Z");
+  database.exec(`
+    INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-requisition','Example Company','Existing requisition candidate','REQ-EXACT','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
+    INSERT INTO gigs(id,company,title,source_url,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-url','Example Company','Existing URL candidate','https://careers.example.test/jobs/url-candidate','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
+  `);
+  const model: ScoutScreeningModel = {
+    async screenRelevance() {
+      return {
+        value: { decision: "passes_relevance", reason: "Synthetic leadership role", confidence: .99, evidence: ["Leadership"], ambiguities: [] },
+        metrics: { provider: screening.provider, model: screening.model, modelConfiguration: screening.modelConfiguration, inputTokens: 1, outputTokens: 1, latencyMs: 1 },
+      };
+    },
+    async scoreCandidateMatch() {
+      return {
+        value: { score: 8, scoreExplanation: "Synthetic candidate match" },
+        metrics: { provider: screening.provider, model: screening.model, modelConfiguration: screening.modelConfiguration, inputTokens: 1, outputTokens: 1, latencyMs: 1 },
+      };
+    },
+  };
+  const processor = new ScoutPositionProcessor(store, model, () => "2026-09-01T12:00:02Z");
+  while (store.pendingPositionJobs(20)[0]) {
+    await processor.process(store.pendingPositionJobs(20)[0]!.id);
+  }
+
+  expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states ORDER BY position_id`).all()).toEqual([
+    { state: "needs_user_review", linkedGigId: null },
+    { state: "needs_user_review", linkedGigId: null },
+  ]);
+  expect(store.workspace({ state: "needs_user_review", sort: "title", direction: "asc", offset: 0, limit: 20 })).toMatchObject({
+    total: 2,
+    items: [
+      { title: "Director of Requisition Review" },
+      { title: "Director of URL Review" },
+    ],
+  });
+  expect(database.query(`SELECT count(*) count FROM changes WHERE summary='Promoted exact-matched Scout position'`).get()).toEqual({ count: 0 });
 });
 
 const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
@@ -142,6 +237,7 @@ test("reviewed posting intent binds the exact observation, description, and subm
   database.query(`INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,description_id,relevance_evaluation_id,rubric_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at) VALUES('reviewed-match-processing',?,?,?,?,?,?,'score_candidate_match','reviewed-match-input','completed',1,'2026-09-01T12:00:03Z','2026-09-01T12:00:03Z','2026-09-01T12:00:03Z')`).run(binding.positionId,run.id,binding.observationId,binding.descriptionId,"reviewed-relevance",rubric.id);
   database.query(`UPDATE scout_position_states SET state='needs_user_review',revision=7,updated_at='2026-09-01T12:00:03Z' WHERE position_id=?`).run(binding.positionId);
   database.query(`UPDATE scout_positions SET title='Later mutable title',canonical_url='https://careers.example.test/jobs/later',location='Later mutable location' WHERE id=?`).run(binding.positionId);
+  database.query(`UPDATE scout_companies SET name='Later mutable company',updated_at='2026-09-01T12:00:03Z' WHERE id='company-1'`).run();
 
   const decisionsBefore=database.query(`SELECT count(*) count FROM scout_position_decisions`).get();
   const review=reviewedStore.reviewPosting(binding.positionId)!;
@@ -200,6 +296,8 @@ test("reviewed posting intent binds the exact observation, description, and subm
   });
   expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
   expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"processing",linkedGigId:null});
+  database.query(`UPDATE scout_companies SET name='Renamed again before retry',updated_at='2026-09-01T12:00:05Z' WHERE id='company-1'`).run();
+  expect(reviewedStore.promotionWork(binding.positionId)?.posting.company).toBe("Example Company");
 
   const releasedDetail=reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue","resolution_stale","2026-09-01T12:00:05.500Z");
   expect(reviewedStore.promotionWork(binding.positionId)).toBeNull();
@@ -536,11 +634,6 @@ test("terminal redelivery is idempotent and historical positions are stable", ()
   const position=store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).items[0]!;
   expect(store.positionDetail(position.id)?.observations).toHaveLength(1);
   expect(store.workspace({text:"does not match",state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).counts).toEqual({actionable:0,processing:0,needs_user_review:0,irrelevant:0,deferred:0});
-  new DataStore(databases.at(-1)!).change({actor:"Synthetic test",source:"test",summary:"Create exact Gig"},transaction=>transaction.gigs.create({id:"gig-exact",company:"Example Company",title:"Systems Gardener",externalJobId:"role-1",stage:"identified",outcome:"pending",statusSummary:"Tracked",lastActivity:"2026-01-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false,availability:"unknown",availabilityUpdatedAt:null}));
-  expect(store.backfillPositions(run.id,20,"2026-01-01T00:00:05Z")).toMatchObject({sourceRunId:run.id,selection:{selected:1,complete:true}});
-  store.reconcileGig(store.pendingPositionJobs(20)[0]!,"2026-01-01T00:00:06Z");
-  expect(store.workspace({state:"actionable",sort:"last_seen",direction:"desc",offset:0,limit:20}).total).toBe(0);
-  expect(databases.at(-1)!.query("SELECT state,linked_gig_id linkedGigId,revision FROM scout_position_states WHERE position_id=?").get(position.id)).toEqual({state:"promoted",linkedGigId:"gig-exact",revision:2});
 });
 test("backfill binds failed description recovery to a newly imported source configuration exactly once",()=>{
   const store=setup(),database=databases.at(-1)!;
@@ -730,7 +823,7 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(changedStore.pendingPositionJobs(10)).toContainEqual(expect.objectContaining({stage:"score_candidate_match"}));
 });
 
-test("Gig identity changes restart an incomplete bounded position backfill",()=>{
+test("incomplete bounded position backfill resumes from its durable position checkpoint",()=>{
   const store=setup(),database=databases.at(-1)!;
   const run=store.startOrReuse(20,5,"2026-01-01T00:00:00Z").run;
   const sourceJob=store.pendingJobs(1)[0]!;
@@ -743,10 +836,10 @@ test("Gig identity changes restart an incomplete bounded position backfill",()=>
   database.query(`INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES(?,?,?,?,?,'{}','2026-01-01')`).run("observation-a",runSourceId,"position-a","Synthetic A","https://careers.example.test/a");
   database.query(`INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES(?,?,?,?,?,'{}','2026-01-01')`).run("observation-b",runSourceId,"position-b","Synthetic B","https://careers.example.test/b");
   expect(store.backfillPositions(run.id,1,"2026-01-01T00:00:00Z")).toMatchObject({sourceRunId:run.id,selection:{selected:2,complete:false}});
-  database.query(`INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-a','Example Company','Synthetic Role','external-a','identified','pending','Tracked','2026-01-01','good','[]',0,0,1,0,'2026-01-01','2026-01-01')`).run();
   expect(store.backfillPositions(run.id,1,"2026-01-01T00:00:01Z")).toMatchObject({sourceRunId:run.id,selection:{selected:2,complete:false}});
-  const current=store.pendingPositionJobs(10).filter(job=>job.positionId==="position-a");
-  expect(current).toHaveLength(1);
+  expect(store.backfillPositions(run.id,1,"2026-01-01T00:00:02Z")).toMatchObject({sourceRunId:run.id,selection:{selected:2,complete:true}});
+  const current=store.pendingPositionJobs(10).filter(job=>job.positionId==="position-a"||job.positionId==="position-b");
+  expect(current.map(job=>job.positionId).sort()).toEqual(["position-a","position-b"]);
   expect(database.query(`SELECT 1 FROM scout_position_states WHERE position_id='position-outside'`).get()).toBeNull();
   expect(database.query(`SELECT source_run_id sourceRunId FROM scout_position_backfill`).get()).toEqual({sourceRunId:run.id});
 });
@@ -913,12 +1006,11 @@ test("explicit position backfill starts atomically and reuses its durable finger
   expect(database.query(`SELECT status,completed_at completedAt FROM scout_position_processing WHERE id=?`).get(completedProcessingId)).toEqual({status:"completed",completedAt:"2026-08-28T12:00:01Z"});
   expect(store.backfillStatus(first.runId)).toEqual(first);
   expect(store.backfillStatus(sourceRun.id)).toBeNull();
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('backfill-gig','Example Company','Synthetic Systems Gardener','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/1','[]',1,0,1,0,'2026-08-28','2026-08-28')`).run();
   store.reconcileGig(newProcessing.id,"2026-08-28T12:00:04.500Z");
   expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:0,unchanged:0,failed:0});
   const distinctReason=store.startBackfill({positionIds:[positionId],reason:"Reprocess for a separate defect"},"2026-08-28T12:00:05Z");
   expect(distinctReason.runId).not.toBe(first.runId);
-  expect(database.query(`SELECT linked_gig_id linkedGigId FROM scout_position_backfill_items WHERE run_id=?`).get(distinctReason.runId)).toEqual({linkedGigId:"backfill-gig"});
+  expect(database.query(`SELECT linked_gig_id linkedGigId FROM scout_position_backfill_items WHERE run_id=?`).get(distinctReason.runId)).toEqual({linkedGigId:null});
   expect(distinctReason.gigDocuments).toEqual({pending:0,updated:0,unchanged:0,failed:0});
   expect(()=>store.backfillPositions(distinctReason.runId,20,"2026-08-28T12:00:06Z")).toThrow("source run not found");
   expect(database.query(`SELECT count(*) count FROM scout_runs WHERE run_type='legacy_backfill' AND source_run_id=?`).get(distinctReason.runId)).toEqual({count:0});

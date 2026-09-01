@@ -512,3 +512,46 @@ test("0038 and 0039 preserve exact reviewed promotion attempts",async()=>{
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
   database.close();
 });
+
+test("0040 snapshots the original company display for existing run companies", async () => {
+  const database = new Database(":memory:");
+  database.exec("PRAGMA foreign_keys=ON");
+  database.exec(`
+    CREATE TABLE scout_companies(id text PRIMARY KEY,name text NOT NULL);
+    CREATE TABLE scout_runs(id text PRIMARY KEY);
+    CREATE TABLE scout_company_configurations(id text PRIMARY KEY);
+    CREATE TABLE scout_run_companies(
+      id text PRIMARY KEY,
+      run_id text NOT NULL REFERENCES scout_runs(id),
+      company_id text NOT NULL REFERENCES scout_companies(id),
+      company_configuration_id text NOT NULL REFERENCES scout_company_configurations(id),
+      status text NOT NULL,
+      started_at text,
+      completed_at text,
+      failure_code text,
+      failure_message text
+    );
+    INSERT INTO scout_companies VALUES('company','Original Display');
+    INSERT INTO scout_runs VALUES('run');
+    INSERT INTO scout_company_configurations VALUES('configuration');
+    INSERT INTO scout_run_companies(id,run_id,company_id,company_configuration_id,status)
+    VALUES('run-company','run','company','configuration','queued');
+  `);
+  const migration = [...new Bun.Glob("0040_*.sql").scanSync(new URL("../migrations", import.meta.url).pathname)][0];
+  expect(migration).toBeDefined();
+  if (!migration) {
+    database.close();
+    return;
+  }
+
+  await applyStatements(database, new URL(`../migrations/${migration}`, import.meta.url));
+  expect(database.query(`PRAGMA table_info(scout_run_companies)`).all()).toContainEqual(
+    expect.objectContaining({ name: "company_name", notnull: 1 }),
+  );
+  database.query(`UPDATE scout_companies SET name='Renamed Display' WHERE id='company'`).run();
+  expect(database.query(`SELECT company_name companyName FROM scout_run_companies WHERE id='run-company'`).get()).toEqual({
+    companyName: "Original Display",
+  });
+  expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
+  database.close();
+});

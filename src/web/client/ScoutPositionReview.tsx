@@ -555,24 +555,53 @@ export function ScoutPositionReview({
     const scroll = pendingScrollRef.current;
     if (scroll) window.requestAnimationFrame(() => window.scrollTo(scroll.x, scroll.y));
   };
+  const applyPursueOutcome = (outcome: DecisionOutcome | null, positionId: string): boolean => {
+    if (!outcome) return false;
+    if ("promotionStatus" in outcome && outcome.promotionStatus === "failed") {
+      setDetail(outcome);
+      setDrawerError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
+      return true;
+    }
+    if (!("status" in outcome)) return false;
+    if (outcome.status === "resolution_required" || outcome.status === "resolution_stale") {
+      if (outcome.status === "resolution_stale") setDetail(outcome.position);
+      setResolutionReview({
+        fingerprint: outcome.fingerprint,
+        candidates: outcome.candidates,
+      });
+      setResolutionChoice(null);
+      setDrawerError(outcome.status === "resolution_stale"
+        ? "The Gig evidence changed. Review the refreshed comparison before choosing again."
+        : null);
+      return true;
+    }
+    if (outcome.status === "resolution_invalid") {
+      setDetail(outcome.position);
+      setResolutionChoice(null);
+      setDrawerError("That Gig is no longer available for this posting. Review the comparison and choose again.");
+      return true;
+    }
+    if (outcome.status === "created" || outcome.status === "updated") {
+      completeDecision(positionId);
+      return true;
+    }
+    return false;
+  };
   const retryPromotion = async () => {
     if (!detail || submittingAction !== null) return;
     const positionId = detail.id;
     setSubmittingAction("retry");
     try {
       const response = await fetch(`/api/gig-scout/positions/${encodeURIComponent(positionId)}/promotion/retry`, { method: "POST" });
-      const outcome = await readResponseJson<PromotionDetail | { error?: string }>(response);
+      const outcome = await readResponseJson<DecisionOutcome>(response);
       if (selectedRef.current !== positionId) return;
       if (!response.ok) {
         setDrawerError(outcome && "error" in outcome ? outcome.error ?? "Promotion retry failed." : "Promotion retry failed.");
         return;
       }
-      if (outcome && "promotionStatus" in outcome && outcome.promotionStatus === "failed") {
-        setDetail(outcome);
-        setDrawerError(outcome.promotionFailureMessage ?? "Promotion retry failed.");
-        return;
+      if (!applyPursueOutcome(outcome, positionId)) {
+        setDrawerError("Promotion retry did not complete. Review the position and try again.");
       }
-      completeDecision(positionId);
     } catch {
       if (selectedRef.current === positionId) setDrawerError("Promotion retry could not reach the server.");
     } finally {
@@ -617,31 +646,7 @@ export function ScoutPositionReview({
         setDrawerError(outcome && "error" in outcome ? outcome.error ?? "Could not save position decision." : "Could not save position decision.");
         return;
       }
-      if (outcome && "promotionStatus" in outcome && outcome.promotionStatus === "failed") {
-        setDetail(outcome);
-        setDrawerError(outcome.promotionFailureMessage ?? "Promotion failed. Retry is available.");
-        return;
-      }
-      if (outcome && "status" in outcome) {
-        if (outcome.status === "resolution_required" || outcome.status === "resolution_stale") {
-          if (outcome.status === "resolution_stale") setDetail(outcome.position);
-          setResolutionReview({
-            fingerprint: outcome.fingerprint,
-            candidates: outcome.candidates,
-          });
-          setResolutionChoice(null);
-          setDrawerError(outcome.status === "resolution_stale"
-            ? "The Gig evidence changed. Review the refreshed comparison before choosing again."
-            : null);
-          return;
-        }
-        if (outcome.status === "resolution_invalid") {
-          setDetail(outcome.position);
-          setDrawerError("That Gig is no longer available for this posting. Review the comparison and choose again.");
-          return;
-        }
-      }
-      completeDecision(positionId);
+      if (!applyPursueOutcome(outcome, positionId)) completeDecision(positionId);
     } catch {
       if (selectedRef.current === positionId) setDrawerError("The decision could not reach the server.");
     } finally {

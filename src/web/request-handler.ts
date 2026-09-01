@@ -365,7 +365,7 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/notes$/)){
         if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const body=await request.json() as Record<string,unknown>;response=json(scoutMutation(()=>scoutPositions.addNote(positionId,{...body,actor:trustedUserActor} as never)),201);}
       } else if(url.pathname.match(/^\/api\/gig-scout\/positions\/[^/]+\/promotion\/retry$/)){
-        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");response=json(scoutMutation(()=>scoutPositions.retryPromotion(positionId)),202);}
+        if(!scoutPositions)response=json({error:"Gig Scout unavailable"},503);else if(request.method!=="POST")response=json({error:"Method not allowed"},405);else{const positionId=decodeURIComponent(url.pathname.split("/")[4]??"");const outcome=scoutMutation(()=>scoutPositions.retryPromotion(positionId));response=json(await scoutDecisionResponse(outcome,gigFinder),202);}
       } else if (url.pathname === "/api/gig-scout/runs") {
         if (!scout) {
           response = json({ error: "Gig Scout unavailable" }, 503);
