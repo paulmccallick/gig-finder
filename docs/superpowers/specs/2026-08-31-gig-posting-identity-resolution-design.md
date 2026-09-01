@@ -34,7 +34,8 @@ This change will:
 - update a confirmed existing Gig from the posting without changing its
   pipeline-owned state;
 - preserve prior Gig identity values through existing audited revision history;
-  and
+- place each core domain-service implementation in an explicitly named,
+  single-service module; and
 - keep promotion and managed-document work durable and idempotent.
 
 ## Non-goals
@@ -151,6 +152,35 @@ The existing general Gig creation path shares the same underlying create and
 validation implementation. Agent and CLI adapters receive their existing
 structured conflict result when candidate resolution is required; adding a way
 for those clients to submit a resolution is outside this issue.
+
+## Core service module ownership
+
+Core service ownership must be apparent from the module structure as well as
+from runtime behavior. The legacy `src/core/tracker-services.ts` catch-all is
+removed rather than retained as a compatibility path.
+
+Each implementation has one explicit home:
+
+- `src/core/gig-domain-service.ts` contains `GigDomainService` and Gig-only
+  implementation helpers;
+- `src/core/task-domain-service.ts` contains `TaskDomainService` and Task-only
+  implementation helpers;
+- `src/core/artifact-domain-service.ts` contains `ArtifactDomainService`; and
+- `src/core/deep-patch.ts` contains the shared immutable object-patch helper
+  used across domain services.
+
+Domain contracts, schemas, and result types remain in their existing contract
+modules such as `gigs.ts` and `tasks.ts`. Consumers import the service they use
+from its owning module. `core/index.ts` may re-export those canonical modules,
+but no compatibility re-export or alternate implementation path remains under
+`tracker-services.ts`.
+
+This is an organization and dependency-clarity change, not a behavior change.
+`GigDomainService` still owns posting candidate resolution and Gig mutation;
+`ScoutPositionService` depends only on its narrow `resolvePosting` and
+`acceptPosting` capabilities and retains Scout workflow and managed-document
+orchestration. Existing dependency-cruiser service-boundary rules continue to
+apply to the explicitly named service modules.
 
 ## Confirmed Gig updates
 
