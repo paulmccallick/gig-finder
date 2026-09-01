@@ -44,8 +44,8 @@ CREATE TABLE `__new_scout_position_promotions` (
 	CONSTRAINT "scout_position_promotions_status_check" CHECK("status" in ('pending','completed','failed')),
 	CONSTRAINT "scout_position_promotions_resolution_check" CHECK(
     ("resolution_kind" is null and "requested_gig_id" is null and "expected_gig_revision" is null and "resolution_fingerprint" is null)
-    or ("resolution_kind"='create_new' and "requested_gig_id" is null and "expected_gig_revision" is null and length("resolution_fingerprint")=64 and "resolution_fingerprint" not glob '*[^0-9a-f]*')
-    or ("resolution_kind"='use_existing' and length(trim("requested_gig_id"))>0 and "expected_gig_revision">0 and length("resolution_fingerprint")=64 and "resolution_fingerprint" not glob '*[^0-9a-f]*')
+    or ("resolution_kind"='create_new' and "requested_gig_id" is null and "expected_gig_revision" is null and "resolution_fingerprint" is not null and length("resolution_fingerprint")=64 and "resolution_fingerprint" not glob '*[^0-9a-f]*')
+    or ("resolution_kind"='use_existing' and "requested_gig_id" is not null and length(trim("requested_gig_id"))>0 and "expected_gig_revision" is not null and "expected_gig_revision">0 and "resolution_fingerprint" is not null and length("resolution_fingerprint")=64 and "resolution_fingerprint" not glob '*[^0-9a-f]*')
   ),
 	CONSTRAINT "scout_position_promotions_review_check" CHECK("status"='completed' or ("observation_id" is not null and "resolution_kind" is not null))
 );

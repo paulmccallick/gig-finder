@@ -936,10 +936,14 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     if(!source)return null;
     const reviewed=this.reviewedPosting(positionId,String(source.observationId),String(source.descriptionId));
     if(!reviewed)return null;
-    const resolution:PostingResolution=source.resolutionKind==="create_new"
-      ?{kind:"create_new",reviewedFingerprint:String(source.resolutionFingerprint)}
-      :{kind:"use_existing",reviewedFingerprint:String(source.resolutionFingerprint),gigId:String(source.requestedGigId),expectedGigRevision:Number(source.expectedGigRevision)};
-    return{positionId,descriptionId:String(source.descriptionId),changeId:String(source.changeId),actor:String(source.actor),resolution,...reviewed};
+    const candidate=source.resolutionKind==="create_new"
+      ?{kind:"create_new",reviewedFingerprint:source.resolutionFingerprint}
+      :source.resolutionKind==="use_existing"
+        ?{kind:"use_existing",reviewedFingerprint:source.resolutionFingerprint,gigId:source.requestedGigId,expectedGigRevision:source.expectedGigRevision}
+        :null;
+    const resolution=postingResolutionSchema.safeParse(candidate);
+    if(!resolution.success)return null;
+    return{positionId,descriptionId:String(source.descriptionId),changeId:String(source.changeId),actor:String(source.actor),resolution:resolution.data,...reviewed};
   }
   beginPursue(command:ScoutUserDecisionCommand,resolution:PostingResolution,now:string):ScoutPromotionWork{
     if(command.action!=="pursue")throw new Error("Pursue intent requires a pursue decision.");

@@ -189,6 +189,11 @@ test("reviewed posting intent binds the exact observation, description, and subm
   });
   expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
   expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"processing",linkedGigId:null});
+
+  database.exec("PRAGMA ignore_check_constraints=ON");
+  database.query(`UPDATE scout_position_promotions SET resolution_fingerprint=NULL WHERE position_id=?`).run(binding.positionId);
+  database.exec("PRAGMA ignore_check_constraints=OFF");
+  expect(()=>reviewedStore.beginPursue(command,resolution,"2026-09-01T12:00:06Z")).toThrow("Reviewed Scout promotion intent is unavailable.");
 });
 
 test("company result preparation remains nonterminal and is replay safe", () => {

@@ -81,6 +81,16 @@ describe("application services",()=>{
 
   expect(result).toMatchObject({status:"created",gig:{id:"gig_d920af9453082ce0f517dfa07a0e565b",company:"Synthetic Immediate Company",title:"Principal Synthetic Architect",externalJobId:"IMMEDIATE-101",sourceUrl:"https://careers.example.test/jobs/immediate-101",location:"Portland, OR",workArrangement:"remote",stage:"identified",outcome:"pending",statusSummary:"Promoted from Gig Scout",lastActivity:"2026-08-31",fit:{rating:"tbd",summary:null}}});
  });
+ test("posting replay ignores transient raw description source variations",()=>{
+  const context=postingContext("posting-transient-source-replay");
+  const posting=normalizedPosting({company:"Synthetic Transient Source Company",externalId:"TRANSIENT-101",canonicalUrl:"https://careers.example.test/jobs/transient-101",title:"Director of Transient Sources",description:"# Stable normalized Markdown",descriptionSourceContent:"<h1>First transient source representation</h1>"});
+
+  const accepted=app.gigs.acceptPosting(context,posting);
+  const replayed=app.gigs.acceptPosting(context,{...posting,descriptionSourceContent:"&lt;h1&gt;Second transient source representation&lt;/h1&gt;"});
+
+  expect(replayed).toEqual(accepted);
+  expect(replayed).toMatchObject({status:"created",gig:{company:"Synthetic Transient Source Company",title:"Director of Transient Sources",revision:1}});
+ });
  test("same-company title evidence requires review and permits confirmed separate creation",()=>{
   const existing=seedGig("posting-advisory-existing",{company:"Synthetic Advisory Company",title:"Director of Platform Simulations",externalJobId:"REQ-OLD",sourceUrl:"https://careers.example.test/jobs/req-old"})!;
   const posting=normalizedPosting({company:"Synthetic Advisory Company",title:"Director of Platform Simulations",externalId:"REQ-NEW",canonicalUrl:"https://careers.example.test/jobs/req-new"});

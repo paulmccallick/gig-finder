@@ -485,6 +485,18 @@ test("0038 preserves completed promotion history and requires exact coherent rev
   expect(()=>database.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,status,created_at,updated_at) VALUES('invalid-missing-review','decision-pending','pending','description-pending','pending','2026-01-06','2026-01-06')`).run()).toThrow();
   expect(()=>database.query(`UPDATE scout_position_promotions SET requested_gig_id='unexpected' WHERE id='promotion-create'`).run()).toThrow();
   expect(()=>database.query(`UPDATE scout_position_promotions SET expected_gig_revision=0 WHERE id='promotion-existing'`).run()).toThrow();
+  const rejectsNullRequiredValue=(promotionId:string,column:"requested_gig_id"|"expected_gig_revision"|"resolution_fingerprint",restoreValue:string|number)=>{
+    let rejected=false;
+    try{database.query(`UPDATE scout_position_promotions SET ${column}=NULL WHERE id=?`).run(promotionId)}catch{rejected=true}
+    database.query(`UPDATE scout_position_promotions SET ${column}=? WHERE id=?`).run(restoreValue,promotionId);
+    return rejected;
+  };
+  expect([
+    rejectsNullRequiredValue("promotion-create","resolution_fingerprint",fingerprint),
+    rejectsNullRequiredValue("promotion-existing","resolution_fingerprint",fingerprint),
+    rejectsNullRequiredValue("promotion-existing","requested_gig_id","reviewed-gig-without-fk"),
+    rejectsNullRequiredValue("promotion-existing","expected_gig_revision",7),
+  ]).toEqual([true,true,true,true]);
   expect(()=>database.query(`UPDATE scout_position_promotions SET observation_id='missing-observation' WHERE id='promotion-create'`).run()).toThrow();
   expect(database.query(`PRAGMA foreign_key_list(scout_position_promotions)`).all()).not.toContainEqual(expect.objectContaining({from:"requested_gig_id"}));
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);

@@ -310,8 +310,8 @@ export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{
   check("scout_position_promotions_status_check",sql`${table.status} in ('pending','completed','failed')`),
   check("scout_position_promotions_resolution_check",sql`
     (${table.resolutionKind} is null and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and ${table.resolutionFingerprint} is null)
-    or (${table.resolutionKind}='create_new' and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
-    or (${table.resolutionKind}='use_existing' and length(trim(${table.requestedGigId}))>0 and ${table.expectedGigRevision}>0 and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
+    or (${table.resolutionKind}='create_new' and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and ${table.resolutionFingerprint} is not null and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
+    or (${table.resolutionKind}='use_existing' and ${table.requestedGigId} is not null and length(trim(${table.requestedGigId}))>0 and ${table.expectedGigRevision} is not null and ${table.expectedGigRevision}>0 and ${table.resolutionFingerprint} is not null and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
   `),
   check("scout_position_promotions_review_check",sql`${table.status}='completed' or (${table.observationId} is not null and ${table.resolutionKind} is not null)`),
 ]);

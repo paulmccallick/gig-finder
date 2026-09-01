@@ -221,7 +221,6 @@ export class GigDomainService {
         locations:posting.locations?.map(location=>({label:location.label,workArrangement:location.workArrangement}))??null,
         workArrangement:posting.workArrangement??null,
         description:posting.description,
-        descriptionSourceContent:posting.descriptionSourceContent??null,
         provenance:{
           sourceKey:posting.provenance.sourceKey,
           sourceUrl:posting.provenance.sourceUrl,
