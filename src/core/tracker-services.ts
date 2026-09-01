@@ -1,12 +1,14 @@
 import type { ArtifactPort, Persistence } from "./ports";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ChangeContext, EntityRecord, GigData, TaskData } from "./models";
-import { fitRatings, gigAvailabilities, gigAvailabilityTimestampSchema, gigEntitySchema, gigInputSchema, outcomes, pipelineStages, type Gig, type GigAvailability, type GigInput, type GigRecord, type GigSummary } from "./gigs";
+import { fitRatings, gigAvailabilities, gigAvailabilityTimestampSchema, gigEntitySchema, gigInputSchema, outcomes, pipelineStages, postingResolutionSchema, type AcceptPostingResult, type Gig, type GigAvailability, type GigInput, type GigPostingCandidate, type GigPostingMatchReason, type GigRecord, type GigSummary, type PostingCandidateResolution, type PostingResolution } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
 import { compareTasks, taskInputSchema, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskInput, type TaskRecord, type TaskRelatedEntityInput } from "./tasks";
 import { ChangeExecutor, creationPayloadHash, type MutationOptions, type MutationResult } from "./changes";
 import type { ManagedDocumentService } from "./managed-document-service";
 import type { PeopleService } from "./services";
+import type { NormalizedPosition } from "./scout/sourcing/contracts";
 import {
   hasMeaningfulFilters,
   isCalendarDate,
@@ -42,6 +44,7 @@ const assertDate = (value: unknown, label: string, nullable = false) => {
   }
 };
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const postingIdentity = (value: string | null | undefined) => value?.trim().toLocaleLowerCase() || null;
 export function deepPatch<T>(current: T, patch: unknown): T {
   if (!isRecord(current) || !isRecord(patch)) return patch as T;
   const result: Record<string, unknown> = { ...current };
@@ -126,21 +129,77 @@ export class GigDomainService {
         ||b.lastActivity.localeCompare(a.lastActivity)||a.company.localeCompare(b.company)||a.id.localeCompare(b.id)),input)
   }
   create(context:ChangeContext,gig:GigSummary,options:MutationOptions={}){const complete=gigFromData(gigToData(gig));validateGig(complete);if(!options.dryRun)this.p.change(context,u=>u.gigs.create(gigToData(complete)));return{...complete,documents:[]}}
-  createNew(context:ChangeContext,id:string,input:GigInput,options:MutationOptions={}){
+  private prepareNew(id:string,input:GigInput){
     const parsed=gigInputSchema.parse(input);
     const entity=gigEntitySchema.safeParse({id,...parsed,availability:"unknown",availabilityUpdatedAt:null,artifactDirectory:`artifacts/gigs/${id}`,hasJobDescription:false,hasInterviewPrep:false});
     if(!entity.success)throw new DomainValidationError(entity.error.issues.map(issue=>issue.message).join("; "));
-    const candidate:GigSummary=entity.data;
-    const complete=gigFromData(gigToData(candidate));validateGig(complete);
+    const complete=gigFromData(gigToData(entity.data));
+    validateGig(complete);
+    return{parsed,complete};
+  }
+  private persistNew(context:ChangeContext,id:string,complete:Gig,options:MutationOptions,duplicate?:EntityRecord<GigData>){
     const payloadHash=creationPayloadHash(gigToData(complete));
     if(context.changeId){
       const fingerprint=this.p.creationFingerprint(context.changeId);
       if(fingerprint){const existing=this.get(id);if(fingerprint.entityType!=="gig"||fingerprint.entityId!==id||fingerprint.payloadHash!==payloadHash||!existing)throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Gig ${id} and payload.`);return{record:existing,changeId:context.changeId};}
       if(this.p.hasChange(context.changeId))throw new MutationError("revision_conflict",`Change ${context.changeId} does not match Gig ${id} and payload.`);
     }
-    const duplicate=this.p.gigs.list().find(record=>(parsed.externalJobId!==undefined&&parsed.externalJobId!==null&&record.externalJobId===parsed.externalJobId)||(parsed.company!==undefined&&parsed.title!==undefined&&record.company.trim().toLocaleLowerCase()===parsed.company.toLocaleLowerCase()&&record.title.trim().toLocaleLowerCase()===parsed.title.toLocaleLowerCase()));
     if(duplicate)throw new MutationError("duplicate",`Gig already exists: ${duplicate.id}`);
     return this.changes.execute(context,{...complete,documents:[]},options,u=>{u.recordCreationFingerprint("gig",id,payloadHash);return this.record(u.gigs.create(gigToData(complete)))});
+  }
+  createNew(context:ChangeContext,id:string,input:GigInput,options:MutationOptions={}){
+    const{parsed,complete}=this.prepareNew(id,input);
+    const duplicate=this.p.gigs.list().find(record=>(parsed.externalJobId!==undefined&&parsed.externalJobId!==null&&record.externalJobId===parsed.externalJobId)||(parsed.company!==undefined&&parsed.title!==undefined&&record.company.trim().toLocaleLowerCase()===parsed.company.toLocaleLowerCase()&&record.title.trim().toLocaleLowerCase()===parsed.title.toLocaleLowerCase()));
+    return this.persistNew(context,id,complete,options,duplicate);
+  }
+  resolvePosting(posting:NormalizedPosition):PostingCandidateResolution{
+    const company=postingIdentity(posting.company),title=postingIdentity(posting.title),externalJobId=postingIdentity(posting.externalId),sourceUrl=postingIdentity(posting.canonicalUrl);
+    if(!company||!title||!sourceUrl)throw new DomainValidationError("Posting company, title, and canonical URL are required.");
+    try{new URL(posting.canonicalUrl)}catch(error){throw new DomainValidationError("Posting canonical URL must be valid.",{cause:error});}
+    const candidates=this.p.gigs.list().flatMap((record):GigPostingCandidate[]=>{
+      const gig=this.record(record);
+      if(postingIdentity(gig.company)!==company)return[];
+      const matchReasons:GigPostingMatchReason[]=[];
+      if(externalJobId!==null&&postingIdentity(gig.externalJobId)===externalJobId)matchReasons.push("company_requisition");
+      if(postingIdentity(gig.sourceUrl)===sourceUrl)matchReasons.push("company_url");
+      if(postingIdentity(gig.title)===title)matchReasons.push("company_title");
+      if(matchReasons.length===0)return[];
+      const jobDescription=gig.documents.filter(document=>document.type==="job_description").sort((a,b)=>a.id.localeCompare(b.id))[0]??null;
+      return[{gigId:gig.id,revision:record.revision,company:gig.company,title:gig.title,externalJobId:gig.externalJobId,sourceUrl:gig.sourceUrl,location:gig.location,stage:gig.stage,outcome:gig.outcome,availability:gig.availability,lastActivity:gig.lastActivity,jobDescription,matchReasons}];
+    }).sort((a,b)=>
+      Number(!a.matchReasons.includes("company_requisition"))-Number(!b.matchReasons.includes("company_requisition"))
+      ||Number(!a.matchReasons.includes("company_url"))-Number(!b.matchReasons.includes("company_url"))
+      ||Number(!a.matchReasons.includes("company_title"))-Number(!b.matchReasons.includes("company_title"))
+      ||Number(a.stage==="closed")-Number(b.stage==="closed")
+      ||a.gigId.localeCompare(b.gigId));
+    const fingerprint=createHash("sha256").update(JSON.stringify({posting:{company,title,externalJobId,sourceUrl},candidates:candidates.map(candidate=>({gigId:candidate.gigId,revision:candidate.revision,matchReasons:candidate.matchReasons,jobDescription:candidate.jobDescription?{id:candidate.jobDescription.id,version:this.p.documents.get(candidate.jobDescription.id)?.currentVersion??null}:null}))})).digest("hex");
+    return{fingerprint,candidates};
+  }
+  acceptPosting(context:ChangeContext,posting:NormalizedPosition,resolution?:PostingResolution):AcceptPostingResult{
+    const current=this.resolvePosting(posting);
+    if(resolution===undefined){
+      if(current.candidates.length>0)return{status:"resolution_required",...current};
+      return this.createPosting(context,posting);
+    }
+    const reviewed=postingResolutionSchema.parse(resolution);
+    if(reviewed.reviewedFingerprint!==current.fingerprint)return{status:"resolution_stale",...current};
+    if(reviewed.kind==="create_new")return this.createPosting(context,posting);
+    const selected=current.candidates.find(candidate=>candidate.gigId===reviewed.gigId);
+    if(!selected)return{status:"resolution_invalid"};
+    if(selected.revision!==reviewed.expectedGigRevision)return{status:"resolution_stale",...current};
+    const patch:GigInput={title:posting.title,sourceUrl:posting.canonicalUrl};
+    if(postingIdentity(posting.externalId)!==null)patch.externalJobId=posting.externalId;
+    if(postingIdentity(posting.location)!==null)patch.location=posting.location;
+    if(postingIdentity(posting.workArrangement)!==null)patch.workArrangement=posting.workArrangement;
+    return{status:"updated",gig:this.update(context,selected.gigId,patch).record};
+  }
+  private createPosting(context:ChangeContext,posting:NormalizedPosition):AcceptPostingResult{
+    if(!context.changeId?.trim())throw new DomainValidationError("Accepting a new posting requires a change ID.");
+    const occurredAt=context.occurredAt??new Date().toISOString(),instant=new Date(occurredAt);
+    if(Number.isNaN(instant.getTime()))throw new DomainValidationError("Posting change occurredAt must be a valid timestamp.");
+    const id=`gig_${createHash("sha256").update(`posting\0${context.changeId}`).digest("hex").slice(0,32)}`;
+    const{complete}=this.prepareNew(id,{company:posting.company,title:posting.title,externalJobId:postingIdentity(posting.externalId)===null?null:posting.externalId,stage:"identified",outcome:"pending",statusSummary:"Promoted from Gig Scout",lastActivity:pacificDate(instant),nextAction:null,fit:{rating:"tbd",summary:null},payRange:null,sourceUrl:posting.canonicalUrl,tags:[],location:postingIdentity(posting.location)===null?null:posting.location,workArrangement:postingIdentity(posting.workArrangement)===null?null:posting.workArrangement,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null});
+    return{status:"created",gig:this.persistNew(context,id,complete,{}).record};
   }
   update(context:ChangeContext,id:string,patch:GigInput,options:MutationOptions={}){const validatedPatch=gigInputSchema.parse(patch);const current=this.get(id);if(!current)throw new Error(`Gig not found: ${id}`);const updated=deepPatch(current,validatedPatch);validateGig(updated);const raw=this.p.gigs.get(id)!;const{id:_,...data}=gigToData(updated);return this.changes.execute(context,updated,options,u=>this.record(u.gigs.update(id,raw.revision,data)))}
   setAvailability(context:ChangeContext,id:string,availability:Exclude<GigAvailability,"unknown">):MutationResult<GigRecord>{
