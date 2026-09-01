@@ -362,13 +362,28 @@
   ```ts
   type ScoutPursueResult =
     | { status: "created" | "updated"; position: ScoutPositionDetail | null }
-    | { status: "resolution_required" | "resolution_stale"; fingerprint: string; candidates: GigPostingCandidate[] }
-    | { status: "resolution_invalid" };
+    | { status: "resolution_required"; fingerprint: string; candidates: GigPostingCandidate[] }
+    | { status: "resolution_stale"; fingerprint: string; candidates: GigPostingCandidate[]; position: ScoutPositionDetail }
+    | { status: "resolution_invalid"; position: ScoutPositionDetail };
   ```
+
+  A post-intent stale or invalid result releases the attempt and returns the
+  exact refreshed review detail, including its incremented state revision, so
+  the displayed replacement choice is directly submit-able.
 
 - [ ] **Step 4: Reuse the managed-document service update semantics**
 
-  Look up the selected Gig's current `job_description` document from the domain result. Create when absent. When present, call `ManagedDocumentService.get` and compare exact normalized Markdown. Call `update` with expected version only when content differs. Use deterministic `:document` change IDs and reconcile retries with `createdByChange`/`versionByChange`. Verify exact Gig ownership, type, title, media type, content, and source provenance before Scout completion.
+  Look up the selected Gig's current `job_description` document from the domain result. Create when absent. When present, call `ManagedDocumentService.get` and compare exact normalized Markdown. Call `update` with expected version only when content differs. Use deterministic `:document` change IDs and reconcile retries with `createdByChange`/`versionByChange`.
+
+  The generated title convention applies only when Scout creates a missing
+  document. Existing managed-document titles are user-authored metadata and
+  remain unchanged; verify their exact identity, Gig ownership, type, media
+  type, and content without requiring a rename. When existing normalized
+  Markdown is unchanged, create no version and accept the existing version's
+  historical source description and provenance. The new reviewed provenance
+  remains in the Scout promotion audit; do not fabricate a provenance-only
+  managed-document version. Changed Markdown still requires exact reviewed
+  provenance on its new immutable version.
 
 - [ ] **Step 5: Wire the composition root and update fakes**
 

@@ -210,6 +210,8 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
     this.released.push({ positionId: id, changeId, outcome });
     this.reviewable = true;
     this.pending = null;
+    this.review.detail.stateRevision += 1;
+    return this.review.detail;
   }
   positionDetail() { return null; }
   reviewDetail() { return this.reviewable ? this.review.detail : null; }
@@ -385,7 +387,7 @@ class FakeDocuments {
 const setup = () => {
   const store = new FakeScoutStore();
   const gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting"> = new FakeGigs();
-  const documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange" | "versions"> = new FakeDocuments();
+  const documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange"> = new FakeDocuments();
   const service = new ScoutPositionService(store, gigs, documents);
   return { store, gigs: gigs as FakeGigs, documents: documents as FakeDocuments, service };
 };
@@ -470,14 +472,26 @@ describe("ScoutPositionService reviewed posting promotion", () => {
       expectedGigRevision: 3,
     };
 
-    expect(service.decide(positionId, decision(originalResolution))).toMatchObject({ status: expectedStatus });
+    const released = service.decide(positionId, decision(originalResolution));
+    expect(released).toMatchObject({
+      status: expectedStatus,
+      position: { id: positionId, stateRevision: 8 },
+    });
+    if (!("status" in released)
+      || (released.status !== "resolution_stale" && released.status !== "resolution_invalid")) {
+      throw new Error("Expected a released position.");
+    }
     expect(store.released).toEqual([{ positionId, changeId: "synthetic-pursue", outcome: expectedStatus }]);
     expect(store.reviewable).toBeTrue();
     expect(service.retryPromotion(positionId)).toBeNull();
 
     gigs.resolution = { fingerprint: changedFingerprint, candidates: [candidate({ revision: 4 })] };
     const replacementResolution = { kind: "create_new" as const, reviewedFingerprint: changedFingerprint };
-    expect(service.decide(positionId, { ...decision(replacementResolution), changeId: "synthetic-pursue-after-race" })).toEqual({ status: "created", position: null });
+    expect(service.decide(positionId, {
+      ...decision(replacementResolution),
+      changeId: "synthetic-pursue-after-race",
+      expectedStateRevision: released.position.stateRevision,
+    })).toEqual({ status: "created", position: null });
     expect(store.begun.map(entry => entry.command.changeId)).toEqual(["synthetic-pursue", "synthetic-pursue-after-race"]);
   });
 
@@ -492,7 +506,12 @@ describe("ScoutPositionService reviewed posting promotion", () => {
 
   test("changed Markdown adds exactly one version to the selected existing document", () => {
     const { store, gigs, documents, service } = setup();
-    const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", "# Earlier Markdown");
+    const existingDocument = document(
+      "synthetic-existing-document",
+      "synthetic-existing-gig",
+      "# Earlier Markdown",
+      { title: "My reviewed role notes", displayName: "My reviewed role notes" },
+    );
     documents.records.set(existingDocument.id, existingDocument);
     const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
     gigs.resolution = { fingerprint, candidates: [existing] };
@@ -502,7 +521,12 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     expect(service.decide(positionId, decision(resolution))).toEqual({ status: "updated", position: null });
     expect(documents.createAttempts).toBe(0);
     expect(documents.updateAttempts).toBe(1);
-    expect(documents.get(existingDocument.id)).toMatchObject({ currentVersion: 2, content: posting.description });
+    expect(documents.get(existingDocument.id)).toMatchObject({
+      title: "My reviewed role notes",
+      displayName: "My reviewed role notes",
+      currentVersion: 2,
+      content: posting.description,
+    });
     expect(store.completed[0]!.documentId).toBe(existingDocument.id);
   });
 
@@ -533,7 +557,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
   test.each([
     ["missing", null],
     ["mismatched", { ...sourceProvenance, converterVersion: "different-converter-v1" }],
-  ] as const)("unchanged document %s structured provenance blocks completion", (_name, persistedProvenance) => {
+  ] as const)("unchanged document with %s historical provenance completes without a provenance-only version", (_name, persistedProvenance) => {
     const { store, gigs, documents, service } = setup();
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
     documents.records.set(existingDocument.id, existingDocument);
@@ -543,9 +567,15 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
 
-    expect(() => service.decide(positionId, decision(resolution))).toThrow("Reviewed Scout document version does not match the persisted promotion.");
+    expect(service.decide(positionId, decision(resolution))).toEqual({ status: "updated", position: null });
     expect(documents.updateAttempts).toBe(0);
-    expect(store.completed).toHaveLength(0);
+    expect(documents.changedVersions).toHaveLength(1);
+    expect(documents.changedVersions.get(`seed:${existingDocument.id}`)?.sourceProvenance).toEqual(persistedProvenance);
+    expect(store.completed).toEqual([{
+      positionId,
+      gigId: existing.gigId,
+      documentId: existingDocument.id,
+    }]);
   });
 
   test("document failure retries without another Gig write or document version", () => {

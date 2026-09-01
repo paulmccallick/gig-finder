@@ -24,8 +24,9 @@ const exactPositionIdPattern = /^spos_[0-9a-f]{32}$/;
 
 export type ScoutPursueResult =
   | { status: "created" | "updated"; position: ScoutPositionDetail | null }
-  | { status: "resolution_required" | "resolution_stale"; fingerprint: string; candidates: GigPostingCandidate[] }
-  | { status: "resolution_invalid" };
+  | { status: "resolution_required"; fingerprint: string; candidates: GigPostingCandidate[] }
+  | { status: "resolution_stale"; fingerprint: string; candidates: GigPostingCandidate[]; position: ScoutPositionDetail }
+  | { status: "resolution_invalid"; position: ScoutPositionDetail };
 
 type ScoutDecisionInput = Omit<ScoutUserDecisionCommand, "positionId"> & {
   resolution?: PostingResolution;
@@ -68,7 +69,7 @@ export class ScoutPositionService {
   constructor(
     private readonly store: ScoutPostingResolutionStore,
     private readonly gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting">,
-    private readonly documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange" | "versions">,
+    private readonly documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange">,
   ) {}
 
   list(input: Partial<{ text: string; company: string; state: string; sort: string; direction: "asc" | "desc"; offset: number; limit: number }> = {}) {
@@ -120,7 +121,7 @@ export class ScoutPositionService {
     }
     const parsedResolution = resolution === undefined ? undefined : postingResolutionSchema.parse(resolution);
     const candidates = this.gigs.resolvePosting(review.posting);
-    const stableResolution = this.validateResolution(candidates, parsedResolution);
+    const stableResolution = this.validateResolution(candidates, review.detail, parsedResolution);
     if (stableResolution) return stableResolution;
     const reviewedResolution = parsedResolution ?? { kind: "create_new", reviewedFingerprint: candidates.fingerprint };
     const work = this.store.beginPursue(command, reviewedResolution, now);
@@ -158,6 +159,7 @@ export class ScoutPositionService {
 
   private validateResolution(
     current: PostingCandidateResolution,
+    position: ScoutPositionDetail,
     resolution?: PostingResolution,
   ): Exclude<ScoutPursueResult, { status: "created" | "updated" }> | null {
     if (!resolution) {
@@ -166,14 +168,14 @@ export class ScoutPositionService {
         : null;
     }
     if (resolution.reviewedFingerprint !== current.fingerprint) {
-      return { status: "resolution_stale", ...current };
+      return { status: "resolution_stale", ...current, position };
     }
     if (resolution.kind === "create_new") return null;
     const selected = current.candidates.find(candidate => candidate.gigId === resolution.gigId);
-    if (!selected) return { status: "resolution_invalid" };
+    if (!selected) return { status: "resolution_invalid", position };
     return selected.revision === resolution.expectedGigRevision
       ? null
-      : { status: "resolution_stale", ...current };
+      : { status: "resolution_stale", ...current, position };
   }
 
   private promote(work: ScoutPromotionWork, now: string): ScoutPursueResult {
@@ -190,8 +192,8 @@ export class ScoutPositionService {
         work.resolution,
       );
       if (accepted.status === "resolution_stale" || accepted.status === "resolution_invalid") {
-        this.store.releasePromotion(work.positionId, work.changeId, accepted.status, now);
-        return accepted;
+        const position = this.store.releasePromotion(work.positionId, work.changeId, accepted.status, now);
+        return { ...accepted, position };
       }
       if (accepted.status !== "created" && accepted.status !== "updated") return accepted;
       const document = this.coordinateDocument(work, accepted.gig.id, accepted.gig.documents, now);
@@ -251,17 +253,10 @@ export class ScoutPositionService {
 
     const current = this.documents.get(summary.id);
     if (!current) throw new Error("Reviewed Scout Gig job description is unavailable.");
-    this.verifyDocumentIdentity(current, gigId, expectedTitle);
+    this.verifyDocumentIdentity(current, gigId);
     const replayedVersion = this.documents.versionByChange(changeId);
-    if (replayedVersion) return this.reconcileVersion(current.id, replayedVersion, work, gigId, expectedTitle);
+    if (replayedVersion) return this.reconcileVersion(current.id, replayedVersion, work, gigId);
     if (current.content === work.markdown) {
-      if (current.sourceDescription !== work.sourceDescription) {
-        throw new Error("Reviewed Scout document replay does not match the persisted promotion.");
-      }
-      const currentVersion = this.documents.versions(current.id)
-        .find(version => version.version === current.currentVersion);
-      if (!currentVersion) throw new Error("Reviewed Scout document version could not be verified.");
-      this.verifyVersion(currentVersion, current.id, work.markdown, work.sourceDescription, work.sourceProvenance);
       return current;
     }
 
@@ -286,11 +281,11 @@ export class ScoutPositionService {
     } catch (reason) {
       const reconciled = this.documents.versionByChange(changeId);
       if (!reconciled) throw reason;
-      return this.reconcileVersion(current.id, reconciled, work, gigId, expectedTitle);
+      return this.reconcileVersion(current.id, reconciled, work, gigId);
     }
     const version = this.documents.versionByChange(changeId);
     if (!version) throw new Error("Reviewed Scout document version could not be verified.");
-    return this.reconcileVersion(current.id, version, work, gigId, expectedTitle);
+    return this.reconcileVersion(current.id, version, work, gigId);
   }
 
   private reconcileCreatedDocument(
@@ -314,14 +309,13 @@ export class ScoutPositionService {
     version: ManagedDocumentVersionData,
     work: ScoutPromotionWork,
     gigId: string,
-    expectedTitle: string,
   ) {
     this.verifyVersion(version, documentId, work.markdown, work.sourceDescription, work.sourceProvenance);
     const document = this.documents.get(documentId);
     if (!document || document.currentVersion !== version.version) {
       throw new Error("Reviewed Scout document version is not current.");
     }
-    this.verifyDocumentIdentity(document, gigId, expectedTitle);
+    this.verifyDocumentIdentity(document, gigId);
     if (document.content !== work.markdown) throw new Error("Reviewed Scout document replay does not match the persisted promotion.");
     return document;
   }
@@ -339,13 +333,13 @@ export class ScoutPositionService {
     }
   }
 
-  private verifyDocumentIdentity(document: ManagedDocumentRecord, gigId: string, expectedTitle: string) {
+  private verifyDocumentIdentity(document: ManagedDocumentRecord, gigId: string, expectedTitle?: string) {
     const exactGigOwnership = document.links.length === 1
       && document.links[0]?.entityType === "gig"
       && document.links[0].entityId === gigId;
     if (
       document.documentType !== "job_description"
-      || document.title !== expectedTitle
+      || (expectedTitle !== undefined && document.title !== expectedTitle)
       || document.mediaType !== "text/markdown"
       || !exactGigOwnership
     ) {

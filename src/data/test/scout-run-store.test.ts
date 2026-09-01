@@ -201,10 +201,15 @@ test("reviewed posting intent binds the exact observation, description, and subm
   expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
   expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"processing",linkedGigId:null});
 
-  reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue","resolution_stale","2026-09-01T12:00:05.500Z");
+  const releasedDetail=reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue","resolution_stale","2026-09-01T12:00:05.500Z");
   expect(reviewedStore.promotionWork(binding.positionId)).toBeNull();
   expect(database.query(`SELECT status,failure_code failureCode FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({status:"failed",failureCode:"resolution_stale"});
   expect(database.query(`SELECT state,revision,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"needs_user_review",revision:9,currentDecisionId:null});
+  expect(releasedDetail).toMatchObject({
+    id:binding.positionId,
+    state:"needs_user_review",
+    stateRevision:9,
+  });
   expect(database.query(`SELECT id,change_id changeId FROM scout_position_decisions WHERE change_id='reviewed-pursue'`).get()).toMatchObject({changeId:"reviewed-pursue"});
 
   const refreshedReview=reviewedStore.reviewPosting(binding.positionId)!;

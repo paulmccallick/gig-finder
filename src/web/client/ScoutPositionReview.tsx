@@ -90,8 +90,9 @@ type ResolutionReview = {
 
 type DecisionOutcome =
   | PromotionDetail
-  | ({ status: "resolution_required" | "resolution_stale" } & ResolutionReview)
-  | { status: "resolution_invalid" }
+  | ({ status: "resolution_required" } & ResolutionReview)
+  | ({ status: "resolution_stale"; position: PromotionDetail } & ResolutionReview)
+  | { status: "resolution_invalid"; position: PromotionDetail }
   | { status: "created" | "updated"; position: PromotionDetail | null }
   | { error?: string };
 
@@ -623,6 +624,7 @@ export function ScoutPositionReview({
       }
       if (outcome && "status" in outcome) {
         if (outcome.status === "resolution_required" || outcome.status === "resolution_stale") {
+          if (outcome.status === "resolution_stale") setDetail(outcome.position);
           setResolutionReview({
             fingerprint: outcome.fingerprint,
             candidates: outcome.candidates,
@@ -634,6 +636,7 @@ export function ScoutPositionReview({
           return;
         }
         if (outcome.status === "resolution_invalid") {
+          setDetail(outcome.position);
           setDrawerError("That Gig is no longer available for this posting. Review the comparison and choose again.");
           return;
         }

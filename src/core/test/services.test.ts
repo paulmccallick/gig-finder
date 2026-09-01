@@ -127,6 +127,15 @@ describe("application services",()=>{
    expect.objectContaining({stage:"closed",outcome:"rejected",matchReasons:["company_title"]}),
   ]);
  });
+ test("posting resolution trims canonical URLs without lowercasing case-sensitive paths",()=>{
+  seedGig("posting-url-exact",{company:"Synthetic URL Company",title:"Different exact URL role",externalJobId:"URL-OTHER-1",sourceUrl:"  https://careers.example.test/jobs/CaseSensitive  "});
+  seedGig("posting-url-wrong-case",{company:"Synthetic URL Company",title:"Different wrong-case URL role",externalJobId:"URL-OTHER-2",sourceUrl:"https://careers.example.test/jobs/casesensitive"});
+  const posting=normalizedPosting({company:"Synthetic URL Company",title:"New URL role",externalId:"URL-NEW",canonicalUrl:" https://careers.example.test/jobs/CaseSensitive "});
+
+  expect(app.gigs.resolvePosting(posting).candidates).toEqual([
+   expect.objectContaining({gigId:"posting-url-exact",matchReasons:["company_url"]}),
+  ]);
+ });
  test("a posting without optional fields preserves them after combined title and URL advisory evidence",()=>{
   const existing=seedGig("posting-no-requisition",{company:"Synthetic Missing ID Company",title:"Head of Synthetic Reliability",externalJobId:"LEGACY-55",sourceUrl:"https://careers.example.test/jobs/head-reliability",location:"Remote",workArrangement:"remote"})!;
   const posting=normalizedPosting({company:"Synthetic Missing ID Company",title:"Head of Synthetic Reliability",externalId:null,canonicalUrl:"https://careers.example.test/jobs/head-reliability",location:null,workArrangement:null});
@@ -199,6 +208,42 @@ describe("application services",()=>{
   expect(gigs.get(existing.id)?.revision).toBe(2);
   expect(app.tasks.get("posting-related-task")).toMatchObject({relatedEntity:{type:"gig",id:existing.id}});
   expect(app.gigPeople.query({gigIds:[existing.id]})).toMatchObject({status:"ok",items:[expect.objectContaining({gigId:existing.id,personId:person.id})]});
+ });
+ test("posting replay permits pipeline-owned drift after verifying posting-owned fields",()=>{
+  const existing=seedGig("posting-replay-pipeline-existing",{company:"Synthetic Replay Pipeline Company",title:"Earlier Replay Role",externalJobId:"REPLAY-PIPELINE",sourceUrl:"https://careers.example.test/jobs/replay-pipeline-old"})!;
+  const posting=normalizedPosting({company:"Synthetic Replay Pipeline Company",title:"Current Replay Role",externalId:"REPLAY-PIPELINE",canonicalUrl:"https://careers.example.test/jobs/replay-pipeline",location:"Remote",workArrangement:"remote"});
+  const reviewed=app.gigs.resolvePosting(posting);
+  const candidate=reviewed.candidates.find(value=>value.gigId===existing.id);
+  if(!candidate)throw new Error("Expected replay candidate.");
+  const resolution={kind:"use_existing" as const,reviewedFingerprint:reviewed.fingerprint,gigId:existing.id,expectedGigRevision:candidate.revision};
+  const acceptanceContext=postingContext("posting-replay-pipeline");
+  app.gigs.acceptPosting(acceptanceContext,posting,resolution);
+  app.gigs.update(postingContext("posting-replay-pipeline-user-update"),existing.id,{stage:"applied",statusSummary:"Candidate submitted an application",lastActivity:"2026-09-01"});
+
+  expect(app.gigs.acceptPosting(acceptanceContext,posting,resolution)).toMatchObject({
+   status:"updated",
+   gig:{stage:"applied",statusSummary:"Candidate submitted an application",lastActivity:"2026-09-01",title:posting.title,externalJobId:posting.externalId,sourceUrl:posting.canonicalUrl,location:posting.location,workArrangement:posting.workArrangement},
+  });
+ });
+ test.each([
+  ["title",{title:"User-drifted replay title"}],
+  ["requisition ID",{externalJobId:"USER-DRIFTED-REPLAY-ID"}],
+  ["official URL",{sourceUrl:"https://careers.example.test/jobs/user-drifted-replay"}],
+  ["location",{location:"User-drifted replay location"}],
+  ["work arrangement",{workArrangement:"on-site" as const}],
+ ] as const)("posting replay rejects %s drift",(label,patch)=>{
+  const key=label.replaceAll(" ","-").toLowerCase();
+  const existing=seedGig(`posting-replay-${key}-existing`,{company:`Synthetic Replay ${label} Company`,title:`Earlier ${label} Role`,externalJobId:`REPLAY-${key}`,sourceUrl:`https://careers.example.test/jobs/replay-${key}-old`})!;
+  const posting=normalizedPosting({company:`Synthetic Replay ${label} Company`,title:`Current ${label} Role`,externalId:`REPLAY-${key}`,canonicalUrl:`https://careers.example.test/jobs/replay-${key}`,location:"Remote",workArrangement:"remote"});
+  const reviewed=app.gigs.resolvePosting(posting);
+  const candidate=reviewed.candidates.find(value=>value.gigId===existing.id);
+  if(!candidate)throw new Error("Expected replay drift candidate.");
+  const resolution={kind:"use_existing" as const,reviewedFingerprint:reviewed.fingerprint,gigId:existing.id,expectedGigRevision:candidate.revision};
+  const acceptanceContext=postingContext(`posting-replay-${key}`);
+  app.gigs.acceptPosting(acceptanceContext,posting,resolution);
+  app.gigs.update(postingContext(`posting-replay-${key}-user-drift`),existing.id,patch);
+
+  expect(()=>app.gigs.acceptPosting(acceptanceContext,posting,resolution)).toThrow(MutationError);
  });
  test("people service stores canonical people with neutral relationship defaults",()=>{app.people.create(context,{id:"person",name:"Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null});expect(app.people.get("person")).toMatchObject({name:"Person",relationship:{type:"professional_contact",strength:"unknown"},priority:"unranked",status:"not_contacted",lastContacted:null,lastContactMethod:null,lastContactSummary:null,notes:[],tags:[]});expect(people.get("person")).not.toHaveProperty("lastContacted")});
  test("people service includes relationship state",()=>{app.people.create(context,{id:"network-person",name:"Network Person",company:null,title:null,linkedInProfileUrl:null,connectedOn:null,relationshipType:"colleague",relationshipStrength:"warm",priority:"high",status:"not_contacted"});expect(app.people.get("network-person")).toMatchObject({name:"Network Person",relationship:{type:"colleague",strength:"warm"},priority:"high"})});

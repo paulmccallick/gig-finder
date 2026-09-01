@@ -644,7 +644,8 @@ test("posting identity resolution stays in the review drawer until an explicit c
       createAttempts += 1;
       if (createAttempts === 1) {
         evidenceRevision = 2;
-        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "resolution_stale", fingerprint: "b".repeat(64), candidates: [candidate(evidenceRevision, "refreshed")] }) });
+        positions[index] = { ...positions[index]!, stateRevision: 2 };
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "resolution_stale", fingerprint: "b".repeat(64), candidates: [candidate(evidenceRevision, "refreshed")], position: positions[index] }) });
         return;
       }
       positions.splice(index, 1);
@@ -718,6 +719,10 @@ test("posting identity resolution stays in the review drawer until an explicit c
   await page.getByRole("dialog").getByRole("button", { name: "Pursue position" }).click();
   await expect(rows).toHaveCount(0);
   expect(decisions[0]).not.toHaveProperty("resolution");
+  expect(decisions[3]).toMatchObject({
+    expectedStateRevision: 2,
+    resolution: { kind: "create_new", reviewedFingerprint: "b".repeat(64) },
+  });
   expect(decisions[1]?.resolution).toMatchObject({
     kind: "use_existing",
     reviewedFingerprint: "a".repeat(64),

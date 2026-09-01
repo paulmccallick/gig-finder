@@ -45,6 +45,7 @@ const assertDate = (value: unknown, label: string, nullable = false) => {
 };
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const postingIdentity = (value: string | null | undefined) => value?.trim().toLocaleLowerCase() || null;
+const postingCanonicalUrl = (value: string | null | undefined) => value?.trim() || null;
 interface GigMutationFingerprint { entityType:string;payloadHash:string }
 export function deepPatch<T>(current: T, patch: unknown): T {
   if (!isRecord(current) || !isRecord(patch)) return patch as T;
@@ -167,15 +168,15 @@ export class GigDomainService {
     return this.persistNew(context,id,complete,options,duplicate);
   }
   resolvePosting(posting:NormalizedPosition):PostingCandidateResolution{
-    const company=postingIdentity(posting.company),title=postingIdentity(posting.title),externalJobId=postingIdentity(posting.externalId),sourceUrl=postingIdentity(posting.canonicalUrl);
+    const company=postingIdentity(posting.company),title=postingIdentity(posting.title),externalJobId=postingIdentity(posting.externalId),sourceUrl=postingCanonicalUrl(posting.canonicalUrl);
     if(!company||!title||!sourceUrl)throw new DomainValidationError("Posting company, title, and canonical URL are required.");
-    try{new URL(posting.canonicalUrl)}catch(error){throw new DomainValidationError("Posting canonical URL must be valid.",{cause:error});}
+    try{new URL(sourceUrl)}catch(error){throw new DomainValidationError("Posting canonical URL must be valid.",{cause:error});}
     const candidates=this.p.gigs.list().flatMap((record):GigPostingCandidate[]=>{
       const gig=this.record(record);
       if(postingIdentity(gig.company)!==company)return[];
       const matchReasons:GigPostingMatchReason[]=[];
       if(externalJobId!==null&&postingIdentity(gig.externalJobId)===externalJobId)matchReasons.push("company_requisition");
-      if(postingIdentity(gig.sourceUrl)===sourceUrl)matchReasons.push("company_url");
+      if(postingCanonicalUrl(gig.sourceUrl)===sourceUrl)matchReasons.push("company_url");
       if(postingIdentity(gig.title)===title)matchReasons.push("company_title");
       if(matchReasons.length===0)return[];
       const jobDescription=gig.documents.filter(document=>document.type==="job_description").sort((a,b)=>a.id.localeCompare(b.id))[0]??null;
@@ -203,11 +204,25 @@ export class GigDomainService {
     const selected=current.candidates.find(candidate=>candidate.gigId===reviewed.gigId);
     if(!selected)return{status:"resolution_invalid"};
     if(selected.revision!==reviewed.expectedGigRevision)return{status:"resolution_stale",...current};
+    const patch=this.postingOwnedPatch(posting);
+    return{status:"updated",gig:this.persistUpdate(context,selected.gigId,patch,{},this.postingMutationFingerprint(posting,reviewed)).record};
+  }
+  private postingOwnedPatch(posting:NormalizedPosition):GigInput{
     const patch:GigInput={title:posting.title,sourceUrl:posting.canonicalUrl};
     if(postingIdentity(posting.externalId)!==null)patch.externalJobId=posting.externalId;
     if(postingIdentity(posting.location)!==null)patch.location=posting.location;
     if(postingIdentity(posting.workArrangement)!==null)patch.workArrangement=posting.workArrangement;
-    return{status:"updated",gig:this.persistUpdate(context,selected.gigId,patch,{},this.postingMutationFingerprint(posting,reviewed)).record};
+    return gigInputSchema.parse(patch);
+  }
+  private verifyReplayedPosting(gig:GigRecord,posting:NormalizedPosition,changeId:string){
+    const expected=this.postingOwnedPatch(posting);
+    if(
+      gig.title!==expected.title
+      ||gig.sourceUrl!==expected.sourceUrl
+      ||(expected.externalJobId!==undefined&&gig.externalJobId!==expected.externalJobId)
+      ||(expected.location!==undefined&&gig.location!==expected.location)
+      ||(expected.workArrangement!==undefined&&gig.workArrangement!==expected.workArrangement)
+    )throw new MutationError("revision_conflict",`Change ${changeId} no longer matches the accepted posting-owned Gig fields.`);
   }
   private postingMutationFingerprint(posting:NormalizedPosition,resolution:PostingResolution|null):GigMutationFingerprint{
     const payload={
@@ -243,6 +258,7 @@ export class GigDomainService {
     if(!fingerprint||fingerprint.entityType!==expected.entityType||fingerprint.entityId!==targetId||fingerprint.payloadHash!==expected.payloadHash)return null;
     const gig=this.get(targetId);
     if(!gig)throw new MutationError("revision_conflict",`Change ${context.changeId} matches missing Gig ${targetId}.`);
+    this.verifyReplayedPosting(gig,posting,context.changeId);
     return{status:resolution?.kind==="use_existing"?"updated":"created",gig};
   }
   private createPosting(context:ChangeContext,posting:NormalizedPosition,resolution:PostingResolution|null):AcceptPostingResult{

@@ -98,7 +98,7 @@ export interface ScoutPositionStore {
  reverseDecision(input:{positionId:string;decisionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
  appendPositionNote(input:{positionId:string;decisionId?:string;actor:string;body:string},now:string):void;
  promotionWork(positionId:string):ScoutPromotionWork|null;
- releasePromotion(positionId:string,changeId:string,outcome:"resolution_stale"|"resolution_invalid",now:string):void;
+ releasePromotion(positionId:string,changeId:string,outcome:"resolution_stale"|"resolution_invalid",now:string):ScoutPositionDetail;
  failPromotion(positionId:string,message:string,now:string):void;
  completePromotion(positionId:string,gigId:string,managedDocumentId:string,now:string):void;
  resurfaceDue(now:string):number;
