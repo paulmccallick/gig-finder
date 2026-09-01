@@ -1,14 +1,13 @@
 import type { ArtifactPort, Persistence } from "./ports";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import type { ChangeContext, EntityRecord, GigData, TaskData } from "./models";
+import type { ChangeContext, EntityRecord, GigData } from "./models";
 import { fitRatings, gigAvailabilities, gigAvailabilityTimestampSchema, gigEntitySchema, gigInputSchema, outcomes, pipelineStages, postingResolutionSchema, type AcceptPostingResult, type Gig, type GigAvailability, type GigInput, type GigPostingCandidate, type GigPostingMatchReason, type GigRecord, type GigSummary, type PostingCandidateResolution, type PostingResolution } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
-import { compareTasks, taskInputSchema, taskIsOverdue, taskPriorities, taskStatuses, taskTypes, type TaskInput, type TaskRecord, type TaskRelatedEntityInput } from "./tasks";
 import { ChangeExecutor, creationPayloadHash, type MutationOptions, type MutationResult } from "./changes";
 import type { ManagedDocumentService } from "./managed-document-service";
-import type { PeopleService } from "./services";
 import type { NormalizedPosition } from "./scout/sourcing/contracts";
+import { deepPatch } from "./deep-patch";
 import {
   hasMeaningfulFilters,
   isCalendarDate,
@@ -19,11 +18,9 @@ import {
   type GigQueryInput,
   type Page,
   type ReadResult,
-  type TaskQueryInput,
 } from "./queries";
 
 export interface GigTouchInput { date:string;stage:Gig["stage"];summary:string;outcome?:Gig["outcome"];nextAction?:string|null;due?:string|null }
-export type TaskCreateInput = TaskInput & { id:string };
 
 export const defaultGigStages = [
   "applied",
@@ -31,10 +28,6 @@ export const defaultGigStages = [
   "screening",
   "technical_interview",
 ] as const satisfies readonly Gig["stage"][];
-export const defaultTaskStatuses = [
-  "open",
-  "in_progress",
-] as const satisfies readonly TaskRecord["status"][];
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const assertDate = (value: unknown, label: string, nullable = false) => {
@@ -43,16 +36,9 @@ const assertDate = (value: unknown, label: string, nullable = false) => {
     throw new DomainValidationError(`${label} must be a valid calendar date in YYYY-MM-DD format.`);
   }
 };
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const postingIdentity = (value: string | null | undefined) => value?.trim().toLocaleLowerCase() || null;
 const postingCanonicalUrl = (value: string | null | undefined) => value?.trim() || null;
 interface GigMutationFingerprint { entityType:string;payloadHash:string }
-export function deepPatch<T>(current: T, patch: unknown): T {
-  if (!isRecord(current) || !isRecord(patch)) return patch as T;
-  const result: Record<string, unknown> = { ...current };
-  for (const [key, value] of Object.entries(patch)) result[key] = isRecord(value) && isRecord(result[key]) ? deepPatch(result[key], value) : value;
-  return result as T;
-}
 
 function validateGig(gig: Gig) {
   if (!gig.id || !gig.company || !gig.title || !gig.statusSummary) throw new DomainValidationError("Gig id, company, title, and status summary are required.");
@@ -84,28 +70,6 @@ function gigFromData(r: GigData): Gig {
 }
 function gigToData(r: GigSummary): GigData {
   return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId??null,stage:r.stage,outcome:r.outcome,statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextActionDescription:r.nextAction?.description??null,nextActionDue:r.nextAction?.due??null,fitRating:r.fit.rating,fitSummary:r.fit.summary??null,payCurrency:r.payRange?.currency??null,payMinimum:r.payRange?.minimum??null,payMaximum:r.payRange?.maximum??null,payPeriod:r.payRange?.period??null,payNotes:r.payRange?.notes??null,sourceUrl:r.sourceUrl??null,location:r.location??null,workArrangement:r.workArrangement??null,postedDate:r.postedDate??null,businessUnitTeam:r.businessUnitTeam??null,recruiterSource:r.recruiterSource??null,bonus:r.bonus??null,equity:r.equity??null,otherCompensation:r.otherCompensation??null,tagsJson:JSON.stringify(r.tags??[]),hasJobDescription:r.hasJobDescription??false,hasInterviewPrep:r.hasInterviewPrep??false,availability:r.availability??"unknown",availabilityUpdatedAt:r.availabilityUpdatedAt??null};
-}
-
-const taskBusinessDate = (value: string, label: string) => {
-  if (isCalendarDate(value)) return value;
-  const instant = new Date(value);
-  if (Number.isNaN(instant.getTime())) {
-    throw new DomainValidationError(`${label} must be a valid timestamp.`);
-  }
-  return pacificDate(instant);
-};
-const taskFromData=(t:TaskData&{createdAt:string;updatedAt:string}):TaskRecord=>({id:t.id,title:t.title,type:t.type as TaskRecord["type"],status:t.status as TaskRecord["status"],priority:t.priority as TaskRecord["priority"],dueDate:t.dueDate,relatedEntity:{type:t.relatedEntityType as TaskRecord["relatedEntity"]["type"],id:t.relatedEntityId,label:t.relatedEntityLabel},notes:t.notes,createdAt:taskBusinessDate(t.createdAt,`${t.id}.createdAt`),updatedAt:taskBusinessDate(t.updatedAt,`${t.id}.updatedAt`),completedAt:t.completedAt});
-const taskData=(t:TaskRecord):TaskData=>({id:t.id,title:t.title,type:t.type,status:t.status,priority:t.priority,dueDate:t.dueDate,relatedEntityType:t.relatedEntity.type,relatedEntityId:t.relatedEntity.id,relatedEntityLabel:t.relatedEntity.label,notes:t.notes,completedAt:t.completedAt});
-function validateTask(t:TaskRecord){
-  if(!t.id||!t.title.trim())throw new DomainValidationError("Task id and title are required.");
-  if(!taskTypes.includes(t.type)||!taskStatuses.includes(t.status)||!taskPriorities.includes(t.priority))throw new DomainValidationError(`${t.id} has an invalid type, status, or priority.`);
-  assertDate(t.dueDate,`${t.id}.dueDate`,true);
-  assertDate(t.completedAt,`${t.id}.completedAt`,true);
-  if(t.relatedEntity.type==="general"&&t.relatedEntity.id!==null)throw new DomainValidationError("A general task must use a null related-entity ID.");
-  if(t.relatedEntity.type!=="general"&&t.relatedEntity.id===null)throw new DomainValidationError(`A ${t.relatedEntity.type} task requires an exact related-entity ID.`);
-  if(!t.relatedEntity.label.trim())throw new DomainValidationError(`Task ${t.id} requires a related-entity label.`);
-  if(t.status==="completed"&&t.completedAt===null)throw new DomainValidationError(`Completed task ${t.id} requires a completion date.`);
-  if(t.status!=="completed"&&t.completedAt!==null)throw new DomainValidationError(`Non-completed task ${t.id} cannot have a completion date.`);
 }
 
 export class GigDomainService {
@@ -295,76 +259,4 @@ export class GigDomainService {
   touch(context:ChangeContext,id:string,input:GigTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
   async description(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasJobDescription?this.artifacts.jobDescription(id):null}
   async prep(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasInterviewPrep?this.artifacts.interviewPrep(id):[]}
-}
-
-export class TaskDomainService {
-  constructor(private p:Persistence,private gigs:Pick<GigDomainService,"get">,private people:Pick<PeopleService,"get">,private changes:ChangeExecutor){}
-  private mutation(context:ChangeContext){
-    const occurredAt=context.occurredAt??new Date().toISOString(),instant=new Date(occurredAt);
-    if(Number.isNaN(instant.getTime()))throw new DomainValidationError("Task change occurredAt must be a valid timestamp.");
-    return{context:{...context,occurredAt},date:pacificDate(instant)};
-  }
-  private relatedEntity(input:TaskRelatedEntityInput):TaskRecord["relatedEntity"]{
-    if(input.type==="general")return{type:"general",id:null,label:"General"};
-    if(input.id===null)throw new DomainValidationError(`A ${input.type} task requires an exact related-entity ID.`);
-    if(input.type==="gig"){
-      const gig=this.gigs.get(input.id);
-      if(!gig)throw new Error(`Gig not found: ${input.id}`);
-      return{type:"gig",id:input.id,label:`${gig.company} ${gig.title}`};
-    }
-    const person=this.people.get(input.id);
-    if(!person)throw new Error(`Person not found: ${input.id}`);
-    return{type:"person",id:input.id,label:person.name};
-  }
-  get(id:string){const r=this.p.tasks.get(id);return r?taskFromData(r):null}
-  list(){return this.p.tasks.list().map(taskFromData)}
-  read(id:string):ReadResult<TaskRecord>{const record=this.get(id);return record?{status:"ok",record}:{status:"not_found",id}}
-  query(input:TaskQueryInput):Page<TaskRecord>{
-    const today=pacificDate();
-    const hasFilters=hasMeaningfulFilters(input as Record<string,unknown>);
-    const statuses=input.statuses??(hasFilters?[...taskStatuses]:[...defaultTaskStatuses]);
-    const query=normalizedQuery(input.query);
-    return page(this.list()
-      .filter(task=>statuses.includes(task.status))
-      .filter(task=>input.priorities===undefined||input.priorities.includes(task.priority))
-      .filter(task=>input.types===undefined||input.types.includes(task.type))
-      .filter(task=>input.relatedEntityType===undefined||task.relatedEntity.type===input.relatedEntityType)
-      .filter(task=>input.relatedEntityId===undefined||task.relatedEntity.id===input.relatedEntityId)
-      .filter(task=>!input.overdueOnly||taskIsOverdue(task,today))
-      .filter(task=>matchesQuery(query,[task.title,task.relatedEntity.label,task.notes]))
-      .sort((a,b)=>compareTasks(a,b,today)||a.id.localeCompare(b.id)),input)
-  }
-  private create(context:ChangeContext,t:TaskRecord,options:MutationOptions={}){validateTask(t);return this.changes.execute(context,t,options,u=>taskFromData(u.tasks.create(taskData(t),{reversible:true})))}
-  createNew(context:ChangeContext,input:TaskCreateInput,options:MutationOptions={}){
-    const{id,...values}=input,parsed=taskInputSchema.parse(values),mutation=this.mutation(context);
-    if(!parsed.title||!parsed.type||!parsed.relatedEntity)throw new DomainValidationError("Task title, type, and related entity are required.");
-    return this.create(mutation.context,{id,title:parsed.title,type:parsed.type,status:"open",priority:parsed.priority??"medium",dueDate:parsed.dueDate??null,relatedEntity:this.relatedEntity(parsed.relatedEntity),notes:parsed.notes??null,createdAt:mutation.date,updatedAt:mutation.date,completedAt:null},options)
-  }
-  update(context:ChangeContext,id:string,patch:TaskInput,options:MutationOptions={}){
-    const parsed=taskInputSchema.parse(patch),current=this.get(id);
-    if(!current)throw new Error(`Task not found: ${id}`);
-    const{relatedEntity,...fields}=parsed;
-    const mutation=this.mutation(context),status=parsed.status??current.status;
-    const completedAt=parsed.status===undefined
-      ?current.completedAt
-      :status==="completed"
-        ?current.status==="completed"&&current.completedAt!==null?current.completedAt:mutation.date
-        :null;
-    const updated:TaskRecord={...current,...fields,...(relatedEntity?{relatedEntity:this.relatedEntity(relatedEntity)}:{}),status,completedAt,updatedAt:mutation.date};
-    validateTask(updated);
-    const raw=this.p.tasks.get(id)!;
-    const{id:_,...data}=taskData(updated);
-    return this.changes.execute(mutation.context,updated,options,u=>taskFromData(u.tasks.update(id,raw.revision,data)));
-  }
-  complete(context:ChangeContext,id:string,date:string,options:MutationOptions={}){return this.update({...context,occurredAt:context.occurredAt??`${date}T12:00:00-07:00`},id,{status:"completed"},options).record}
-}
-
-export class ArtifactDomainService {
-  constructor(private p:Persistence,private artifacts:ArtifactPort){}
-  verify(){return this.artifacts.verify({gigs:this.p.gigs.list({includeDeleted:true}).map(j=>({id:j.id,hasJobDescription:j.hasJobDescription,hasInterviewPrep:j.hasInterviewPrep}))})}
-  async sync(context:ChangeContext){
-    for(const gig of this.p.gigs.list({includeDeleted:true})){const hasJobDescription=await this.artifacts.jobDescriptionExists(gig.id),hasInterviewPrep=await this.artifacts.interviewPrepExists(gig.id);if(hasJobDescription!==gig.hasJobDescription||hasInterviewPrep!==gig.hasInterviewPrep)this.updateGig(context,gig,hasJobDescription,hasInterviewPrep)}
-    return{gigs:this.p.gigs.list({includeDeleted:true}).filter(j=>j.hasJobDescription||j.hasInterviewPrep).length}
-  }
-  private updateGig(context:ChangeContext,record:EntityRecord<GigData>,hasJobDescription:boolean,hasInterviewPrep:boolean){this.p.change({...context,summary:`Sync gig artifact ${record.id}`},u=>{const patch={hasJobDescription,hasInterviewPrep};if(!record.isDeleted)return u.gigs.update(record.id,record.revision,patch);const restored=u.gigs.restore(record.id,record.revision,patch);return u.gigs.delete(record.id,restored.revision)})}
 }

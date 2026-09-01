@@ -11,7 +11,7 @@ import type {
   ManagedDocumentVersionData,
 } from "../../documents";
 import type { ManagedDocumentService } from "../../managed-document-service";
-import type { GigDomainService } from "../../tracker-services";
+import type { GigDomainService } from "../../gig-domain-service";
 import type {
   ScoutPositionBackfillCommand,
   ScoutPositionDetail,

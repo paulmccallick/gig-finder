@@ -27,7 +27,7 @@ import type { GigRecord } from "./gigs";
 import { DomainValidationError, MutationError } from "./errors";
 import type { ManagedDocumentService } from "./managed-document-service";
 import { ChangeExecutor, creationPayloadHash, type MutationOptions, type MutationResult } from "./changes";
-import { deepPatch } from "./tracker-services";
+import { deepPatch } from "./deep-patch";
 import { gigPersonRelationshipEntitySchema, gigPersonRelationshipInputSchema, type GigPersonRelationshipInput } from "./gig-people";
 
 type PersonRelationshipData = Pick<PersonData,

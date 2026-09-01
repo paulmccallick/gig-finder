@@ -1,7 +1,9 @@
 import type { ArtifactPort, AuditPort, Persistence } from "./ports";
 import { HistoryService, GigPeopleService, PeopleService } from "./services";
 import { InteractionService } from "./interaction-service";
-import { ArtifactDomainService, GigDomainService, TaskDomainService } from "./tracker-services";
+import { ArtifactDomainService } from "./artifact-domain-service";
+import { GigDomainService } from "./gig-domain-service";
+import { TaskDomainService } from "./task-domain-service";
 import { ChangeExecutor, ChangeService } from "./changes";
 import { ManagedDocumentService } from "./managed-document-service";
 import { SearchContextService } from "./context-search";

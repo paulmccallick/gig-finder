@@ -15,7 +15,7 @@ import type {
 import { MutationError } from "../../../errors";
 import type { ChangeContext } from "../../../models";
 import type { ManagedDocumentService } from "../../../managed-document-service";
-import type { GigDomainService } from "../../../tracker-services";
+import type { GigDomainService } from "../../../gig-domain-service";
 import type { NormalizedPosition } from "../../sourcing/contracts";
 import type {
   ScoutPositionDetail,

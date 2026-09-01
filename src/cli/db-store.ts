@@ -5,7 +5,7 @@ import type {
 } from "../core/documents";
 import type { GigInput, GigSummary } from "../core/gigs";
 import type { TaskInput,TaskPriority,TaskRecord,TaskStatus,TaskType } from "../core/tasks";
-import type { GigTouchInput,TaskCreateInput } from "../core/tracker-services";
+import type { GigTouchInput,TaskCreateInput } from "../core";
 import type { PersonInput } from "../core/people";
 import type { GigFinderApplication } from "../core/application";
 import type { InteractionInput } from "../core/interactions";
