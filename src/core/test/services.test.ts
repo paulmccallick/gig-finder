@@ -24,7 +24,8 @@ class DocumentRepo implements DocumentWriteRepository {
 }
 const documents=new DocumentRepo();
 let auditedChangeCount=0;
-const persistence:Persistence={gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:()=>false,creationFingerprint:()=>null,change:(context,action)=>{auditedChangeCount++;return{changeId:context.changeId??`test-${context.summary}`,value:action({gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,recordCreationFingerprint:()=>undefined} as UnitOfWork)}},revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
+const appliedChangeIds=new Set<string>(),creationFingerprints=new Map<string,{entityType:string;entityId:string;payloadHash:string}>();
+const persistence:Persistence={gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,settings:{get:()=>null,set:()=>undefined},hasChange:changeId=>appliedChangeIds.has(changeId),creationFingerprint:changeId=>creationFingerprints.get(changeId)??null,change:(context,action)=>{auditedChangeCount++;const changeId=context.changeId??`test-${context.summary}`;let fingerprint:{entityType:string;entityId:string;payloadHash:string}|null=null;const value=action({gigs,people,gigPeople,tasks,interactions,interactionParticipants,documents,recordCreationFingerprint:(entityType,entityId,payloadHash)=>{fingerprint={entityType,entityId,payloadHash}}} as UnitOfWork);if(context.changeId)appliedChangeIds.add(changeId);if(fingerprint)creationFingerprints.set(changeId,fingerprint);return{changeId,value}},revertChange:(revertContext,targetChangeId)=>({changeId:revertContext.changeId??`revert-${targetChangeId}`,value:[{entity:"gig",id:"gig"}]})};
 const artifacts:ArtifactPort={jobDescription:async()=>"description",interviewPrep:async()=>[{name:"general.md",content:"prep"}],jobDescriptionExists:async()=>true,interviewPrepExists:async()=>true,verify:async():Promise<ArtifactVerification>=>({ok:true,errors:[],unregistered:[]})};
 const audit:AuditPort={query:query=>({query})};const app=new GigFinderApplication(persistence,audit,artifacts);const context:ChangeContext={actor:"test",source:"test",summary:"change"};
 const postingContext=(changeId:string):ChangeContext=>({...context,changeId,occurredAt:"2026-08-31T17:30:00Z"});
@@ -88,8 +89,12 @@ describe("application services",()=>{
 
   expect(review).toEqual({status:"resolution_required",fingerprint:expect.stringMatching(/^[0-9a-f]{64}$/),candidates:[expect.objectContaining({gigId:existing.id,externalJobId:"REQ-OLD",matchReasons:["company_title"]})]});
   if(review.status!=="resolution_required")throw new Error("Expected posting resolution candidates.");
-  const accepted=app.gigs.acceptPosting(postingContext("posting-create-advisory"),posting,{kind:"create_new",reviewedFingerprint:review.fingerprint});
+  const resolution={kind:"create_new" as const,reviewedFingerprint:review.fingerprint};
+  const accepted=app.gigs.acceptPosting(postingContext("posting-create-advisory"),posting,resolution);
   expect(accepted).toMatchObject({status:"created",gig:{id:"gig_07099e1bfa865c20c26f892d24e9b75e",company:"Synthetic Advisory Company",externalJobId:"REQ-NEW"}});
+  expect(app.gigs.acceptPosting(postingContext("posting-create-advisory"),posting,resolution)).toEqual(accepted);
+  expect(gigs.list().filter(gig=>gig.id==="gig_07099e1bfa865c20c26f892d24e9b75e")).toEqual([expect.objectContaining({revision:1})]);
+  expect(app.gigs.acceptPosting(postingContext("posting-create-advisory"),posting,{...resolution,reviewedFingerprint:"0".repeat(64)})).toMatchObject({status:"resolution_stale"});
   expect(app.gigs.get(existing.id)).toMatchObject({externalJobId:"REQ-OLD",revision:1});
  });
  test("posting resolution normalizes identity, preserves display values, and orders current candidates deterministically",()=>{
@@ -176,9 +181,12 @@ describe("application services",()=>{
   const reviewedRevision=reviewed.candidates.find(candidate=>candidate.gigId===existing.id)?.revision;
   if(reviewedRevision===undefined)throw new Error("Expected existing posting candidate revision.");
 
-  const result=app.gigs.acceptPosting(postingContext("posting-update-confirmed"),posting,{kind:"use_existing",reviewedFingerprint:reviewed.fingerprint,gigId:existing.id,expectedGigRevision:reviewedRevision});
+  const resolution={kind:"use_existing" as const,reviewedFingerprint:reviewed.fingerprint,gigId:existing.id,expectedGigRevision:reviewedRevision};
+  const result=app.gigs.acceptPosting(postingContext("posting-update-confirmed"),posting,resolution);
 
   expect(result).toMatchObject({status:"updated",gig:{id:existing.id,revision:2,company:"Synthetic Preserved Company",title:"Current Synthetic Role",externalJobId:"update-77",sourceUrl:"https://careers.example.test/jobs/current-update-77",location:"Remote, US",workArrangement:"remote",stage:"screening",outcome:"pending",statusSummary:"Interview scheduled",lastActivity:"2026-08-27",nextAction:{description:"Prepare interview",due:"2026-09-03"},fit:{rating:"strong",summary:"Excellent fit"},payRange:{minimum:180000,maximum:220000},tags:["priority"],availability:"unavailable",availabilityUpdatedAt:"2026-08-30T12:00:00Z",postedDate:"2026-08-01",businessUnitTeam:"Core Platform",recruiterSource:"Referral",bonus:"20%",equity:"RSUs",otherCompensation:"Signing bonus",documents:[expect.objectContaining({id:document.id,type:"job_description"})],interactions:[expect.objectContaining({id:"posting-related-interaction"})]}});
+  expect(app.gigs.acceptPosting(postingContext("posting-update-confirmed"),posting,resolution)).toEqual(result);
+  expect(gigs.get(existing.id)?.revision).toBe(2);
   expect(app.tasks.get("posting-related-task")).toMatchObject({relatedEntity:{type:"gig",id:existing.id}});
   expect(app.gigPeople.query({gigIds:[existing.id]})).toMatchObject({status:"ok",items:[expect.objectContaining({gigId:existing.id,personId:person.id})]});
  });
