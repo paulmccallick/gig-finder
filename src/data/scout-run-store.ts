@@ -16,7 +16,8 @@ import type {
   ScoutRunStore,
   ScoutRunSummary,
 } from "../core/scout/engine/runs";
-import type { ScoutBackfillStatus,ScoutPositionBackfillCommand,ScoutPositionBackfillPreview,ScoutPositionBackfillStatus,ScoutPositionDetail,ScoutPositionProcessingJob,ScoutPositionProcessingStage,ScoutPositionState,ScoutPositionStore,ScoutPromotionWork,ScoutPromotedDescriptionOutcome,ScoutPromotedDescriptionWork,ScoutUserDecisionCommand,ScoutWorkspacePage } from "../core/scout/engine/positions";
+import type { ScoutBackfillStatus,ScoutPositionBackfillCommand,ScoutPositionBackfillPreview,ScoutPositionBackfillStatus,ScoutPositionDetail,ScoutPositionProcessingJob,ScoutPositionProcessingStage,ScoutPositionState,ScoutPositionStore,ScoutPostingResolutionStore,ScoutPostingReview,ScoutPromotionWork,LegacyScoutPromotionWork,ScoutPromotedDescriptionOutcome,ScoutPromotedDescriptionWork,ScoutUserDecisionCommand,ScoutWorkspacePage } from "../core/scout/engine/positions";
+import { postingResolutionSchema, type PostingResolution } from "../core/gigs";
 import type { CandidateMatchRequest, ModelResult, RelevanceRequest, RelevanceResult, CandidateMatchResult, ScoutDescriptionInput, ScoutDescriptionResult, ScoutPositionProcessingRepository, ScoutScreeningModelIdentity } from "../core/scout/engine/screening";
 import { BoundedFetchHttpPort } from "../core/scout/sourcing/ports";
 import { scoutDescriptionConverterVersion } from "../core/scout/sourcing/descriptions";
@@ -41,7 +42,7 @@ const summary = (row: Record<string, unknown>): ScoutRunSummary => ({
 });
 export interface ScoutScreeningInputs {profile:unknown;profileVersion:string;profileArtifactId:string;profileHash:string;model:string;provider:string;modelConfiguration:string}
 interface RunScreeningSnapshot extends ScoutScreeningInputs {promptCacheKey:string;immutable:boolean}
-export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,ScoutPositionProcessingRepository {
+export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,ScoutPostingResolutionStore,ScoutPositionProcessingRepository {
   constructor(
     private readonly db: Database,
     private readonly descriptionsRoot?: string,
@@ -871,7 +872,46 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     Object.assign(base,{promotionStatus:promotion?.status??null,promotionFailureCode:promotion?.failureCode??null,promotionFailureMessage:promotion?.failureMessage??null});
     return{...base,stateRevision:state.revision,descriptionId:nullableText(evaluation?.descriptionId),descriptionMarkdown:evaluation&&this.descriptionsRoot?readFileSync(path.resolve(this.descriptionsRoot,String(evaluation.filePath)),"utf8"):null,descriptionSourceUrl:nullableText(evaluation?.descriptionSourceUrl),descriptionRetrievedAt:nullableText(evaluation?.descriptionRetrievedAt),descriptionProvenance:evaluation?JSON.parse(String(evaluation.descriptionProvenance)):null,relevanceEvaluationId:nullableText(evaluation?.relevanceEvaluationId),relevanceReason:nullableText(evaluation?.relevanceReason),candidateMatchEvaluationId:nullableText(evaluation?.candidateMatchEvaluationId),irrelevanceOrigin:decision?.origin??null};
   }
+  private reviewedPosting(positionId:string,observationId:string,descriptionId:string):Omit<ScoutPostingReview,"detail">|null{
+    const source=this.db.query(`SELECT p.identity_kind identityKind,p.identity_value identityValue,c.name company,o.title,o.canonical_url canonicalUrl,o.location,o.provenance_json observationProvenance,cs.source_key sourceKey,cs.company_configuration_id configurationVersionId,d.id descriptionId,d.source_url sourceUrl,d.retrieved_at retrievedAt,d.converter_version converterVersion,a.file_path filePath,a.provenance_json descriptionProvenance FROM scout_position_observations o JOIN scout_positions p ON p.id=o.position_id JOIN scout_companies c ON c.id=p.company_id JOIN scout_run_sources rs ON rs.id=o.run_source_id JOIN scout_company_configuration_sources cs ON cs.id=rs.configuration_source_id JOIN scout_position_descriptions d ON d.id=? AND d.position_id=p.id JOIN scout_description_artifacts a ON a.id=d.artifact_id WHERE o.id=? AND o.position_id=?`).get(descriptionId,observationId,positionId) as Record<string,unknown>|null;
+    if(!source)return null;
+    if(!this.descriptionsRoot)throw new Error("Reviewed Scout description promotion is unavailable.");
+    const storedProvenance=JSON.parse(String(source.observationProvenance)) as Record<string,unknown>;
+    const {displayLocation:_displayLocation,locations:storedLocations,workArrangement:storedWorkArrangement,...provenance}=storedProvenance;
+    const descriptionProvenance=JSON.parse(String(source.descriptionProvenance)) as Record<string,unknown>;
+    const markdown=readFileSync(path.resolve(this.descriptionsRoot,String(source.filePath)),"utf8");
+    const sourceDescription=JSON.stringify({scoutDescriptionId:String(source.descriptionId),officialSourceUrl:String(source.sourceUrl),retrievedAt:String(source.retrievedAt),sourceKey:String(source.sourceKey),configurationVersionId:String(source.configurationVersionId),extractionStrategy:descriptionProvenance.extractionStrategy??descriptionProvenance.strategyVersion,converterVersion:descriptionProvenance.converterVersion??source.converterVersion});
+    if(sourceDescription.length>500)throw new Error("Reviewed Scout description provenance exceeds the managed-document source limit.");
+    const locations=Array.isArray(storedLocations)?storedLocations:[];
+    const workArrangement=typeof storedWorkArrangement==="string"?storedWorkArrangement:null;
+    return{
+      observationId,
+      posting:{
+        company:String(source.company),
+        sourceKey:String(source.sourceKey),
+        externalId:source.identityKind==="external_id"?String(source.identityValue):null,
+        canonicalUrl:String(source.canonicalUrl),
+        title:String(source.title),
+        location:nullableText(source.location),
+        locations:locations as NormalizedPosition["locations"],
+        workArrangement:workArrangement as NormalizedPosition["workArrangement"],
+        description:markdown,
+        provenance:provenance as unknown as NormalizedPosition["provenance"],
+      },
+      markdown,
+      sourceDescription,
+    };
+  }
+  reviewPosting(positionId:string):ScoutPostingReview|null{
+    const detail=this.reviewDetail(positionId);
+    if(!detail||detail.state!=="needs_user_review"||!detail.descriptionId||!detail.relevanceEvaluationId||!detail.candidateMatchEvaluationId)return null;
+    const binding=this.db.query(`SELECT x.observation_id observationId,r.description_id descriptionId FROM scout_candidate_match_evaluations m JOIN scout_relevance_evaluations r ON r.id=m.relevance_evaluation_id JOIN scout_position_processing x ON x.position_id=m.position_id AND x.stage='score_candidate_match' AND x.input_identity=m.input_identity AND x.relevance_evaluation_id=r.id WHERE m.id=? AND m.position_id=? AND x.observation_id IS NOT NULL`).get(detail.candidateMatchEvaluationId,positionId) as {observationId:string;descriptionId:string}|null;
+    if(!binding||binding.descriptionId!==detail.descriptionId)return null;
+    const reviewed=this.reviewedPosting(positionId,binding.observationId,binding.descriptionId);
+    return reviewed?{detail,...reviewed}:null;
+  }
   decide(command:ScoutUserDecisionCommand,now:string):ScoutPositionDetail{
+    if(command.action==="pursue")throw new Error("Pursue requires a reviewed posting resolution.");
     const _decisionId=this.db.transaction(()=>{
     const current=this.db.query(`SELECT state,revision,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(command.positionId) as {state:string;revision:number;linkedGigId:string|null}|null;
     if(!current)throw new Error("Scout position not found.");
@@ -885,21 +925,52 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     this.db.query(`INSERT INTO changes(id,occurred_at,actor,source,summary,status) VALUES(?,?,?,'web',?,'committed')`).run(command.changeId,now,command.actor,`Scout position ${command.action}`);
     this.db.query(`INSERT INTO scout_position_decisions(id,change_id,position_id,action,origin,actor,note,description_id,relevance_evaluation_id,candidate_match_evaluation_id,expected_state_revision,resulting_state_revision,review_at,created_at) VALUES(?,?,?,?,'user',?,?,?,?,?,?,?,?,?)`).run(decisionId,command.changeId,command.positionId,command.action,command.actor,command.note??null,command.descriptionId,command.relevanceEvaluationId,command.candidateMatchEvaluationId,current.revision,next,command.reviewAt??null,now);
     this.db.query(`INSERT INTO scout_position_state_history(change_id,operation,recorded_at,recorded_by,position_id,state,linked_gig_id,deferred_until,revision,created_at,updated_at,current_decision_id) SELECT ?,'update',?,?,position_id,state,linked_gig_id,deferred_until,revision,created_at,updated_at,current_decision_id FROM scout_position_states WHERE position_id=?`).run(command.changeId,now,command.actor,command.positionId);
-    const state=command.action==="irrelevant"?"irrelevant":command.action==="defer"?"deferred":"processing";
+    const state=command.action==="irrelevant"?"irrelevant":"deferred";
     this.db.query(`UPDATE scout_position_states SET state=?,deferred_until=?,current_decision_id=?,revision=?,updated_at=? WHERE position_id=?`).run(state,command.action==="defer"?(command.reviewAt??null):null,decisionId,next,now,command.positionId);
-    if(command.action==="pursue")this.db.query(`INSERT OR IGNORE INTO scout_position_promotions(id,decision_id,position_id,description_id,status,created_at,updated_at) VALUES(?,?,?,?,'pending',?,?)`).run(id("spprom",command.positionId),decisionId,command.positionId,command.descriptionId,now,now);
     return decisionId;
   })();
     return this.reviewDetail(command.positionId)??this.positionDetail(command.positionId)!;
   }
-  promotionWork(positionId:string):ScoutPromotionWork|null {
-    const source=this.db.query(`SELECT p.id positionId,p.title,p.location,p.external_id externalId,p.canonical_url canonicalUrl,p.source_key positionSourceKey,c.name company,prom.description_id descriptionId,d.source_url sourceUrl,d.retrieved_at retrievedAt,a.file_path filePath,a.provenance_json provenance,decision.change_id changeId,decision.actor,(SELECT cs.source_key FROM scout_position_processing x JOIN scout_position_observations o ON o.id=x.observation_id JOIN scout_run_sources rs ON rs.id=o.run_source_id JOIN scout_company_configuration_sources cs ON cs.id=rs.configuration_source_id WHERE x.description_id=d.id ORDER BY x.created_at DESC,x.id DESC LIMIT 1) authoritativeSourceKey,(SELECT cs.company_configuration_id FROM scout_position_processing x JOIN scout_position_observations o ON o.id=x.observation_id JOIN scout_run_sources rs ON rs.id=o.run_source_id JOIN scout_company_configuration_sources cs ON cs.id=rs.configuration_source_id WHERE x.description_id=d.id ORDER BY x.created_at DESC,x.id DESC LIMIT 1) configurationVersionId FROM scout_position_promotions prom JOIN scout_position_decisions decision ON decision.id=prom.decision_id JOIN scout_positions p ON p.id=prom.position_id JOIN scout_companies c ON c.id=p.company_id JOIN scout_position_descriptions d ON d.id=prom.description_id AND d.position_id=p.id JOIN scout_description_artifacts a ON a.id=d.artifact_id WHERE prom.position_id=? AND prom.status IN ('pending','failed')`).get(positionId) as Record<string,unknown>|null;
+  private exactPromotionWork(positionId:string):ScoutPromotionWork|null{
+    const source=this.db.query(`SELECT prom.observation_id observationId,prom.description_id descriptionId,prom.resolution_kind resolutionKind,prom.requested_gig_id requestedGigId,prom.expected_gig_revision expectedGigRevision,prom.resolution_fingerprint resolutionFingerprint,decision.change_id changeId,decision.actor FROM scout_position_promotions prom JOIN scout_position_decisions decision ON decision.id=prom.decision_id WHERE prom.position_id=? AND prom.status IN ('pending','failed') AND prom.observation_id IS NOT NULL AND prom.resolution_kind IS NOT NULL`).get(positionId) as Record<string,unknown>|null;
     if(!source)return null;
-    if(!this.descriptionsRoot)throw new Error("Reviewed Scout description promotion is unavailable.");
-    const provenance=JSON.parse(String(source.provenance)) as Record<string,unknown>;
-    const sourceDescription=JSON.stringify({scoutDescriptionId:String(source.descriptionId),officialSourceUrl:String(source.sourceUrl??source.canonicalUrl),retrievedAt:String(source.retrievedAt),sourceKey:String(source.authoritativeSourceKey??source.positionSourceKey),configurationVersionId:nullableText(source.configurationVersionId),extractionStrategy:provenance.extractionStrategy??provenance.strategyVersion,converterVersion:provenance.converterVersion});
-    if(sourceDescription.length>500)throw new Error("Reviewed Scout description provenance exceeds the managed-document source limit.");
-    return {positionId:String(source.positionId),descriptionId:String(source.descriptionId),changeId:String(source.changeId),actor:String(source.actor),gigId:id("gig","scout",positionId),company:String(source.company),title:String(source.title),externalId:nullableText(source.externalId),location:nullableText(source.location),sourceUrl:String(source.sourceUrl??source.canonicalUrl),markdown:readFileSync(path.resolve(this.descriptionsRoot,String(source.filePath)),"utf8"),sourceDescription};
+    const reviewed=this.reviewedPosting(positionId,String(source.observationId),String(source.descriptionId));
+    if(!reviewed)return null;
+    const resolution:PostingResolution=source.resolutionKind==="create_new"
+      ?{kind:"create_new",reviewedFingerprint:String(source.resolutionFingerprint)}
+      :{kind:"use_existing",reviewedFingerprint:String(source.resolutionFingerprint),gigId:String(source.requestedGigId),expectedGigRevision:Number(source.expectedGigRevision)};
+    return{positionId,descriptionId:String(source.descriptionId),changeId:String(source.changeId),actor:String(source.actor),resolution,...reviewed};
+  }
+  beginPursue(command:ScoutUserDecisionCommand,resolution:PostingResolution,now:string):ScoutPromotionWork{
+    if(command.action!=="pursue")throw new Error("Pursue intent requires a pursue decision.");
+    const parsed=postingResolutionSchema.parse(resolution);
+    this.db.transaction(()=>{
+      const current=this.db.query(`SELECT state,revision,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(command.positionId) as {state:string;revision:number;linkedGigId:string|null}|null;
+      if(!current)throw new Error("Scout position not found.");
+      const existing=this.db.query(`SELECT d.position_id positionId,p.position_id promotionPositionId FROM scout_position_decisions d LEFT JOIN scout_position_promotions p ON p.decision_id=d.id WHERE d.change_id=?`).get(command.changeId) as {positionId:string;promotionPositionId:string|null}|null;
+      if(existing){
+        if(existing.positionId!==command.positionId||existing.promotionPositionId!==command.positionId)throw new Error("Decision change ID is already used.");
+        return;
+      }
+      if(current.revision!==command.expectedStateRevision)throw new Error("This position was revised and requires review again.");
+      if(current.state!=="needs_user_review"||current.linkedGigId)throw new Error("This position no longer needs user review.");
+      const review=this.reviewPosting(command.positionId);
+      if(!review||review.detail.stateRevision!==command.expectedStateRevision||review.detail.descriptionId!==command.descriptionId||review.detail.relevanceEvaluationId!==command.relevanceEvaluationId||review.detail.candidateMatchEvaluationId!==command.candidateMatchEvaluationId)throw new Error("This position was revised and requires review again.");
+      const decisionId=id("spdec",command.changeId),next=current.revision+1;
+      this.db.query(`INSERT INTO changes(id,occurred_at,actor,source,summary,status) VALUES(?,?,?,'web','Scout position pursue','committed')`).run(command.changeId,now,command.actor);
+      this.db.query(`INSERT INTO scout_position_decisions(id,change_id,position_id,action,origin,actor,note,description_id,relevance_evaluation_id,candidate_match_evaluation_id,expected_state_revision,resulting_state_revision,created_at) VALUES(?,?,?,'pursue','user',?,?,?,?,?,?,?,?)`).run(decisionId,command.changeId,command.positionId,command.actor,command.note??null,command.descriptionId,command.relevanceEvaluationId,command.candidateMatchEvaluationId,current.revision,next,now);
+      this.db.query(`INSERT INTO scout_position_state_history(change_id,operation,recorded_at,recorded_by,position_id,state,linked_gig_id,deferred_until,revision,created_at,updated_at,current_decision_id) SELECT ?,'update',?,?,position_id,state,linked_gig_id,deferred_until,revision,created_at,updated_at,current_decision_id FROM scout_position_states WHERE position_id=?`).run(command.changeId,now,command.actor,command.positionId);
+      this.db.query(`UPDATE scout_position_states SET state='processing',deferred_until=NULL,current_decision_id=?,revision=?,updated_at=? WHERE position_id=?`).run(decisionId,next,now,command.positionId);
+      this.db.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,observation_id,resolution_kind,requested_gig_id,expected_gig_revision,resolution_fingerprint,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?)`).run(id("spprom",command.positionId),decisionId,command.positionId,command.descriptionId,review.observationId,parsed.kind,parsed.kind==="use_existing"?parsed.gigId:null,parsed.kind==="use_existing"?parsed.expectedGigRevision:null,parsed.reviewedFingerprint,now,now);
+    })();
+    const work=this.exactPromotionWork(command.positionId);
+    if(!work)throw new Error("Reviewed Scout promotion intent is unavailable.");
+    return work;
+  }
+  promotionWork(positionId:string):LegacyScoutPromotionWork|null {
+    const work=this.exactPromotionWork(positionId);
+    if(!work||work.resolution.kind!=="create_new")return null;
+    return{positionId:work.positionId,descriptionId:work.descriptionId,changeId:work.changeId,actor:work.actor,gigId:id("gig","scout",positionId),company:work.posting.company,title:work.posting.title,externalId:work.posting.externalId,location:work.posting.location,sourceUrl:work.posting.canonicalUrl,markdown:work.markdown,sourceDescription:work.sourceDescription};
   }
   failPromotion(positionId:string,message:string,now:string){this.db.query(`UPDATE scout_position_promotions SET status='failed',failure_code='promotion_failed',failure_message=?,attempt_count=attempt_count+1,updated_at=? WHERE position_id=? AND status<>'completed'`).run(message.slice(0,500),now,positionId);}
   completePromotion(positionId:string,gigId:string,managedDocumentId:string,now:string){this.db.transaction(()=>{const completed=this.db.query(`UPDATE scout_position_promotions SET gig_id=?,managed_document_id=?,status='completed',failure_code=NULL,failure_message=NULL,attempt_count=attempt_count+1,updated_at=?,completed_at=? WHERE position_id=? AND status IN ('pending','failed')`).run(gigId,managedDocumentId,now,now,positionId);if(completed.changes!==1)throw new Error("Scout promotion is no longer pending.");this.db.query(`UPDATE scout_position_states SET state='promoted',linked_gig_id=?,deferred_until=NULL,updated_at=? WHERE position_id=?`).run(gigId,now,positionId);})();}

@@ -1,3 +1,6 @@
+import type { PostingResolution } from "../../gigs";
+import type { NormalizedPosition } from "../sourcing/contracts";
+
 export const scoutPositionStates = ["processing","needs_user_review","irrelevant","rejected","deferred","promoted"] as const;
 export type ScoutPositionState = typeof scoutPositionStates[number];
 export type ScoutPositionProcessingStage = "reconcile_gig"|"acquire_description"|"screen_relevance"|"score_candidate_match";
@@ -37,10 +40,28 @@ export interface ScoutWorkspacePage {items:ScoutWorkspacePosition[];offset:numbe
 export interface ScoutPositionDetail extends ScoutWorkspacePosition {externalId:string|null;sourceKey:string;descriptionId:string|null;descriptionMarkdown:string|null;descriptionSourceUrl:string|null;descriptionRetrievedAt:string|null;descriptionProvenance:unknown|null;relevanceEvaluationId:string|null;relevanceReason:string|null;candidateMatchEvaluationId:string|null;irrelevanceOrigin:"agent"|"user"|null;observations:Array<{id:string;runId:string;runCreatedAt:string;companyStatus:string;sourceKey:string;sourceStatus:string;title:string;canonicalUrl:string;location:string|null;observedAt:string;descriptionAvailable:boolean;provenance:unknown}>}
 export interface ScoutReviewedRevision {expectedStateRevision:number;descriptionId:string;relevanceEvaluationId:string;candidateMatchEvaluationId:string}
 export type ScoutUserDecisionCommand = ScoutReviewedRevision & {positionId:string;changeId:string;actor:string;action:"irrelevant"|"defer"|"pursue";note?:string;reviewAt?:string};
+export interface ScoutPostingReview {
+ detail:ScoutPositionDetail;
+ observationId:string;
+ posting:NormalizedPosition;
+ markdown:string;
+ sourceDescription:string;
+}
 export interface ScoutPromotionWork {
- positionId:string; descriptionId:string; changeId:string; actor:string; gigId:string;
- company:string; title:string; externalId:string|null; location:string|null; sourceUrl:string;
- markdown:string; sourceDescription:string;
+ positionId:string;
+ observationId:string;
+ descriptionId:string;
+ changeId:string;
+ actor:string;
+ posting:NormalizedPosition;
+ markdown:string;
+ sourceDescription:string;
+ resolution:PostingResolution;
+}
+export interface LegacyScoutPromotionWork {
+ positionId:string;descriptionId:string;changeId:string;actor:string;gigId:string;
+ company:string;title:string;externalId:string|null;location:string|null;sourceUrl:string;
+ markdown:string;sourceDescription:string;
 }
 export interface ScoutPromotedDescriptionWork {
  processingId:string;
@@ -78,10 +99,14 @@ export interface ScoutPositionStore {
  restoreAgentIrrelevant(input:{positionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
  reverseDecision(input:{positionId:string;decisionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;
  appendPositionNote(input:{positionId:string;decisionId?:string;actor:string;body:string},now:string):void;
- promotionWork(positionId:string):ScoutPromotionWork|null;
+ promotionWork(positionId:string):LegacyScoutPromotionWork|null;
  failPromotion(positionId:string,message:string,now:string):void;
  completePromotion(positionId:string,gigId:string,managedDocumentId:string,now:string):void;
  resurfaceDue(now:string):number;
  relevanceCriteria():{version:number;criteria:string;confidenceThreshold:number};
  appendRelevanceCriteria(criteria:string,confidenceThreshold:number,now:string):{version:number;criteria:string;confidenceThreshold:number};
+}
+export interface ScoutPostingResolutionStore extends ScoutPositionStore {
+ reviewPosting(positionId:string):ScoutPostingReview|null;
+ beginPursue(command:ScoutUserDecisionCommand,resolution:PostingResolution,now:string):ScoutPromotionWork;
 }

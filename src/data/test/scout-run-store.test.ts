@@ -113,6 +113,84 @@ const successfulResult = (job: ScoutCompanyJob): CompanyScanResult => {
   };
 };
 
+test("reviewed posting intent binds the exact observation, description, and submitted resolution",()=>{
+  setup();
+  const database=databases.at(-1)!;
+  const descriptionsRoot=mkdtempSync(path.join(process.cwd(),"tmp","scout-reviewed-posting-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const reviewedStore=new SqliteScoutRunStore(database,descriptionsRoot);
+  const run=reviewedStore.startOrReuse(20,5,"2026-09-01T12:00:00Z").run;
+  const job=reviewedStore.pendingJobs(1)[0]!;
+  const reviewedPosition={
+    company:job.companyName,
+    sourceKey:"official",
+    externalId:"reviewed-42",
+    canonicalUrl:"https://careers.example.test/jobs/reviewed-42",
+    title:"Director of Synthetic Systems",
+    location:"Remote",
+    locations:[{label:"Remote USA",workArrangement:"remote" as const}],
+    workArrangement:"remote" as const,
+    description:"Exact reviewed Markdown.",
+    provenance:{sourceKey:"official",sourceUrl:"https://careers.example.test/jobs",description:"listing" as const,descriptionUrl:"https://careers.example.test/jobs/reviewed-42"},
+  };
+  prepareAndComplete(reviewedStore,job,{companyId:job.companyId,configurationVersionId:job.configurationVersionId,positions:[reviewedPosition],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[reviewedPosition],attempts:[]}]} ,"2026-09-01T12:00:01Z");
+  const binding=database.query(`SELECT p.id positionId,o.id observationId,d.id descriptionId FROM scout_positions p JOIN scout_position_observations o ON o.position_id=p.id JOIN scout_position_descriptions d ON d.position_id=p.id WHERE p.external_id='reviewed-42'`).get() as {positionId:string;observationId:string;descriptionId:string};
+  const criteria=database.query(`SELECT id FROM scout_relevance_criteria ORDER BY version DESC LIMIT 1`).get() as {id:string};
+  const rubric=database.query(`SELECT id FROM scout_candidate_match_rubrics ORDER BY version DESC LIMIT 1`).get() as {id:string};
+  database.query(`INSERT INTO scout_relevance_evaluations(id,position_id,description_id,criteria_id,input_identity,decision,reason,confidence,evidence_json,ambiguities_json,provider,model,model_configuration,latency_ms,created_at) VALUES('reviewed-relevance',?,?,?,'reviewed-relevance-input','passes_relevance','Synthetic relevant role',990,'[]','[]','synthetic','synthetic','synthetic',1,'2026-09-01T12:00:02Z')`).run(binding.positionId,binding.descriptionId,criteria.id);
+  database.query(`INSERT INTO scout_candidate_match_evaluations(id,position_id,relevance_evaluation_id,input_identity,profile_version,profile_artifact_id,profile_hash,rubric_id,score,score_explanation,provider,model,model_configuration,latency_ms,created_at) VALUES('reviewed-match',?,'reviewed-relevance','reviewed-match-input','synthetic-v1','synthetic-artifact','synthetic-hash',?,8,'Synthetic match','synthetic','synthetic','synthetic',1,'2026-09-01T12:00:03Z')`).run(binding.positionId,rubric.id);
+  database.query(`INSERT INTO scout_position_processing(id,position_id,run_id,observation_id,description_id,relevance_evaluation_id,rubric_id,stage,input_identity,status,attempt_count,created_at,updated_at,completed_at) VALUES('reviewed-match-processing',?,?,?,?,?,?,'score_candidate_match','reviewed-match-input','completed',1,'2026-09-01T12:00:03Z','2026-09-01T12:00:03Z','2026-09-01T12:00:03Z')`).run(binding.positionId,run.id,binding.observationId,binding.descriptionId,"reviewed-relevance",rubric.id);
+  database.query(`UPDATE scout_position_states SET state='needs_user_review',revision=7,updated_at='2026-09-01T12:00:03Z' WHERE position_id=?`).run(binding.positionId);
+  database.query(`UPDATE scout_positions SET title='Later mutable title',canonical_url='https://careers.example.test/jobs/later',location='Later mutable location' WHERE id=?`).run(binding.positionId);
+
+  const decisionsBefore=database.query(`SELECT count(*) count FROM scout_position_decisions`).get();
+  const review=reviewedStore.reviewPosting(binding.positionId)!;
+  expect(review.observationId).toBe(binding.observationId);
+  expect(review.posting).toEqual({
+    company:"Example Company",
+    sourceKey:"official",
+    externalId:"reviewed-42",
+    canonicalUrl:reviewedPosition.canonicalUrl,
+    title:reviewedPosition.title,
+    location:"Remote",
+    locations:[{label:"Remote USA",workArrangement:"remote"}],
+    workArrangement:"remote",
+    description:"Exact reviewed Markdown.",
+    provenance:reviewedPosition.provenance,
+  });
+  expect(review.markdown).toBe("Exact reviewed Markdown.");
+  expect(JSON.parse(review.sourceDescription)).toMatchObject({
+    scoutDescriptionId:binding.descriptionId,
+    officialSourceUrl:"https://careers.example.test/jobs",
+    sourceKey:"official",
+    extractionStrategy:"search-result-v1",
+  });
+  expect(database.query(`SELECT count(*) count FROM scout_position_decisions`).get()).toEqual(decisionsBefore);
+  expect(database.query(`SELECT count(*) count FROM scout_position_promotions`).get()).toEqual({count:0});
+
+  const command={positionId:binding.positionId,action:"pursue" as const,actor:"Synthetic Reviewer",changeId:"reviewed-pursue",expectedStateRevision:review.detail.stateRevision,descriptionId:review.detail.descriptionId!,relevanceEvaluationId:review.detail.relevanceEvaluationId!,candidateMatchEvaluationId:review.detail.candidateMatchEvaluationId!};
+  const resolution={kind:"use_existing" as const,reviewedFingerprint:"b".repeat(64),gigId:"reviewed-existing-gig",expectedGigRevision:9};
+  expect(()=>reviewedStore.beginPursue({...command,candidateMatchEvaluationId:"stale-match"},resolution,"2026-09-01T12:00:04Z")).toThrow("revised");
+  expect(database.query(`SELECT count(*) count FROM changes WHERE id='reviewed-pursue'`).get()).toEqual({count:0});
+  expect(database.query(`SELECT count(*) count FROM scout_position_decisions WHERE change_id='reviewed-pursue'`).get()).toEqual({count:0});
+  expect(database.query(`SELECT count(*) count FROM scout_position_promotions`).get()).toEqual({count:0});
+
+  const work=reviewedStore.beginPursue(command,resolution,"2026-09-01T12:00:05Z");
+  expect(work).toMatchObject({
+    positionId:binding.positionId,
+    observationId:binding.observationId,
+    descriptionId:binding.descriptionId,
+    changeId:"reviewed-pursue",
+    actor:"Synthetic Reviewer",
+    posting:review.posting,
+    markdown:"Exact reviewed Markdown.",
+    sourceDescription:review.sourceDescription,
+    resolution,
+  });
+  expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
+  expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"processing",linkedGigId:null});
+});
+
 test("company result preparation remains nonterminal and is replay safe", () => {
   const store = setup();
   const database = databases.at(-1)!;
@@ -573,14 +651,17 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(resurfaced).toMatchObject({state:"needs_user_review",stateRevision:deferredAgain.stateRevision+1});
   database.query(`INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,canonical_url,title,first_seen_at,last_seen_at) VALUES('other-position','company-1','official','canonical_url','https://careers.example.test/other','https://careers.example.test/other','Other role','2026-01-01','2026-01-01')`).run();
   expect(()=>changedStore.appendPositionNote({positionId:"other-position",decisionId:deferDecision.id,actor:"Reviewer",body:"Wrong position"},"2026-01-01T00:00:12Z")).toThrow("does not belong");
+  const pursueCommand={positionId:review.id,action:"pursue" as const,actor:"Reviewer",changeId:"change-pursue",expectedStateRevision:resurfaced.stateRevision,...identities};
+  const pursueResolution={kind:"create_new" as const,reviewedFingerprint:"c".repeat(64)};
+  changedStore.beginPursue(pursueCommand,pursueResolution,"2026-01-01T00:00:12Z");
   database.exec(`CREATE TRIGGER synthetic_promotion_failure BEFORE INSERT ON managed_documents BEGIN SELECT RAISE(ABORT,'Synthetic promotion failure'); END`);
-  const failed=positions.decide(review.id,{action:"pursue",actor:"Reviewer",changeId:"change-pursue",expectedStateRevision:resurfaced.stateRevision,...identities});
+  const failed=positions.retryPromotion(review.id);
   expect(failed).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureCode:"promotion_failed"});
   expect(database.query(`SELECT status,description_id descriptionId FROM scout_position_promotions WHERE position_id=?`).get(review.id)).toEqual({status:"failed",descriptionId:identities.descriptionId});
   expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig"});
   expect(database.query(`SELECT count(*) count FROM managed_documents`).get()).toEqual({count:0});
-  const replayedFailure=positions.decide(review.id,{action:"pursue",actor:"Forged replay",changeId:"change-pursue",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"});
-  expect(replayedFailure).toMatchObject({state:"processing",promotionStatus:"failed"});
+  const replayedWork=changedStore.beginPursue({...pursueCommand,actor:"Forged replay",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"},{kind:"create_new",reviewedFingerprint:"d".repeat(64)},"2026-01-01T00:00:13Z");
+  expect(replayedWork).toMatchObject({actor:"Reviewer",resolution:pursueResolution});
   database.exec(`DROP TRIGGER synthetic_promotion_failure`);
   const promotionWork=changedStore.promotionWork(review.id)!;
   const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotionWork.gigId}],documentType:"job_description",title:`${promotionWork.company} — ${promotionWork.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",content:promotionWork.markdown,uploadProvenance:null}).document;
@@ -588,7 +669,7 @@ test("screening persists bounded comments and exposes only the score explanation
   database.query(`UPDATE managed_documents SET source_description=? WHERE id=?`).run(promotionWork.sourceDescription,mismatchedDocument.id);
   const promoted=positions.retryPromotion(review.id);
   expect(promoted).toBeNull();
-  expect(positions.decide(review.id,{action:"pursue",actor:"Forged replay",changeId:"change-pursue",expectedStateRevision:0,descriptionId:"wrong-description",relevanceEvaluationId:"wrong-relevance",candidateMatchEvaluationId:"wrong-match"})).toBeNull();
+  expect(positions.retryPromotion(review.id)).toBeNull();
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
@@ -824,7 +905,8 @@ test("real processor durably records promoted document outcomes and reconciles a
   const review=store.reviewDetail(positionId)!;
   const application=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
   const positions=new ScoutPositionService(store,application.gigs,application.documents);
-  positions.decide(positionId,{action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!});
+  store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:"e".repeat(64)},"2026-08-29T01:00:02Z");
+  positions.retryPromotion(positionId);
   const promotion=database.query(`SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`).get(positionId) as {gigId:string;managedDocumentId:string};
   expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(1);
 

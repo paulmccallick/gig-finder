@@ -287,4 +287,31 @@ export const managedDocumentVersions = sqliteTable("managed_document_versions", 
   check("managed_document_versions_source_description_check",sql`${table.sourceDescription} is null or length(${table.sourceDescription}) between 1 and 500`),
   check("managed_document_versions_source_provenance_check",sql`${table.sourceProvenanceJson} is null or (length(${table.sourceProvenanceJson}) between 2 and 4000 and json_valid(${table.sourceProvenanceJson}) and json_type(${table.sourceProvenanceJson})='object')`),
 ]);
-export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{id:text("id").primaryKey(),decisionId:text("decision_id").notNull().unique().references(()=>scoutPositionDecisions.id),positionId:text("position_id").notNull().unique().references(()=>scoutPositions.id),descriptionId:text("description_id").notNull().references(()=>scoutPositionDescriptions.id),gigId:text("gig_id").references(()=>gigs.id),managedDocumentId:text("managed_document_id").references(()=>managedDocuments.id),status:text("status",{enum:["pending","completed","failed"]}).notNull(),failureCode:text("failure_code"),failureMessage:text("failure_message"),attemptCount:integer("attempt_count").notNull().default(0),createdAt:text("created_at").notNull(),updatedAt:text("updated_at").notNull(),completedAt:text("completed_at")});
+export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{
+  id:text("id").primaryKey(),
+  decisionId:text("decision_id").notNull().unique().references(()=>scoutPositionDecisions.id),
+  positionId:text("position_id").notNull().unique().references(()=>scoutPositions.id),
+  descriptionId:text("description_id").notNull().references(()=>scoutPositionDescriptions.id),
+  observationId:text("observation_id").references(()=>scoutPositionObservations.id),
+  resolutionKind:text("resolution_kind",{enum:["create_new","use_existing"]}),
+  requestedGigId:text("requested_gig_id"),
+  expectedGigRevision:integer("expected_gig_revision"),
+  resolutionFingerprint:text("resolution_fingerprint"),
+  gigId:text("gig_id").references(()=>gigs.id),
+  managedDocumentId:text("managed_document_id").references(()=>managedDocuments.id),
+  status:text("status",{enum:["pending","completed","failed"]}).notNull(),
+  failureCode:text("failure_code"),
+  failureMessage:text("failure_message"),
+  attemptCount:integer("attempt_count").notNull().default(0),
+  createdAt:text("created_at").notNull(),
+  updatedAt:text("updated_at").notNull(),
+  completedAt:text("completed_at"),
+},table=>[
+  check("scout_position_promotions_status_check",sql`${table.status} in ('pending','completed','failed')`),
+  check("scout_position_promotions_resolution_check",sql`
+    (${table.resolutionKind} is null and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and ${table.resolutionFingerprint} is null)
+    or (${table.resolutionKind}='create_new' and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
+    or (${table.resolutionKind}='use_existing' and length(trim(${table.requestedGigId}))>0 and ${table.expectedGigRevision}>0 and length(${table.resolutionFingerprint})=64 and ${table.resolutionFingerprint} not glob '*[^0-9a-f]*')
+  `),
+  check("scout_position_promotions_review_check",sql`${table.status}='completed' or (${table.observationId} is not null and ${table.resolutionKind} is not null)`),
+]);
