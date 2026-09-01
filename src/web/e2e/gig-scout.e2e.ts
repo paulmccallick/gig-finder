@@ -1,5 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+
+async function closePopupWithBack(viewer: Page) {
+  const closed = viewer.waitForEvent("close");
+  await viewer.getByRole("button", { name: "Back" }).dispatchEvent("click")
+    .catch(error => {
+      if (!viewer.isClosed()) throw error;
+    });
+  await closed;
+  expect(viewer.isClosed()).toBe(true);
+}
 
 interface PositionDetail {
   id: string;
@@ -296,8 +306,7 @@ test("discovers and processes positions from a full Scout run", async ({
   const viewer = await popupPromise;
   await expect(viewer.getByRole("heading", { name: "Head of Orchard Technology" })).toBeVisible();
   await expect(viewer.getByText("Build and lead the orchard technology team.")).toBeVisible();
-  await viewer.getByRole("button", { name: "Back" }).click();
-  await expect.poll(() => viewer.isClosed()).toBe(true);
+  await closePopupWithBack(viewer);
   await expect(drawer).toBeVisible();
 
   const descriptionUrl = await drawer.locator(".scout-review-document-link")
@@ -676,15 +685,13 @@ test("posting identity resolution stays in the review drawer until an explicit c
   let descriptionViewer = await popupPromise;
   await expect(descriptionViewer.locator(".document-viewer-title").getByRole("heading", { name: "Existing identity role" })).toBeVisible();
   await expect(descriptionViewer.getByText("Stored Gig description.")).toBeVisible();
-  await descriptionViewer.getByRole("button", { name: "Back" }).click();
-  await expect.poll(() => descriptionViewer.isClosed()).toBe(true);
+  await closePopupWithBack(descriptionViewer);
   popupPromise = page.waitForEvent("popup");
   await drawer.getByRole("link", { name: "Open Scout description" }).click();
   descriptionViewer = await popupPromise;
   await expect(descriptionViewer.getByRole("heading", { name: "Director of Identity Platforms" })).toBeVisible();
   await expect(descriptionViewer.getByText("Lead identity platforms.")).toBeVisible();
-  await descriptionViewer.getByRole("button", { name: "Back" }).click();
-  await expect.poll(() => descriptionViewer.isClosed()).toBe(true);
+  await closePopupWithBack(descriptionViewer);
 
   await existing.getByRole("button", { name: "Use this Gig" }).click();
   await expect(drawer.getByRole("alert")).toContainText("Could not update the selected Gig");
