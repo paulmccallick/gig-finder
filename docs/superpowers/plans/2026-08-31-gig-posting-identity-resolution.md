@@ -1,10 +1,10 @@
 # Gig Posting Identity Resolution Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let GigFinder distinguish same-company, same-title postings, require explicit user resolution whenever a current Gig is a candidate, and create or update the chosen Gig through `GigDomainService` without losing audited history.
 
-**Architecture:** Extend the existing `NormalizedPosition` as the single posting contract. `GigDomainService` owns candidate discovery, reviewed fingerprints, and applying a posting; `ScoutPositionService` owns the durable pursue/resolution/document saga; SQLite stores only the exact reviewed intent and terminal result; HTTP and React present the discriminated domain outcomes. Existing Gig rows and `gig_history` remain the current and historical identity stores.
+**Architecture:** Extend the existing `NormalizedPosition` as the single posting contract. `GigDomainService` owns candidate discovery, reviewed fingerprints, and applying a posting; `ScoutPositionService` owns the durable pursue/resolution/document saga; SQLite stores only the exact reviewed intent and terminal result; HTTP and React present the discriminated domain outcomes. Each core domain-service implementation has one explicitly named module; the legacy `tracker-services.ts` catch-all is removed without a compatibility path. Existing Gig rows and `gig_history` remain the current and historical identity stores.
 
 **Tech Stack:** Bun, TypeScript, Zod, SQLite/Drizzle, React, Playwright, dependency-cruiser.
 
@@ -19,9 +19,87 @@
 - Company/title and company/URL candidates are advisory. No candidate is linked automatically, including an exact company/requisition match.
 - If candidate discovery returns none, Pursue immediately creates a Gig without a second user action.
 - `ScoutPositionService` may coordinate domain services; `src/data/` must not import or invoke service implementations.
+- Each core domain-service implementation has one canonical module. Delete `tracker-services.ts`; do not retain a re-export or parallel import path.
 - Stable resolution outcomes are values, not exceptions. Throw only for malformed input, persistence failure, or broken invariants.
 - Preserve pipeline-owned Gig fields and all existing documents, tasks, people, interactions, and audit history.
 - Every task ends with focused verification and a coherent commit. Do not defer test or documentation work to a later pull request.
+
+## Execution order
+
+Task 0 is a hard gate: the approved product and architecture contract must be
+committed before any behavior, persistence, service, or UI implementation.
+Tasks 1 through 7 implement the original approved scope. Final architecture
+review later added the service-module correction in Task 8; Task 9 repeats all
+evidence invalidated by that additional commit. The Superpowers ledger, not
+this dependency-ordered plan, records the historical execution sequence.
+
+---
+
+## Task 0: Commit the product and architecture contract
+
+**Files:**
+
+- Modify: `docs/product/001-opportunity-pipeline.md`
+- Modify: `docs/product/006-gig-scout.md`
+- Create: `docs/architecture/decisions/0017-own-gig-posting-identity-resolution.md`
+- Modify: `docs/architecture/overview.md`
+- Verify: `docs/superpowers/specs/2026-08-31-gig-posting-identity-resolution-design.md`
+
+**Interfaces:**
+
+- Consumes: the user-approved design specification.
+- Produces: the product requirements and accepted architecture boundary that
+  every later code task must implement without reinterpretation.
+
+- [ ] **Step 1: Check the existing documentation before code work**
+
+  ```bash
+  rg -n "company.*title|duplicate|requisition|Pursue|promotion|GigDomainService|ScoutPositionService" \
+    docs/product docs/architecture
+  ```
+
+  Compare every relevant statement with the approved design. Stop before code
+  changes if any accepted ADR or product requirement conflicts with the design;
+  resolve the conflict with the user rather than silently choosing one.
+
+- [ ] **Step 2: Update FRR-001 and FRR-006**
+
+  In FRR-001, define current Gig posting identity as normalized company plus
+  current nonblank requisition ID. State that prior values remain history-only
+  references, same-title Gigs can coexist after explicit resolution, and
+  `GigDomainService` owns applying a posting.
+
+  In FRR-006, document immediate creation when no candidates exist, explicit
+  comparison when candidates exist, required comparison fields and document
+  links, stale refresh, confirmed existing-Gig updates, immutable description
+  versions, and preserved review-list behavior.
+
+- [ ] **Step 3: Record the architecture decision before implementation**
+
+  Create ADR 0017 with these exact decisions:
+
+  - one current posting identity per Gig;
+  - historical identity values remain in `gig_history` but never match;
+  - `GigDomainService` owns candidate resolution and posting acceptance; and
+  - `ScoutPositionService` owns reviewed workflow and managed-document
+    orchestration, without reproducing Gig rules.
+
+  Add one concise ADR link to the architecture overview. Do not add an
+  implementation diagram or provider-specific path.
+
+- [ ] **Step 4: Review and commit the documentation gate**
+
+  ```bash
+  git diff --check
+  rg -n "TBD|TODO|company.*title|requisition|Pursue|GigDomainService|ScoutPositionService" \
+    docs/product docs/architecture docs/superpowers/specs/2026-08-31-gig-posting-identity-resolution-design.md
+  git add docs/product docs/architecture \
+    docs/superpowers/specs/2026-08-31-gig-posting-identity-resolution-design.md
+  git commit -m "docs: define reviewed Gig posting identity"
+  ```
+
+  Expected: documentation is internally consistent and committed before Task
+  1 begins.
 
 ---
 
@@ -468,39 +546,50 @@
 
 ---
 
-## Task 6: Align product and architecture documentation
+## Task 6: Verify implementation against the committed architecture
 
 **Files:**
 
-- Modify: `docs/product/001-opportunity-pipeline.md`
-- Modify: `docs/product/006-gig-scout.md`
-- Create: `docs/architecture/decisions/0017-own-gig-posting-identity-resolution.md`
-- Modify: `docs/architecture/overview.md`
+- Verify: `docs/product/001-opportunity-pipeline.md`
+- Verify: `docs/product/006-gig-scout.md`
+- Verify: `docs/architecture/decisions/0017-own-gig-posting-identity-resolution.md`
+- Verify: `docs/architecture/overview.md`
+- Verify: implementation from Tasks 1 through 5
 
-- [ ] **Step 1: Update FRR-001**
-
-  Define current Gig posting identity as normalized company plus current nonblank requisition ID. State that prior identity values remain revision-history references only, same-title Gigs are allowed after explicit resolution, and applying a posting is owned by `GigDomainService`.
-
-- [ ] **Step 2: Update FRR-006**
-
-  Document one-click creation when no candidates exist, explicit comparison after Pursue when candidates exist, candidate display fields/document links, stale refresh, confirmed existing updates, immutable description versions, and unchanged review-list behavior.
-
-- [ ] **Step 3: Add short ADR 0017**
-
-  Record only the architectural decision: one current posting identity per Gig, old values retained in `gig_history` for reference but excluded from matching, posting acceptance owned by the Gig domain, and Scout responsible for reviewed workflow orchestration. Do not add a new architecture diagram.
-
-- [ ] **Step 4: Link the ADR from the overview**
-
-  Add one concise decision-list entry. Do not expand the overview with implementation detail.
-
-- [ ] **Step 5: Review and commit**
+- [ ] **Step 1: Trace ownership from documentation to code**
 
   ```bash
-  rg -n "company.*title|duplicate|requisition|Pursue|promotion" docs/product docs/architecture
-  git diff --check
-  git add docs/product docs/architecture
-  git commit -m "docs: define reviewed Gig posting identity"
+  rg -n "resolvePosting|acceptPosting|gig_history|resolution_required|resolution_stale|resolution_invalid" \
+    src/core src/data src/web docs/product docs/architecture
   ```
+
+  Confirm candidate matching and posting mutation exist only in the Gig domain,
+  Scout owns only reviewed orchestration, data owns no service behavior, and
+  HTTP/UI expose the documented stable outcomes.
+
+- [ ] **Step 2: Check every documented acceptance case has coverage**
+
+  Map the FRR-001 and FRR-006 acceptance bullets to focused domain, Scout,
+  persistence, HTTP, component, and browser tests. Add a missing behavioral
+  regression in the owning layer before changing implementation.
+
+- [ ] **Step 3: Stop on documentation drift**
+
+  If implementation requires behavior or ownership not already permitted by
+  Task 0, stop and return to the design/specification approval gate. Do not
+  revise architecture documentation after the fact to legitimize code that was
+  implemented first.
+
+- [ ] **Step 4: Record the consistency check**
+
+  ```bash
+  git diff --check
+  bun run architecture
+  ```
+
+  Expected: no documentation edits. Include the ownership trace and acceptance
+  coverage in the Task 6 report. Commit only an actual missing regression; do
+  not create a documentation-only after-the-fact correction here.
 
 ---
 
@@ -555,3 +644,217 @@
   ```
 
   The PR body must include `Closes #146`, the synthetic verification scope, migration 0038, architecture/documentation changes, and the complete command evidence. Then follow the repository's final Superpowers review, release-verifier, change-overview, required-check, and deployer handoffs.
+
+---
+
+## Task 8: Decompose the legacy core service catch-all
+
+**Files:**
+
+- Create: `src/core/gig-domain-service.ts`
+- Create: `src/core/task-domain-service.ts`
+- Create: `src/core/artifact-domain-service.ts`
+- Create: `src/core/deep-patch.ts`
+- Delete: `src/core/tracker-services.ts`
+- Modify: `src/core/application.ts`
+- Modify: `src/core/services.ts`
+- Modify: `src/core/index.ts`
+- Modify: `src/core/scout/engine/scout-position-service.ts`
+- Modify: `src/core/scout/engine/test/scout-position-service.test.ts`
+- Modify: `src/agent/gig-finder-tools.ts`
+- Modify: `src/cli/db-store.ts`
+- Modify: imports in existing focused core tests discovered by
+  `rg -l 'tracker-services' src`
+
+**Interfaces:**
+
+- Consumes: the existing `GigDomainService`, `TaskDomainService`,
+  `ArtifactDomainService`, `GigTouchInput`, `TaskCreateInput`,
+  `defaultGigStages`, `defaultTaskStatuses`, and `deepPatch` behavior from
+  `tracker-services.ts`.
+- Produces: the same exported names and runtime behavior from four canonical
+  modules. No public method signature, persistence contract, HTTP contract, or
+  result discriminator changes.
+
+- [ ] **Step 1: Establish the characterization baseline**
+
+  Run the focused domain and Scout suites before moving code:
+
+  ```bash
+  bun test src/core/test/services.test.ts \
+    src/core/test/tasks.test.ts \
+    src/core/scout/engine/test/scout-position-service.test.ts
+  bun run typecheck
+  bun run architecture
+  ```
+
+  Expected: PASS. Record the test and assertion counts in the Task 8 report so
+  the same behavior can be compared after the split.
+
+- [ ] **Step 2: Extract the shared patch helper**
+
+  Move the existing implementation unchanged into `src/core/deep-patch.ts`:
+
+  ```ts
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
+  export function deepPatch<T>(current: T, patch: unknown): T {
+    if (!isRecord(current) || !isRecord(patch)) return patch as T;
+    const result: Record<string, unknown> = { ...current };
+    for (const [key, value] of Object.entries(patch)) {
+      result[key] = isRecord(value) && isRecord(result[key])
+        ? deepPatch(result[key], value)
+        : value;
+    }
+    return result as T;
+  }
+  ```
+
+  Import it directly from `deep-patch.ts` in the Gig and People service
+  implementations. Do not duplicate the helper or re-export it through a
+  compatibility `tracker-services.ts` module.
+
+- [ ] **Step 3: Split the three service implementations by domain**
+
+  Move code without changing behavior:
+
+  ```ts
+  // src/core/gig-domain-service.ts
+  export interface GigTouchInput {
+    date: string;
+    stage: Gig["stage"];
+    summary: string;
+    outcome?: Gig["outcome"];
+    nextAction?: string | null;
+    due?: string | null;
+  }
+  export const defaultGigStages = [
+    "applied",
+    "recruiter_contact",
+    "screening",
+    "technical_interview",
+  ] as const satisfies readonly Gig["stage"][];
+
+  // src/core/task-domain-service.ts
+  export type TaskCreateInput = TaskInput & { id: string };
+  export const defaultTaskStatuses = [
+    "open",
+    "in_progress",
+  ] as const satisfies readonly TaskRecord["status"][];
+  ```
+
+  Keep Gig-only conversion, validation, posting matching, fingerprinting, and
+  mutation helpers with `GigDomainService`. Keep Task-only conversion,
+  validation, related-entity, and query helpers with `TaskDomainService`. Keep
+  the exact existing `GigDomainService`, `TaskDomainService`, and
+  `ArtifactDomainService` class bodies with those owning helpers; do not change
+  method signatures or method bodies while moving them. Keep artifact
+  verification/synchronization with `ArtifactDomainService`.
+
+- [ ] **Step 4: Replace every import with its canonical service module**
+
+  Update direct consumers and the core barrel:
+
+  ```ts
+  export * from "./gig-domain-service";
+  export * from "./task-domain-service";
+  export * from "./artifact-domain-service";
+  export * from "./deep-patch";
+  ```
+
+  Delete `export * from "./tracker-services"` and delete the source file. Use
+  direct imports inside core modules so ownership remains visible. Agent and
+  CLI code may continue importing the canonical re-exports from `src/core`.
+
+- [ ] **Step 5: Verify there is one implementation and no stale path**
+
+  ```bash
+  test ! -e src/core/tracker-services.ts
+  ! rg -n 'tracker-services' src
+  test "$(rg -l 'export class GigDomainService' src/core | wc -l | tr -d ' ')" = "1"
+  test "$(rg -l 'export class TaskDomainService' src/core | wc -l | tr -d ' ')" = "1"
+  test "$(rg -l 'export class ArtifactDomainService' src/core | wc -l | tr -d ' ')" = "1"
+  bun test src/core/test/services.test.ts \
+    src/core/test/tasks.test.ts \
+    src/core/scout/engine/test/scout-position-service.test.ts
+  bun run typecheck
+  bun run architecture
+  git diff --check
+  ```
+
+  Expected: the focused behavior remains unchanged, TypeScript resolves only
+  canonical modules, and dependency-cruiser reports no violations.
+
+- [ ] **Step 6: Commit the coherent module split**
+
+  ```bash
+  git add src/core src/agent/gig-finder-tools.ts src/cli/db-store.ts
+  git commit -m "refactor: split core domain services"
+  ```
+
+---
+
+## Task 9: Revalidate the revised exact pull-request head
+
+**Files:**
+
+- Modify only files required to fix failures caused by Task 8.
+- Update the ignored Superpowers progress/report artifacts for Task 8 and the
+  final handoff; do not commit them.
+
+**Interfaces:**
+
+- Consumes: the canonical service modules and unchanged domain behavior from
+  Task 8.
+- Produces: a new exact PR head with fresh Superpowers final review, release
+  verification, change overview, and GitHub validation evidence.
+
+- [ ] **Step 1: Run the complete required matrix**
+
+  ```bash
+  bun run db:check
+  bun run check
+  bun run build
+  bun run test:e2e
+  git diff --check
+  git status --short
+  ```
+
+  Expected: all commands pass on the same committed tree; only ignored
+  Superpowers reports may remain untracked.
+
+- [ ] **Step 2: Run architecture and privacy scope checks**
+
+  ```bash
+  bun run architecture
+  ! rg -n 'tracker-services' src
+  rg -n 'gig_history' src/core/gig-domain-service.ts src/data --glob '*.ts'
+  rg -n 'Visa|REF078975W|REF084743W' src docs --glob '!docs/superpowers/**'
+  ```
+
+  Expected: no legacy module import, no Gig candidate matching against history,
+  and no private production fixture outside the approved design context.
+
+- [ ] **Step 3: Push the new PR head and invalidate prior evidence**
+
+  ```bash
+  git push origin issue-146-gig-identity
+  gh pr view 148 --json headRefOid --jq .headRefOid
+  ```
+
+  Record the new 40-character SHA. Treat every earlier whole-branch review,
+  release-verifier result, change overview, smoke result, and GitHub validation
+  as stale.
+
+- [ ] **Step 4: Run the final repository handoffs in order**
+
+  1. Run final Superpowers whole-branch review against the new exact head.
+  2. Resolve all Critical and Important findings, then rerun scoped review.
+  3. Run `release-verifier` and `change-overview` independently against the
+     approved exact head.
+  4. Run `gh pr checks 148 --watch` and require the final `validate` result to
+     pass.
+  5. Report the exact reviewed SHA, PR URL, verification evidence, and any
+     remaining deployment handoff. Do not merge or deploy without the user's
+     explicit release request.
