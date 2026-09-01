@@ -47,18 +47,18 @@ function setup(companyName = "Example Company") {
 }
 
 test("pending and recovered company jobs retain the configured display company", () => {
-  const store = setup("Visa");
+  const store = setup("Granite Labs");
   const database = databases.at(-1)!;
   const run = store.startOrReuse(20, 5, "2026-08-27T12:00:00Z").run;
 
   const pending = store.pendingJobs(10)[0]!;
-  expect(pending.companyName).toBe("Visa");
+  expect(pending.companyName).toBe("Granite Labs");
 
   store.markDispatched([pending.runCompanyId], "2026-08-27T12:00:01Z");
   const recoveredStore = new SqliteScoutRunStore(database);
   expect(recoveredStore.nonterminalJobs(10)[0]).toMatchObject({
     runId: run.id,
-    companyName: "Visa",
+    companyName: "Granite Labs",
   });
 });
 

@@ -11,7 +11,7 @@ describe("scanCompany", () => {
     const result = await scanCompany(
       {
         companyId: "synthetic-company",
-        companyName: "Visa",
+        companyName: "Granite Labs",
         configurationVersionId: "synthetic-config",
         searchProfile: profile,
         sources: [
@@ -71,7 +71,7 @@ describe("scanCompany", () => {
       "json-match",
       null,
     ]);
-    expect(result.positions.every((position) => position.company === "Visa")).toBeTrue();
+    expect(result.positions.every((position) => position.company === "Granite Labs")).toBeTrue();
     for (const source of result.sources) {
       const attempt = source.attempts[0]!;
       expect(attempt.recordsEvaluated).toBe(attempt.recordsReceived);
