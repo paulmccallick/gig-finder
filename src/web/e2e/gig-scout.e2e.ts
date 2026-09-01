@@ -225,6 +225,13 @@ test("discovers and processes positions from a full Scout run", async ({
     })
     .toEqual([
       expect.objectContaining({
+        title: "Director of Synthetic Systems",
+        state: "needs_user_review",
+        processingStatus: "completed",
+        descriptionAvailable: true,
+        score: 8,
+      }),
+      expect.objectContaining({
         title: "Head of Orchard Technology",
         state: "needs_user_review",
         processingStatus: "completed",
@@ -235,9 +242,10 @@ test("discovers and processes positions from a full Scout run", async ({
 
   await page.getByRole("button", { name: "Positions", exact: true }).click();
   const ledger = page.getByRole("region", { name: "Positions for review" });
-  await expect(ledger.getByText("Head of Orchard Technology")).toBeVisible();
-  await expect(ledger.getByText("8/10")).toBeVisible();
-  await expect(ledger.getByText(/synthetic profile aligns/)).toBeVisible();
+  const orchardRow = ledger.getByRole("button", { name: /Head of Orchard Technology/ });
+  await expect(orchardRow).toBeVisible();
+  await expect(orchardRow.getByText("8/10")).toBeVisible();
+  await expect(orchardRow.getByText(/synthetic profile aligns/)).toBeVisible();
   await expect(ledger.getByText("First seen", { exact: true })).toBeVisible();
   await expect(ledger.getByText("Processing", { exact: true })).toHaveCount(0);
   await expect(ledger.getByText("Description", { exact: true })).toHaveCount(0);
@@ -261,9 +269,7 @@ test("discovers and processes positions from a full Scout run", async ({
     }
     await route.continue();
   });
-  await ledger.getByRole("button", {
-    name: /Head of Orchard Technology/,
-  }).click();
+  await orchardRow.click();
   await expect(page.getByRole("alert")).toContainText(
     "Could not open that position. Select it to try again.",
   );
@@ -273,9 +279,7 @@ test("discovers and processes positions from a full Scout run", async ({
 
   await agentLauncher.click();
   await expect(agentPanel).toBeVisible();
-  await ledger.getByRole("button", {
-    name: /Head of Orchard Technology/,
-  }).click();
+  await orchardRow.click();
   await expect(page.getByRole("alert").filter({
     hasText: "Could not open that position",
   })).toHaveCount(0);
@@ -293,7 +297,7 @@ test("discovers and processes positions from a full Scout run", async ({
   await drawer.getByLabel("Private note (optional)").fill("Discarded draft");
   await drawer.getByRole("button", { name: "Close position review" }).click();
   await expect(agentLauncher).toBeVisible();
-  await ledger.getByRole("button", { name: /Head of Orchard Technology/ }).click();
+  await orchardRow.click();
   await expect(drawer.getByLabel("Private note (optional)")).toHaveValue("");
   await expect(agentLauncher).toBeHidden();
 
@@ -389,7 +393,12 @@ test("discovers and processes positions from a full Scout run", async ({
   await page.unroute(listPattern);
   await expect(page.getByRole("combobox", { name: "View", exact: true }))
     .toHaveValue("needs_user_review");
-  await expect.poll(async()=>{const response=await page.request.get("/api/gig-scout/positions");const body=await response.json() as {items:Array<{id:string}>};return body.items.length;}).toBe(0);
+  await expect.poll(async()=>{const response=await page.request.get("/api/gig-scout/positions");const body=await response.json() as {items:Array<{title:string;state:string}>};return body.items;}).toEqual([
+    expect.objectContaining({
+      title: "Director of Synthetic Systems",
+      state: "needs_user_review",
+    }),
+  ]);
 });
 
 test("review decisions keep the ledger context and retry a failed promotion", async ({ page }) => {
