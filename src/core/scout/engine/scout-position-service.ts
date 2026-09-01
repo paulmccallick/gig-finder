@@ -68,7 +68,7 @@ export class ScoutPositionService {
   constructor(
     private readonly store: ScoutPostingResolutionStore,
     private readonly gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting">,
-    private readonly documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange">,
+    private readonly documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange" | "versions">,
   ) {}
 
   list(input: Partial<{ text: string; company: string; state: string; sort: string; direction: "asc" | "desc"; offset: number; limit: number }> = {}) {
@@ -189,6 +189,10 @@ export class ScoutPositionService {
         work.posting,
         work.resolution,
       );
+      if (accepted.status === "resolution_stale" || accepted.status === "resolution_invalid") {
+        this.store.releasePromotion(work.positionId, work.changeId, accepted.status, now);
+        return accepted;
+      }
       if (accepted.status !== "created" && accepted.status !== "updated") return accepted;
       const document = this.coordinateDocument(work, accepted.gig.id, accepted.gig.documents, now);
       this.store.completePromotion(work.positionId, accepted.gig.id, document.id, now);
@@ -217,8 +221,7 @@ export class ScoutPositionService {
     const expectedTitle = `${work.posting.company} — ${work.posting.title}`;
     const created = this.documents.createdByChange(changeId);
     if (created) {
-      this.verifyDocument(created, gigId, expectedTitle, work.markdown, work.sourceDescription);
-      return created;
+      return this.reconcileCreatedDocument(created, changeId, work, gigId, expectedTitle);
     }
     const summary = summaries
       .filter(document => document.type === "job_description")
@@ -238,12 +241,12 @@ export class ScoutPositionService {
           title: expectedTitle,
           mediaType: "text/markdown",
           sourceDescription: work.sourceDescription,
+          sourceProvenance: work.sourceProvenance,
           content: work.markdown,
           uploadProvenance: null,
         },
       ).document;
-      this.verifyDocument(document, gigId, expectedTitle, work.markdown, work.sourceDescription);
-      return document;
+      return this.reconcileCreatedDocument(document, changeId, work, gigId, expectedTitle);
     }
 
     const current = this.documents.get(summary.id);
@@ -255,6 +258,10 @@ export class ScoutPositionService {
       if (current.sourceDescription !== work.sourceDescription) {
         throw new Error("Reviewed Scout document replay does not match the persisted promotion.");
       }
+      const currentVersion = this.documents.versions(current.id)
+        .find(version => version.version === current.currentVersion);
+      if (!currentVersion) throw new Error("Reviewed Scout document version could not be verified.");
+      this.verifyVersion(currentVersion, current.id, work.markdown, work.sourceDescription, work.sourceProvenance);
       return current;
     }
 
@@ -284,6 +291,22 @@ export class ScoutPositionService {
     const version = this.documents.versionByChange(changeId);
     if (!version) throw new Error("Reviewed Scout document version could not be verified.");
     return this.reconcileVersion(current.id, version, work, gigId, expectedTitle);
+  }
+
+  private reconcileCreatedDocument(
+    document: ManagedDocumentRecord,
+    changeId: string,
+    work: ScoutPromotionWork,
+    gigId: string,
+    expectedTitle: string,
+  ) {
+    this.verifyDocument(document, gigId, expectedTitle, work.markdown, work.sourceDescription);
+    const version = this.documents.versionByChange(changeId);
+    if (!version || version.version !== 1 || document.currentVersion !== 1) {
+      throw new Error("Reviewed Scout document version could not be verified.");
+    }
+    this.verifyVersion(version, document.id, work.markdown, work.sourceDescription, work.sourceProvenance);
+    return document;
   }
 
   private reconcileVersion(

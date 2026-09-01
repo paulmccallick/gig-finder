@@ -130,6 +130,15 @@ document, appends immutable source provenance and a new version only when
 content changes, and never writes managed-document tables directly from Scout
 persistence.
 
+Reviewed position promotion follows the same boundary. Scout persistence stores
+each reviewed resolution as an immutable attempt, while the core position service
+coordinates the Gig domain and managed-document service. A stale or invalid
+resolution after intent is terminalized through the Scout persistence port and
+released back to review; infrastructure failures keep the attempt retryable.
+New job-description documents store the reviewed structured provenance on
+version 1, and unchanged documents complete only after their current immutable
+version matches that provenance exactly.
+
 Explicit position-backfill items also own durable terminal reporting. Their
 bounded snapshots retain company and template context plus normalized-description,
 workflow, promoted-document, and failure outcomes without retaining source

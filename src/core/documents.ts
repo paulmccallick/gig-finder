@@ -140,9 +140,12 @@ export const createManagedDocumentSchema = z.object({
   description: managedDocumentInputSchema.shape.description.default(null),
   mediaType: managedDocumentInputSchema.shape.mediaType.unwrap(),
   sourceDescription: managedDocumentInputSchema.shape.sourceDescription.unwrap(),
+  sourceProvenance: managedDocumentSourceProvenanceSchema.optional(),
   content: contentSchema,
   uploadProvenance: managedDocumentInputSchema.shape.uploadProvenance.default(null),
-}).strict();
+}).strict().superRefine((value,context)=>{
+  if(value.sourceProvenance!==undefined&&value.sourceDescription===null)context.addIssue({code:"custom",message:"Document source provenance requires a source description."});
+});
 export type ManagedDocumentRecord=z.infer<typeof managedDocumentEntitySchema>;
 export type ManagedDocumentData=Omit<ManagedDocumentRecord,"displayName"|"currentVersion"|"content"|"contentHash"|"createdAt"|"updatedAt">;
 export type ManagedDocumentSummary=Omit<ManagedDocumentRecord,"content">;

@@ -290,7 +290,7 @@ export const managedDocumentVersions = sqliteTable("managed_document_versions", 
 export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{
   id:text("id").primaryKey(),
   decisionId:text("decision_id").notNull().unique().references(()=>scoutPositionDecisions.id),
-  positionId:text("position_id").notNull().unique().references(()=>scoutPositions.id),
+  positionId:text("position_id").notNull().references(()=>scoutPositions.id),
   descriptionId:text("description_id").notNull().references(()=>scoutPositionDescriptions.id),
   observationId:text("observation_id").references(()=>scoutPositionObservations.id),
   resolutionKind:text("resolution_kind",{enum:["create_new","use_existing"]}),
@@ -307,6 +307,7 @@ export const scoutPositionPromotions=sqliteTable("scout_position_promotions",{
   updatedAt:text("updated_at").notNull(),
   completedAt:text("completed_at"),
 },table=>[
+  index("scout_position_promotions_position_idx").on(table.positionId,table.createdAt),
   check("scout_position_promotions_status_check",sql`${table.status} in ('pending','completed','failed')`),
   check("scout_position_promotions_resolution_check",sql`
     (${table.resolutionKind} is null and ${table.requestedGigId} is null and ${table.expectedGigRevision} is null and ${table.resolutionFingerprint} is null)

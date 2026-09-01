@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  AcceptPostingResult,
   GigPostingCandidate,
   GigRecord,
   PostingCandidateResolution,
@@ -176,6 +177,7 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
   readonly begun: Array<{ command: ScoutUserDecisionCommand; resolution: PostingResolution }> = [];
   readonly completed: Array<{ positionId: string; gigId: string; documentId: string }> = [];
   readonly failures: string[] = [];
+  readonly released: Array<{ positionId: string; changeId: string; outcome: "resolution_stale" | "resolution_invalid" }> = [];
   pending: ScoutPromotionWork | null = null;
   reviewable = true;
 
@@ -204,6 +206,11 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
     this.pending = null;
   }
   failPromotion(_id: string, message: string) { this.failures.push(message); }
+  releasePromotion(id: string, changeId: string, outcome: "resolution_stale" | "resolution_invalid") {
+    this.released.push({ positionId: id, changeId, outcome });
+    this.reviewable = true;
+    this.pending = null;
+  }
   positionDetail() { return null; }
   reviewDetail() { return this.reviewable ? this.review.detail : null; }
   decide(): never { throw new Error("Non-pursue decision is not used by this fake."); }
@@ -229,6 +236,7 @@ class FakeGigs {
   acceptedGig = gig("synthetic-created-gig");
   readonly accepted: Array<{ context: ChangeContext; posting: NormalizedPosition; resolution?: PostingResolution }> = [];
   readonly persistedChanges = new Set<string>();
+  nextAcceptance: AcceptPostingResult | null = null;
 
   resolvePosting(value: NormalizedPosition) {
     expect(value).toEqual(posting);
@@ -236,6 +244,11 @@ class FakeGigs {
   }
   acceptPosting(context: ChangeContext, value: NormalizedPosition, resolution?: PostingResolution) {
     this.accepted.push({ context, posting: value, resolution });
+    if (this.nextAcceptance) {
+      const outcome = this.nextAcceptance;
+      this.nextAcceptance = null;
+      return outcome;
+    }
     if (context.changeId) this.persistedChanges.add(context.changeId);
     return {
       status: resolution?.kind === "use_existing" ? "updated" as const : "created" as const,
@@ -276,6 +289,7 @@ class FakeDocuments {
   updateAttempts = 0;
   failNextCreate = false;
   conflictAfterUpdate = false;
+  createVersionProvenance: "exact" | "missing" | "mismatched" = "exact";
 
   get(id: string) { return this.records.get(id) ?? null; }
   createdByChange(changeId: string) {
@@ -283,6 +297,26 @@ class FakeDocuments {
     return id ? this.get(id) : null;
   }
   versionByChange(changeId: string) { return this.changedVersions.get(changeId) ?? null; }
+  versions(id: string) {
+    return [...this.changedVersions.values()]
+      .filter(version => version.documentId === id)
+      .sort((left, right) => right.version - left.version);
+  }
+  seedVersion(record: ManagedDocumentRecord, provenance: ManagedDocumentVersionData["sourceProvenance"]) {
+    this.changedVersions.set(`seed:${record.id}`, {
+      documentId: record.id,
+      version: record.currentVersion,
+      parentVersion: record.currentVersion === 1 ? null : record.currentVersion - 1,
+      content: record.content,
+      contentHash: record.contentHash,
+      changeId: `seed:${record.id}`,
+      changeSummary: "Synthetic seeded version",
+      createdAt: record.createdAt,
+      createdBy: "Synthetic Reviewer",
+      sourceDescription: record.sourceDescription,
+      sourceProvenance: provenance,
+    });
+  }
   create(context: ChangeContext, input: CreateManagedDocumentInput) {
     this.createAttempts++;
     if (this.failNextCreate) {
@@ -297,7 +331,27 @@ class FakeDocuments {
       sourceDescription: input.sourceDescription,
     });
     this.records.set(created.id, created);
-    if (context.changeId) this.createdChanges.set(context.changeId, created.id);
+    if (context.changeId) {
+      this.createdChanges.set(context.changeId, created.id);
+      const actualProvenance = this.createVersionProvenance === "missing"
+        ? null
+        : this.createVersionProvenance === "mismatched"
+          ? { ...input.sourceProvenance!, officialUrl: "https://careers.example.test/jobs/different" }
+          : input.sourceProvenance ?? null;
+      this.changedVersions.set(context.changeId, {
+        documentId: created.id,
+        version: 1,
+        parentVersion: null,
+        content: created.content,
+        contentHash: created.contentHash,
+        changeId: context.changeId,
+        changeSummary: context.summary,
+        createdAt: context.occurredAt!,
+        createdBy: context.actor,
+        sourceDescription: created.sourceDescription,
+        sourceProvenance: actualProvenance,
+      });
+    }
     return { document: created, changeId: context.changeId ?? null, changed: true };
   }
   update(context: ChangeContext, input: UpdateManagedDocumentInput) {
@@ -331,7 +385,7 @@ class FakeDocuments {
 const setup = () => {
   const store = new FakeScoutStore();
   const gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting"> = new FakeGigs();
-  const documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange"> = new FakeDocuments();
+  const documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange" | "versions"> = new FakeDocuments();
   const service = new ScoutPositionService(store, gigs, documents);
   return { store, gigs: gigs as FakeGigs, documents: documents as FakeDocuments, service };
 };
@@ -346,6 +400,11 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     expect(gigs.accepted[0]!.resolution).toEqual(store.begun[0]!.resolution);
     expect(gigs.accepted[0]!.context.changeId).toBe("synthetic-pursue:gig");
     expect(documents.records).toHaveLength(1);
+    expect(documents.versionByChange("synthetic-pursue:document")).toMatchObject({
+      version: 1,
+      sourceDescription,
+      sourceProvenance,
+    });
     expect(store.completed).toEqual([{ positionId, gigId: "synthetic-created-gig", documentId: "synthetic-created-document" }]);
   });
 
@@ -397,6 +456,31 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     expect(gigs.accepted).toHaveLength(0);
   });
 
+  test.each([
+    ["resolution_stale" as const, { status: "resolution_stale" as const, fingerprint: changedFingerprint, candidates: [candidate({ revision: 4 })] }],
+    ["resolution_invalid" as const, { status: "resolution_invalid" as const }],
+  ])("a post-intent %s releases the attempt for a new reviewed resolution", (expectedStatus, acceptance) => {
+    const { store, gigs, service } = setup();
+    gigs.resolution = { fingerprint, candidates: [candidate()] };
+    gigs.nextAcceptance = acceptance;
+    const originalResolution = {
+      kind: "use_existing" as const,
+      reviewedFingerprint: fingerprint,
+      gigId: "synthetic-existing-gig",
+      expectedGigRevision: 3,
+    };
+
+    expect(service.decide(positionId, decision(originalResolution))).toMatchObject({ status: expectedStatus });
+    expect(store.released).toEqual([{ positionId, changeId: "synthetic-pursue", outcome: expectedStatus }]);
+    expect(store.reviewable).toBeTrue();
+    expect(service.retryPromotion(positionId)).toBeNull();
+
+    gigs.resolution = { fingerprint: changedFingerprint, candidates: [candidate({ revision: 4 })] };
+    const replacementResolution = { kind: "create_new" as const, reviewedFingerprint: changedFingerprint };
+    expect(service.decide(positionId, { ...decision(replacementResolution), changeId: "synthetic-pursue-after-race" })).toEqual({ status: "created", position: null });
+    expect(store.begun.map(entry => entry.command.changeId)).toEqual(["synthetic-pursue", "synthetic-pursue-after-race"]);
+  });
+
   test("malformed resolution throws before recording promotion intent", () => {
     const { store, service } = setup();
     const malformed = { kind: "create_new", reviewedFingerprint: "not-a-fingerprint" } as PostingResolution;
@@ -426,6 +510,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const { gigs, documents, service } = setup();
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
     documents.records.set(existingDocument.id, existingDocument);
+    documents.seedVersion(existingDocument, sourceProvenance);
     const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
@@ -434,7 +519,33 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     expect(service.decide(positionId, decision(resolution))).toEqual({ status: "updated", position: null });
     expect(documents.createAttempts).toBe(0);
     expect(documents.updateAttempts).toBe(0);
-    expect(documents.changedVersions).toHaveLength(0);
+    expect(documents.changedVersions).toHaveLength(1);
+  });
+
+  test.each(["missing", "mismatched"] as const)("created document %s structured provenance blocks completion", provenanceFailure => {
+    const { store, documents, service } = setup();
+    documents.createVersionProvenance = provenanceFailure;
+
+    expect(() => service.decide(positionId, decision())).toThrow("Reviewed Scout document version does not match the persisted promotion.");
+    expect(store.completed).toHaveLength(0);
+  });
+
+  test.each([
+    ["missing", null],
+    ["mismatched", { ...sourceProvenance, converterVersion: "different-converter-v1" }],
+  ] as const)("unchanged document %s structured provenance blocks completion", (_name, persistedProvenance) => {
+    const { store, gigs, documents, service } = setup();
+    const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
+    documents.records.set(existingDocument.id, existingDocument);
+    documents.seedVersion(existingDocument, persistedProvenance);
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    gigs.resolution = { fingerprint, candidates: [existing] };
+    gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
+    const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
+
+    expect(() => service.decide(positionId, decision(resolution))).toThrow("Reviewed Scout document version does not match the persisted promotion.");
+    expect(documents.updateAttempts).toBe(0);
+    expect(store.completed).toHaveLength(0);
   });
 
   test("document failure retries without another Gig write or document version", () => {
@@ -449,7 +560,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     expect(service.retryPromotion(positionId)).toEqual({ status: "created", position: null });
     expect(gigs.persistedChanges).toHaveLength(1);
     expect(documents.records).toHaveLength(1);
-    expect(documents.changedVersions).toHaveLength(0);
+    expect(documents.changedVersions).toHaveLength(1);
     expect(store.completed).toHaveLength(1);
   });
 

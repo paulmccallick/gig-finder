@@ -217,6 +217,7 @@ export class SqliteDocumentWriteRepository
     document: ManagedDocumentData;
     content: string;
     contentHash: string;
+    sourceProvenance?: ManagedDocumentSourceProvenance;
   }): ManagedDocumentRecord {
     if (this.get(input.document.id)) {
       throw new Error(`Document already exists: ${input.document.id}`);
@@ -261,6 +262,8 @@ export class SqliteDocumentWriteRepository
       content: input.content,
       contentHash: input.contentHash,
       changeSummary: this.context.summary,
+      sourceDescription: input.sourceProvenance ? input.document.sourceDescription ?? undefined : undefined,
+      sourceProvenance: input.sourceProvenance,
     });
     return this.get(input.document.id)!;
   }

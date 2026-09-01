@@ -201,10 +201,25 @@ test("reviewed posting intent binds the exact observation, description, and subm
   expect(database.query(`SELECT observation_id observationId,resolution_kind kind,requested_gig_id gigId,expected_gig_revision expectedRevision,resolution_fingerprint fingerprint,status FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({observationId:binding.observationId,kind:"use_existing",gigId:"reviewed-existing-gig",expectedRevision:9,fingerprint:"b".repeat(64),status:"pending"});
   expect(database.query(`SELECT state,linked_gig_id linkedGigId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"processing",linkedGigId:null});
 
+  reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue","resolution_stale","2026-09-01T12:00:05.500Z");
+  expect(reviewedStore.promotionWork(binding.positionId)).toBeNull();
+  expect(database.query(`SELECT status,failure_code failureCode FROM scout_position_promotions WHERE position_id=?`).get(binding.positionId)).toEqual({status:"failed",failureCode:"resolution_stale"});
+  expect(database.query(`SELECT state,revision,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"needs_user_review",revision:9,currentDecisionId:null});
+  expect(database.query(`SELECT id,change_id changeId FROM scout_position_decisions WHERE change_id='reviewed-pursue'`).get()).toMatchObject({changeId:"reviewed-pursue"});
+
+  const refreshedReview=reviewedStore.reviewPosting(binding.positionId)!;
+  const replacementCommand={...command,changeId:"reviewed-pursue-after-race",expectedStateRevision:refreshedReview.detail.stateRevision};
+  const replacementResolution={kind:"create_new" as const,reviewedFingerprint:"c".repeat(64)};
+  const replacementWork=reviewedStore.beginPursue(replacementCommand,replacementResolution,"2026-09-01T12:00:05.750Z");
+  expect(replacementWork).toMatchObject({changeId:"reviewed-pursue-after-race",resolution:replacementResolution});
+  expect(database.query(`SELECT count(*) count FROM scout_position_decisions WHERE change_id IN ('reviewed-pursue','reviewed-pursue-after-race')`).get()).toEqual({count:2});
+  reviewedStore.releasePromotion(binding.positionId,"reviewed-pursue-after-race","resolution_invalid","2026-09-01T12:00:05.875Z");
+  expect(database.query(`SELECT state,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(binding.positionId)).toEqual({state:"needs_user_review",currentDecisionId:null});
+
   database.exec("PRAGMA ignore_check_constraints=ON");
   database.query(`UPDATE scout_position_promotions SET resolution_fingerprint=NULL WHERE position_id=?`).run(binding.positionId);
   database.exec("PRAGMA ignore_check_constraints=OFF");
-  expect(()=>reviewedStore.beginPursue(command,resolution,"2026-09-01T12:00:06Z")).toThrow("Reviewed Scout promotion intent is unavailable.");
+  expect(()=>reviewedStore.beginPursue(replacementCommand,replacementResolution,"2026-09-01T12:00:06Z")).toThrow("Reviewed Scout promotion intent is unavailable.");
 });
 
 test("company result preparation remains nonterminal and is replay safe", () => {
@@ -682,10 +697,12 @@ test("screening persists bounded comments and exposes only the score explanation
   database.exec(`DROP TRIGGER synthetic_promotion_failure`);
   const promotionWork=changedStore.promotionWork(review.id)!;
   const promotedGig=(database.query(`SELECT entity_id id FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get() as {id:string}).id;
-  const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotedGig}],documentType:"job_description",title:`${promotionWork.posting.company} — ${promotionWork.posting.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",content:promotionWork.markdown,uploadProvenance:null}).document;
+  const mismatchedDocument=promotionApplication.documents.create({actor:"Reviewer",source:"automation",summary:"Synthetic partial promotion",changeId:"change-pursue:document",occurredAt:"2026-01-01T00:00:14Z"},{links:[{entityType:"gig",entityId:promotedGig}],documentType:"job_description",title:`${promotionWork.posting.company} — ${promotionWork.posting.title}`,mediaType:"text/markdown",sourceDescription:"wrong provenance",sourceProvenance:{...promotionWork.sourceProvenance,converterVersion:"wrong-converter-v1"},content:promotionWork.markdown,uploadProvenance:null}).document;
   expect(()=>positions.retryPromotion(review.id)).toThrow("Reviewed Scout document replay does not match the persisted promotion.");
   expect(changedStore.reviewDetail(review.id)).toMatchObject({state:"processing",promotionStatus:"failed",promotionFailureMessage:"Reviewed Scout document replay does not match the persisted promotion."});
   database.query(`UPDATE managed_documents SET source_description=? WHERE id=?`).run(promotionWork.sourceDescription,mismatchedDocument.id);
+  expect(()=>positions.retryPromotion(review.id)).toThrow("Reviewed Scout document version does not match the persisted promotion.");
+  database.query(`UPDATE managed_document_versions SET source_description=?,source_provenance_json=? WHERE document_id=? AND version=1`).run(promotionWork.sourceDescription,JSON.stringify(promotionWork.sourceProvenance),mismatchedDocument.id);
   const promoted=positions.retryPromotion(review.id);
   expect(promoted).toEqual({status:"created",position:null});
   expect(positions.retryPromotion(review.id)).toBeNull();
@@ -928,7 +945,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:application.gigs.resolvePosting(reviewedPosting.posting).fingerprint},"2026-08-29T01:00:02Z");
   positions.retryPromotion(positionId);
   const promotion=database.query(`SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`).get(positionId) as {gigId:string;managedDocumentId:string};
-  expect(application.documents.versions(promotion.managedDocumentId)).toHaveLength(1);
+  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:1,sourceDescription:reviewedPosting.sourceDescription,sourceProvenance:reviewedPosting.sourceProvenance}]);
 
   importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{source.origin}/details/{position.id}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-29T01:00:03Z"));
   const corrected={markdown:"Corrected official description.",sourceContentHash:"a".repeat(64),extractedContentHash:"b".repeat(64),sourceUrl:"https://careers.example.test/details/promoted-143",retrievedAt:"2026-08-29T01:00:04Z",converterVersion:"scout-description-v2",strategyVersion:"json-field-v1"};
@@ -951,7 +968,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   const replayedPreparation=store.prepareDescriptionCompletion(firstAcquire,corrected,"2026-08-29T01:00:05Z");
   expect(replayedPreparation).toEqual(prepared);
   await new ScoutPositionProcessor(store,model,()=>"2026-08-29T01:00:05Z",undefined,application.documents).process(firstAcquire);
-  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:2,sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance},{version:1,sourceDescription:null,sourceProvenance:null}]);
+  expect(application.documents.versions(promotion.managedDocumentId)).toMatchObject([{version:2,sourceDescription:prepared.promotedDocument!.sourceDescription,sourceProvenance:prepared.promotedDocument!.sourceProvenance},{version:1,sourceDescription:reviewedPosting.sourceDescription,sourceProvenance:reviewedPosting.sourceProvenance}]);
   expect(database.query(`SELECT document_projection_status documentProjectionStatus FROM scout_position_processing WHERE id=?`).get(firstAcquire)).toEqual({documentProjectionStatus:"updated"});
   expect(store.backfillStatus(first.runId)?.gigDocuments).toEqual({pending:0,updated:1,unchanged:0,failed:0});
   database.query(`UPDATE scout_position_processing SET document_projection_status='unchanged' WHERE id=?`).run(firstAcquire);

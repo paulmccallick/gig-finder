@@ -354,7 +354,7 @@ test("0035 through 0037 preserve durable Scout history while extending explicit 
   database.close();
 });
 
-test("0038 preserves completed promotion history and requires exact coherent reviewed resolutions",async()=>{
+test("0038 and 0039 preserve exact reviewed promotion attempts",async()=>{
   const database=new Database(":memory:");
   database.exec("PRAGMA foreign_keys=ON");
   database.exec(`
@@ -499,6 +499,16 @@ test("0038 preserves completed promotion history and requires exact coherent rev
   ]).toEqual([true,true,true,true]);
   expect(()=>database.query(`UPDATE scout_position_promotions SET observation_id='missing-observation' WHERE id='promotion-create'`).run()).toThrow();
   expect(database.query(`PRAGMA foreign_key_list(scout_position_promotions)`).all()).not.toContainEqual(expect.objectContaining({from:"requested_gig_id"}));
+  await applyStatements(database,new URL("../migrations/0039_loud_susan_delgado.sql",import.meta.url));
+  database.exec(`
+    INSERT INTO changes VALUES('change-create-retry');
+    INSERT INTO scout_position_decisions VALUES('decision-create-retry','change-create-retry','new-create');
+  `);
+  database.query(`INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,observation_id,status,resolution_kind,resolution_fingerprint,created_at,updated_at) VALUES('promotion-create-retry','decision-create-retry','new-create','description-create','observation-create','pending','create_new',?,'2026-01-06','2026-01-06')`).run("b".repeat(64));
+  expect(database.query(`SELECT decision_id decisionId,resolution_fingerprint fingerprint FROM scout_position_promotions WHERE position_id='new-create' ORDER BY created_at`).all()).toEqual([
+    {decisionId:"decision-create",fingerprint},
+    {decisionId:"decision-create-retry",fingerprint:"b".repeat(64)},
+  ]);
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
   database.close();
 });

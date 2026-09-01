@@ -13,10 +13,11 @@
 ## 🛠️ Functional Specifications
 
 - **Trigger**: A supported client creates, updates, reads, versions, or downloads a managed document, or the user attaches a source to the next agent message.
-- **Input Data**: Friendly name, document type, owner, optional description, Markdown or text content, and optional exact version.
+- **Input Data**: Friendly name, document type, owner, optional description, Markdown or text content, optional bounded source provenance, and optional exact version.
 - **Happy Path**:
   1. The user or assistant finds a document by friendly context and reads the authoritative current or requested historical version.
   2. View and Download return that exact version, while updates create durable history rather than overwriting it invisibly.
+  3. When a managed source supplies structured provenance, creation records it on immutable version 1 and later content changes record it on their new immutable versions.
 - **Alternative Paths**:
   - A source file is uploaded -> Convert it locally, preserve the source, and stage a reference without changing managed state.
   - A filesystem projection drifts or fails -> Continue to treat database state as authoritative and make projection repairable.
@@ -27,6 +28,7 @@
   - **Given** multiple document versions, **When** an exact version is requested, **Then** viewing, downloading, and agent context use the same content.
   - **Given** a Profile context document, **When** the agent considers context, **Then** its name and description are visible and content is read on demand.
   - **Given** a staged upload, **When** no managed-document action is requested, **Then** the source remains unaltered and no document is created implicitly.
+  - **Given** structured source provenance on document creation, **When** version 1 is read, **Then** its source description and structured provenance match the accepted source exactly.
 - **Error Boundaries**: Conversion, lookup, or projection failures are explicit and do not replace the last authoritative version.
 - **Data Validation**: Ownership and document type must agree; Profile documents have a name and may have a bounded description; arbitrary file reads are prohibited.
 

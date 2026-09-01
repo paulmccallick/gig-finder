@@ -23,6 +23,7 @@ export interface DocumentWriteRepository extends DocumentReadRepository {
     document: ManagedDocumentData;
     content: string;
     contentHash: string;
+    sourceProvenance?: ManagedDocumentSourceProvenance;
   }): ManagedDocumentRecord;
   addVersion(input: {
     documentId: string;
