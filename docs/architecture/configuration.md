@@ -85,11 +85,8 @@ Director, Senior Vice President, SVP, Vice President, VP Engineering, Head of
 Engineering, and Head of Technology. It resolves an omitted or empty location
 dimension to Seattle, Bellevue, Redmond, Remote, and Washington. A non-empty
 explicit dimension replaces its defaults. Scout persists the resolved profile
-as the run's immutable snapshot and dispatches it uniformly. Each dispatched
-run-company also snapshots the configured company display name so recovery and
-reviewed promotion keep the original observation context if the company is
-renamed later. These snapshots do not alter company configurations, source
-selection, or reusable templates.
+and configured company display name with the run so recovery retains the
+original observation context; neither value changes company configuration.
 
 After JSON or DOM normalization, the common sourcing validation path applies
 the captured profile to structured title and location data. Optional
@@ -132,16 +129,6 @@ managed-document service: it updates the exact existing Gig job-description
 document, appends immutable source provenance and a new version only when
 content changes, and never writes managed-document tables directly from Scout
 persistence.
-
-Reviewed position promotion follows the same boundary. Scout persistence stores
-each reviewed resolution as an immutable attempt, while the core position service
-coordinates the Gig domain and managed-document service. A stale or invalid
-resolution after intent is terminalized through the Scout persistence port and
-released back to review; infrastructure failures keep the attempt retryable.
-New job-description documents store the reviewed structured provenance on
-version 1. When normalized Markdown is unchanged, Scout creates no
-provenance-only version and retains the existing immutable version's historical
-provenance.
 
 Explicit position-backfill items also own durable terminal reporting. Their
 bounded snapshots retain company and template context plus normalized-description,
