@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9ade0695-1fcb-49a2-af4e-0fe069215511",
+  "id": "450a09b8-61d3-449f-bdc8-03977124420f",
   "prevId": "e984afed-8db5-479d-a84c-16de4245eb57",
   "tables": {
     "application_settings": {
@@ -5991,7 +5991,8 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "'queued'"
         },
         "started_at": {
           "name": "started_at",
@@ -6022,7 +6023,24 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "scout_run_companies_run_idx": {
+          "name": "scout_run_companies_run_idx",
+          "columns": [
+            "run_id",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "scout_run_companies_run_company_unique": {
+          "name": "scout_run_companies_run_company_unique",
+          "columns": [
+            "run_id",
+            "company_id"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "scout_run_companies_run_id_scout_runs_id_fk": {
           "name": "scout_run_companies_run_id_scout_runs_id_fk",
@@ -6066,7 +6084,20 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "scout_run_companies_status_check": {
+          "name": "scout_run_companies_status_check",
+          "value": "\"scout_run_companies\".\"status\" in ('queued','succeeded','partial','failed')"
+        },
+        "scout_run_companies_failure_code_check": {
+          "name": "scout_run_companies_failure_code_check",
+          "value": "\"scout_run_companies\".\"failure_code\" is null or length(\"scout_run_companies\".\"failure_code\") <= 100"
+        },
+        "scout_run_companies_failure_message_check": {
+          "name": "scout_run_companies_failure_message_check",
+          "value": "\"scout_run_companies\".\"failure_message\" is null or length(\"scout_run_companies\".\"failure_message\") <= 500"
+        }
+      }
     },
     "scout_run_outbox": {
       "name": "scout_run_outbox",

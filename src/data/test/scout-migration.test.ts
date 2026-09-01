@@ -513,7 +513,7 @@ test("0038 and 0039 preserve exact reviewed promotion attempts",async()=>{
   database.close();
 });
 
-test("0040 snapshots the original company display for existing run companies", async () => {
+test("0040 adds the company display snapshot without weakening run-company invariants", async () => {
   const database = new Database(":memory:");
   database.exec("PRAGMA foreign_keys=ON");
   database.exec(`
@@ -525,14 +525,17 @@ test("0040 snapshots the original company display for existing run companies", a
       run_id text NOT NULL REFERENCES scout_runs(id),
       company_id text NOT NULL REFERENCES scout_companies(id),
       company_configuration_id text NOT NULL REFERENCES scout_company_configurations(id),
-      status text NOT NULL,
+      status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','succeeded','partial','failed')),
       started_at text,
       completed_at text,
-      failure_code text,
-      failure_message text
+      failure_code text CHECK(failure_code IS NULL OR length(failure_code) <= 100),
+      failure_message text CHECK(failure_message IS NULL OR length(failure_message) <= 500),
+      UNIQUE(run_id, company_id)
     );
+    CREATE INDEX scout_run_companies_run_idx ON scout_run_companies(run_id,status);
     INSERT INTO scout_companies VALUES('company','Original Display');
     INSERT INTO scout_runs VALUES('run');
+    INSERT INTO scout_runs VALUES('second-run');
     INSERT INTO scout_company_configurations VALUES('configuration');
     INSERT INTO scout_run_companies(id,run_id,company_id,company_configuration_id,status)
     VALUES('run-company','run','company','configuration','queued');
@@ -552,6 +555,19 @@ test("0040 snapshots the original company display for existing run companies", a
   expect(database.query(`SELECT company_name companyName FROM scout_run_companies WHERE id='run-company'`).get()).toEqual({
     companyName: "Original Display",
   });
+  database.query(`INSERT INTO scout_run_companies(id,run_id,company_id,company_name,company_configuration_id) VALUES('default-status','second-run','company','Original Display','configuration')`).run();
+  expect(database.query(`SELECT status FROM scout_run_companies WHERE id='default-status'`).get()).toEqual({ status: "queued" });
+  expect(() => database.query(`INSERT INTO scout_run_companies(id,run_id,company_id,company_name,company_configuration_id,status) VALUES('duplicate','run','company','Original Display','configuration','queued')`).run()).toThrow("UNIQUE constraint failed");
+  expect(() => database.query(`UPDATE scout_run_companies SET status='invalid' WHERE id='run-company'`).run()).toThrow("CHECK constraint failed");
+  expect(() => database.query(`UPDATE scout_run_companies SET failure_code=? WHERE id='run-company'`).run("x".repeat(101))).toThrow("CHECK constraint failed");
+  expect(() => database.query(`UPDATE scout_run_companies SET failure_message=? WHERE id='run-company'`).run("x".repeat(501))).toThrow("CHECK constraint failed");
+  expect(database.query(`SELECT name FROM sqlite_master WHERE type='index' AND name='scout_run_companies_run_idx'`).get()).toEqual({
+    name: "scout_run_companies_run_idx",
+  });
+  expect(database.query(`PRAGMA index_info(scout_run_companies_run_idx)`).all()).toEqual([
+    expect.objectContaining({ seqno: 0, name: "run_id" }),
+    expect.objectContaining({ seqno: 1, name: "status" }),
+  ]);
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
   database.close();
 });
