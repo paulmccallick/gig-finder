@@ -150,6 +150,40 @@ describe("Gig Scout position mutation API",()=>{
     });
   });
 
+  test("completed promotion retry keeps the existing body-free HTTP 202 updated contract", async () => {
+    const positionId = `spos_${"1".repeat(32)}`;
+    const calls: string[] = [];
+    const scoutPositions = {
+      retryPromotion(id: string) {
+        calls.push(id);
+        return {
+          status: "updated",
+          position: { id, state: "promoted", stateRevision: 7 },
+        };
+      },
+    };
+    const handler = createWebHandler({
+      gigFinder: application,
+      agentApi: { messages: async () => new Response(null), list: () => Response.json({ conversations: [] }), load: () => Response.json({ error: "Not found" }, { status: 404 }) },
+      uploadHandler: async () => new Response(null),
+      discardStagedDocument: () => false,
+      requestLogger: () => logger,
+      scoutPositions: scoutPositions as never,
+    });
+
+    const response = await handler(new Request(
+      `http://localhost/api/gig-scout/positions/${positionId}/promotion/retry`,
+      { method: "POST" },
+    ), requestServer);
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      status: "updated",
+      position: { id: positionId, state: "promoted", stateRevision: 7 },
+    });
+    expect(calls).toEqual([positionId]);
+  });
+
   test("retry enriches stale candidate documents through the decision response path", async () => {
     const documentId = createVersionedDocument();
     const position = { id: "position-1", state: "needs_user_review", stateRevision: 4 };

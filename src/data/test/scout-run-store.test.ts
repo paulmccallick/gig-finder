@@ -325,6 +325,308 @@ test("reviewed posting intent binds the exact observation, description, and subm
   expect(()=>reviewedStore.beginPursue(replacementCommand,replacementResolution,"2026-09-01T12:00:06Z")).toThrow("Reviewed Scout promotion intent is unavailable.");
 });
 
+test("completed promotion work reconstructs the latest complete current Scout evidence without writes", async () => {
+  setup("Synthetic Company");
+  const database = databases.at(-1)!;
+  const descriptionsRoot = mkdtempSync(path.join(process.cwd(), "tmp", "scout-completed-promotion-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const screening = {
+    profile: { summary: "Synthetic candidate" },
+    profileVersion: "synthetic-profile-v1",
+    profileArtifactId: "synthetic-profile-artifact",
+    profileHash: "synthetic-profile-hash",
+    model: "synthetic-model",
+    provider: "synthetic-provider",
+    modelConfiguration: "synthetic-configuration",
+  };
+  const store = new SqliteScoutRunStore(database, descriptionsRoot, screening);
+  store.startOrReuse(20, 5, "2026-09-01T13:00:00Z");
+  const initialJob = store.pendingJobs(1)[0]!;
+  const initialPosition = {
+    company: initialJob.companyName,
+    sourceKey: "official",
+    externalId: "SYN-149",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-149-historical",
+    title: "Historical Synthetic Director",
+    location: "Remote",
+    description: "# Historical synthetic posting",
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "listing" as const,
+      descriptionUrl: "https://careers.example.test/jobs/SYN-149-historical",
+    },
+  };
+  prepareAndComplete(store, initialJob, {
+    companyId: initialJob.companyId,
+    configurationVersionId: initialJob.configurationVersionId,
+    positions: [initialPosition],
+    sources: [{
+      sourceKey: "official",
+      status: "succeeded_with_results",
+      positions: [initialPosition],
+      attempts: [],
+    }],
+  }, "2026-09-01T13:00:01Z");
+  const model: ScoutScreeningModel = {
+    async screenRelevance() {
+      return {
+        value: {
+          decision: "passes_relevance",
+          reason: "Synthetic leadership role",
+          confidence: .99,
+          evidence: ["Leadership"],
+          ambiguities: [],
+        },
+        metrics: {
+          provider: screening.provider,
+          model: screening.model,
+          modelConfiguration: screening.modelConfiguration,
+          inputTokens: 1,
+          outputTokens: 1,
+          latencyMs: 1,
+        },
+      };
+    },
+    async scoreCandidateMatch() {
+      return {
+        value: { score: 9, scoreExplanation: "Synthetic candidate match" },
+        metrics: {
+          provider: screening.provider,
+          model: screening.model,
+          modelConfiguration: screening.modelConfiguration,
+          inputTokens: 1,
+          outputTokens: 1,
+          latencyMs: 1,
+        },
+      };
+    },
+  };
+  const processor = new ScoutPositionProcessor(store, model, () => "2026-09-01T13:00:02Z");
+  while (store.pendingPositionJobs(20)[0]) {
+    await processor.process(store.pendingPositionJobs(20)[0]!.id);
+  }
+  const initialReview = store.reviewPosting(
+    (database.query(`SELECT id FROM scout_positions WHERE external_id='SYN-149'`).get() as { id: string }).id,
+  )!;
+  const application = new GigFinderApplication(new DataStore(database), new AuditReader(database));
+  const positions = new ScoutPositionService(store, application.gigs, application.documents);
+  store.beginPursue({
+    positionId: initialReview.detail.id,
+    action: "pursue",
+    actor: "Synthetic Reviewer",
+    changeId: "synthetic-completed-promotion",
+    expectedStateRevision: initialReview.detail.stateRevision,
+    descriptionId: initialReview.detail.descriptionId!,
+    relevanceEvaluationId: initialReview.detail.relevanceEvaluationId!,
+    candidateMatchEvaluationId: initialReview.detail.candidateMatchEvaluationId!,
+  }, {
+    kind: "create_new",
+    reviewedFingerprint: application.gigs.resolvePosting(initialReview.posting).fingerprint,
+  }, "2026-09-01T13:00:03Z");
+  expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({ status: "created" });
+  const completedPromotion = database.query(
+    `SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id) as { gigId: string; managedDocumentId: string };
+
+  store.startOrReuse(20, 5, "2026-09-01T13:01:00Z");
+  const currentJob = store.pendingJobs(1)[0]!;
+  const currentPosition = {
+    company: currentJob.companyName,
+    sourceKey: "official",
+    externalId: "SYN-149",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-149",
+    title: "Current Synthetic Director",
+    location: "Seattle, WA",
+    locations: [{ label: "Seattle, WA", workArrangement: "hybrid" as const }],
+    workArrangement: "hybrid" as const,
+    description: "# Current synthetic posting",
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "listing" as const,
+      descriptionUrl: "https://careers.example.test/jobs/SYN-149",
+    },
+  };
+  prepareAndComplete(store, currentJob, {
+    companyId: currentJob.companyId,
+    configurationVersionId: currentJob.configurationVersionId,
+    positions: [currentPosition],
+    sources: [{
+      sourceKey: "official",
+      status: "succeeded_with_results",
+      positions: [currentPosition],
+      attempts: [],
+    }],
+  }, "2026-09-01T13:01:01Z");
+  const currentBinding = database.query(`
+    SELECT observation.id observationId, description.id descriptionId
+    FROM scout_position_observations observation
+    JOIN scout_position_descriptions description ON description.position_id=observation.position_id
+    WHERE observation.position_id=?
+    ORDER BY observation.observed_at DESC, observation.id DESC,
+             description.created_at DESC, description.id DESC
+    LIMIT 1
+  `).get(initialReview.detail.id) as { observationId: string; descriptionId: string };
+  const criteria = database.query(
+    `SELECT id FROM scout_relevance_criteria ORDER BY version DESC LIMIT 1`,
+  ).get() as { id: string };
+  const rubric = database.query(
+    `SELECT id FROM scout_candidate_match_rubrics ORDER BY version DESC LIMIT 1`,
+  ).get() as { id: string };
+  database.query(`
+    INSERT INTO scout_relevance_evaluations(
+      id,position_id,description_id,criteria_id,input_identity,decision,reason,
+      confidence,evidence_json,ambiguities_json,provider,model,
+      model_configuration,latency_ms,created_at
+    ) VALUES(
+      'current-relevance-149',?,?,?,'current-relevance-input-149',
+      'passes_relevance','Current synthetic evidence',990,'[]','[]',
+      'synthetic','synthetic','synthetic',1,'2026-09-01T13:01:02Z'
+    )
+  `).run(initialReview.detail.id, currentBinding.descriptionId, criteria.id);
+  database.query(`
+    INSERT INTO scout_candidate_match_evaluations(
+      id,position_id,relevance_evaluation_id,input_identity,profile_version,
+      profile_artifact_id,profile_hash,rubric_id,score,score_explanation,
+      provider,model,model_configuration,latency_ms,created_at
+    ) VALUES(
+      'current-match-149',?,'current-relevance-149','current-match-input-149',
+      'synthetic-v1','synthetic-artifact','synthetic-hash',?,9,
+      'Current synthetic match','synthetic','synthetic','synthetic',1,
+      '2026-09-01T13:01:03Z'
+    )
+  `).run(initialReview.detail.id, rubric.id);
+  database.query(`
+    INSERT INTO scout_position_processing(
+      id,position_id,run_id,observation_id,description_id,
+      relevance_evaluation_id,rubric_id,stage,input_identity,status,
+      attempt_count,created_at,updated_at,completed_at
+    ) VALUES(
+      'current-match-processing-149',?,?,?,?,?,?,'score_candidate_match',
+      'current-match-input-149','completed',1,'2026-09-01T13:01:03Z',
+      '2026-09-01T13:01:03Z','2026-09-01T13:01:03Z'
+    )
+  `).run(
+    initialReview.detail.id,
+    currentJob.runId,
+    currentBinding.observationId,
+    currentBinding.descriptionId,
+    "current-relevance-149",
+    rubric.id,
+  );
+
+  const stateBefore = database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id) as Record<string, unknown> & { revision: number };
+  const decisionBefore = database.query(`
+    SELECT decision.*
+    FROM scout_position_decisions decision
+    JOIN scout_position_states state ON state.current_decision_id=decision.id
+    WHERE state.position_id=?
+  `).get(initialReview.detail.id);
+  const promotionBefore = database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id);
+
+  const work = store.promotionWork(initialReview.detail.id);
+
+  expect(work).toMatchObject({
+    kind: "completed_retry",
+    positionId: initialReview.detail.id,
+    linkedGigId: completedPromotion.gigId,
+    observationId: currentBinding.observationId,
+    descriptionId: currentBinding.descriptionId,
+    actor: "Gig Scout",
+    posting: {
+      company: "Synthetic Company",
+      externalId: "SYN-149",
+      canonicalUrl: "https://careers.example.test/jobs/SYN-149",
+      title: "Current Synthetic Director",
+      locations: [{ label: "Seattle, WA", workArrangement: "hybrid" }],
+      workArrangement: "hybrid",
+    },
+    markdown: "# Current synthetic posting",
+  });
+  expect(database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id)).toEqual(stateBefore);
+  expect(database.query(`
+    SELECT decision.*
+    FROM scout_position_decisions decision
+    JOIN scout_position_states state ON state.current_decision_id=decision.id
+    WHERE state.position_id=?
+  `).get(initialReview.detail.id)).toEqual(decisionBefore);
+  expect(database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id)).toEqual(promotionBefore);
+
+  const interruptedDocuments = {
+    get: (...args: Parameters<typeof application.documents.get>) => application.documents.get(...args),
+    create: (...args: Parameters<typeof application.documents.create>) => application.documents.create(...args),
+    update: () => {
+      throw new Error("Synthetic interruption after completed-retry Gig commit.");
+    },
+    createdByChange: (...args: Parameters<typeof application.documents.createdByChange>) => application.documents.createdByChange(...args),
+    versionByChange: (...args: Parameters<typeof application.documents.versionByChange>) => application.documents.versionByChange(...args),
+  };
+  const interruptedRetry = new ScoutPositionService(
+    store,
+    application.gigs,
+    interruptedDocuments,
+  );
+  expect(() => interruptedRetry.retryPromotion(initialReview.detail.id)).toThrow(
+    "Synthetic interruption after completed-retry Gig commit.",
+  );
+  expect(application.gigs.get(completedPromotion.gigId)).toMatchObject({
+    title: currentPosition.title,
+    sourceUrl: currentPosition.canonicalUrl,
+  });
+  expect(application.documents.versions(completedPromotion.managedDocumentId)).toHaveLength(1);
+  expect(database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id)).toEqual(stateBefore);
+  expect(database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id)).toEqual(promotionBefore);
+
+  expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({
+    status: "updated",
+    position: {
+      id: initialReview.detail.id,
+      state: "promoted",
+      stateRevision: stateBefore.revision,
+    },
+  });
+  expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({
+    status: "updated",
+    position: { id: initialReview.detail.id, state: "promoted" },
+  });
+  expect(application.documents.versions(completedPromotion.managedDocumentId)).toHaveLength(2);
+  expect(database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id)).toEqual(stateBefore);
+  expect(database.query(`
+    SELECT decision.*
+    FROM scout_position_decisions decision
+    JOIN scout_position_states state ON state.current_decision_id=decision.id
+    WHERE state.position_id=?
+  `).get(initialReview.detail.id)).toEqual(decisionBefore);
+  expect(database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id)).toEqual(promotionBefore);
+
+  database.query(
+    `UPDATE scout_position_processing SET status='failed' WHERE id='current-match-processing-149'`,
+  ).run();
+  database.query(`
+    UPDATE scout_position_processing
+    SET status='failed'
+    WHERE position_id=? AND stage='score_candidate_match'
+  `).run(initialReview.detail.id);
+  expect(store.promotionWork(initialReview.detail.id)).toBeNull();
+});
+
 test("company result preparation remains nonterminal and is replay safe", () => {
   const store = setup();
   const database = databases.at(-1)!;
@@ -795,8 +1097,12 @@ test("screening persists bounded comments and exposes only the score explanation
   database.query(`UPDATE managed_document_versions SET source_description=?,source_provenance_json=? WHERE document_id=? AND version=1`).run(promotionWork.sourceDescription,JSON.stringify(promotionWork.sourceProvenance),mismatchedDocument.id);
   const promoted=positions.retryPromotion(review.id);
   expect(promoted).toEqual({status:"created",position:null});
-  expect(positions.retryPromotion(review.id)).toBeNull();
+  expect(positions.retryPromotion(review.id)).toMatchObject({
+    status:"updated",
+    position:{id:review.id,state:"promoted"},
+  });
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
+  expect(positions.get(review.id)).toBeNull();
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
   const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};

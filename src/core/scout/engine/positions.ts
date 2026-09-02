@@ -49,18 +49,20 @@ export interface ScoutPostingReview {
  sourceDescription:string;
  sourceProvenance:ManagedDocumentSourceProvenance;
 }
-export interface ScoutPromotionWork {
+export interface ScoutPromotionMaterial {
  positionId:string;
  observationId:string;
  descriptionId:string;
- changeId:string;
  actor:string;
  posting:NormalizedPosition;
  markdown:string;
  sourceDescription:string;
  sourceProvenance:ManagedDocumentSourceProvenance;
- resolution:PostingResolution;
 }
+export type ScoutPromotionWork = ScoutPromotionMaterial & (
+ | {kind:"attempt";changeId:string;resolution:PostingResolution}
+ | {kind:"completed_retry";linkedGigId:string}
+);
 export interface ScoutPromotedDescriptionWork {
  processingId:string;
  positionId:string;
