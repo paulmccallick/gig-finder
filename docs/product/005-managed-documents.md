@@ -29,6 +29,7 @@
   - **Given** a Profile context document, **When** the agent considers context, **Then** its name and description are visible and content is read on demand.
   - **Given** a staged upload, **When** no managed-document action is requested, **Then** the source remains unaltered and no document is created implicitly.
   - **Given** structured source provenance on document creation, **When** version 1 is read, **Then** its source description and structured provenance match the accepted source exactly.
+  - **Given** a Gig linked to a managed `job_description`, **When** Gig details are opened, **Then** the document's current managed version is the authoritative rendered job description.
 - **Error Boundaries**: Conversion, lookup, or projection failures are explicit and do not replace the last authoritative version.
 - **Data Validation**: Ownership and document type must agree; Profile documents have a name and may have a bounded description; arbitrary file reads are prohibited.
 

@@ -16,7 +16,7 @@
 - **Input Data**: Gig identity, company, role, requisition ID, stage, status, dates, location and work-mode details, compensation, notes, links, and related records where captured. The preferred current official-posting identity is normalized company plus a current nonblank requisition ID; normalization trims whitespace and compares case-insensitively while preserving display values.
 - **Happy Path**:
   1. The user searches or filters the pipeline and sees matching gigs grouped in a meaningful workflow order.
-  2. The user opens a gig to review its details, application material, and related context.
+  2. The user opens a gig to review its details, current linked managed job description, application material, and related context. Apply opens the Gig's current official `sourceUrl`.
   3. When the user accepts an official posting, `GigDomainService` resolves candidates and applies the posting to a newly created or explicitly selected Gig.
 - **Alternative Paths**:
   - No gigs match -> Explain that filters hid the results and offer a reset.
@@ -30,6 +30,9 @@
   - **Given** search or filter criteria, **When** the user applies them, **Then** summaries and visible groups describe the same result set.
   - **Given** a current Gig and an official posting with the same normalized company and nonblank requisition ID, **When** the posting is accepted, **Then** the Gig is a candidate that requires explicit confirmation rather than an automatic match.
   - **Given** two postings with the same normalized company and title but different requisition IDs, **When** the user explicitly creates a separate Gig, **Then** both Gigs retain their own current posting identity.
+  - **Given** a Gig with a linked managed `job_description`, **When** the user opens its details, **Then** the current managed Markdown is rendered and Open document targets that exact version.
+  - **Given** a Gig with no linked managed `job_description`, **When** the user opens its details, **Then** the description is explicitly unavailable.
+  - **Given** a Gig with a current official `sourceUrl`, **When** the user chooses Apply, **Then** that URL opens in a new browser context.
 - **Error Boundaries**: A data-load failure is explicit and does not present partial results as complete.
 - **Data Validation**: Gig state uses the shared domain vocabulary and preserves record identity across lifecycle changes. Prior company, requisition-ID, and official-URL values remain available in revision history for reference only and do not participate in current posting matching.
 
