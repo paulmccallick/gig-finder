@@ -2,335 +2,279 @@
 
 **Issue:** [#149 — Fix promoted Gig description display and Apply destination](https://github.com/paulmccallick/gig-finder/issues/149)
 
-## Problem
+## Purpose
 
-The Gig drawer still uses two legacy projections instead of the authoritative
-Gig state:
+Gig details must present the job description and official posting associated
+with the Gig. Scout promotion must be able to reapply its current authoritative
+posting to an existing Gig when that Gig was created from incomplete or
+incorrect historical Scout data.
 
-- job-description availability and content come from a filesystem flag and
-  artifact reader even when the Gig has a current linked managed document; and
-- Apply uses the Gig URL, but historical Scout promotions could populate that
-  field from description-acquisition provenance instead of the posting's
-  canonical official URL.
+The production defects motivating this work are:
 
-This creates two user-visible failures. A Gig can report that no description is
-available while its managed job description exists, and Apply can open a
-search or acquisition endpoint that is not the official posting.
+- the BECU Gig has a linked managed job description, but the drawer reports no
+  description because it reads a legacy filesystem projection; and
+- the Providence Gig's Apply action opens a description-acquisition search URL
+  even though its Scout observation contains the canonical official posting
+  URL.
 
-Production inspection also established that the legacy artifact flags provide
-no unique coverage: no non-deleted Gig relies on a filesystem-only job
-description, and supported interview preparation is already represented by
-managed `interview_prep` documents linked to a Gig or Candidate Profile.
+## Outcomes
 
-## Goals
+- A linked managed `job_description` is the authoritative Gig job description.
+- The Gig drawer renders that document's current Markdown and links to its
+  normal GigFinder document view.
+- Apply opens the Gig's current canonical official posting URL.
+- The existing promotion retry operation can reapply a completed promoted
+  position to its existing Gig.
+- Gig and managed-document changes use their existing domain services and
+  preserve immutable history.
+- The obsolete Gig filesystem artifact projection is removed from the
+  application while existing files remain untouched on disk.
 
-This change will:
+## Gig description read model
 
-- make a linked managed `job_description` the only authoritative Gig job
-  description;
-- remove the obsolete Gig filesystem artifact flags, readers, synchronization,
-  and verification paths;
-- render the current managed Markdown in the Gig drawer and provide the normal
-  Open document action;
-- make Apply open the Gig's current official posting URL;
-- repair confirmed bad official URLs and missing descriptions by re-promoting
-  the current successful projection of each exact linked Scout position;
-- limit repair to non-deleted Gigs whose stage is not `closed`;
-- preserve immutable managed-document versions and audited Gig history; and
-- keep all cross-domain mutation behind the owning domain service.
+`GigDomainService` returns the managed-document summaries linked to each Gig.
+The Gig drawer selects the current linked document whose type is
+`job_description`. If historical data contains more than one, it uses the same
+stable document-ID ordering as the Gig domain's posting-candidate read model.
 
-## Non-goals
+The drawer retrieves the document's current immutable version through the
+managed-document API and renders its Markdown inline with GigFinder's existing
+document presentation. The description can be expanded or collapsed. Open
+document navigates to the normal exact-version document view, whose existing
+Back action returns to the prior screen.
 
-- Closed or deleted Gigs will not be repaired.
-- A Gig without an exact linked Scout position cannot be repaired by this
-  workflow.
-- A linked position without a complete successful current Scout description
-  cannot be re-promoted. Its Scout processing must be repaired separately
-  before the existing promotion retry is attempted again.
-- User-authored managed documents will not be overwritten or renamed.
-- Legacy Gig artifact files will not be deleted from disk by the schema
-  migration or deployment.
-- No new ADR is required. The change completes the already accepted ownership
-  rules in ADRs 0006, 0016, and 0017.
-
-## Authoritative read model
-
-`GigDomainService` already returns document summaries linked to a Gig. Those
-links, together with `ManagedDocumentService`, are the only source of
-job-description availability and content.
-
-For each Gig, the UI selects the current linked document whose type is
-`job_description`. If more than one exists because of historical data, it uses
-the same ID ordering already applied by the Gig domain's posting-candidate read
-model. The drawer then loads that document's current immutable version through
-the managed-document API. It does not read content from the Gig list payload or
-from a filesystem path.
-
-The drawer renders the Markdown inline using GigFinder's existing managed
-document presentation. The user can expand or collapse the inline content and
-can choose Open document to navigate to the normal exact-version document
-view. That view retains its existing Back behavior.
-
-When no linked managed `job_description` exists, the drawer explicitly says
-that no captured job description is available. It never consults a legacy
-flag as a fallback.
+When the Gig has no linked managed `job_description`, the drawer displays an
+explicit unavailable state.
 
 ## Apply behavior
 
-Apply uses only the current `sourceUrl` on the Gig returned by the Gig domain.
-It opens that URL in a new browser context. The action is unavailable when the
-Gig has no official URL.
+Apply uses `Gig.sourceUrl`, which is the Gig domain's current canonical official
+posting URL. It opens the URL in a new browser context. The action is
+unavailable when `sourceUrl` is absent.
 
-Apply must never target:
+The UI does not derive an Apply destination from a managed document, document
+provenance, Scout acquisition URL, or filesystem path. The Gig domain owns the
+posting identity presented by the Gig.
 
-- a managed-document or GigFinder document-view URL;
-- a filesystem artifact path;
-- a Scout search or listing API endpoint; or
-- a description-acquisition URL.
+## Managed documents replace the Gig artifact projection
 
-The UI does not infer or reconstruct an official URL from document provenance.
-The Gig domain remains authoritative for the Gig's current posting identity.
+The `has_job_description` and `has_interview_prep` columns are removed from
+`gigs` and `gig_history`. Their domain fields, repository mappings, HTTP
+projection, and synthetic fixtures are removed with them. The migration
+preserves every other row, revision, history value, constraint, index, and
+foreign-key relationship.
 
-## Removing the legacy Gig artifact projection
+The Gig filesystem artifact port, local store, domain service, HTTP route, and
+sync/verification commands are removed. The document reader works exclusively
+with managed documents. Existing filesystem contents are not deleted during
+migration or deployment.
 
-The `has_job_description` and `has_interview_prep` columns are removed from both
-`gigs` and `gig_history`. The corresponding fields are removed from Gig domain
-records, input schemas, repository mappings, CLI projections, and synthetic
-fixtures. The migration rebuilds both tables while preserving every remaining
-column, row, revision, history record, constraint, index, and foreign-key
-relationship.
+Job descriptions remain managed `job_description` documents linked to a Gig.
+Interview preparation remains a managed `interview_prep` document linked to a
+Gig or Candidate Profile. Both retain normal immutable version history.
 
-The Gig filesystem artifact port, local store, artifact domain service, and
-artifact sync/verify commands are removed rather than retained as unsupported
-compatibility paths. Existing files are left untouched on disk but are no
-longer discovered, verified, served, synchronized, or treated as application
-state.
+## Promotion retry
 
-The Gig domain removes its legacy description and preparation methods. The
-document reader no longer merges filesystem content into managed-document
-results. The Gig-artifacts HTTP route is removed. Supported job descriptions
-and interview preparation remain ordinary managed documents with immutable
-versions and Gig or Profile links.
+The established recovery operation is:
 
-## Promotion retry and re-promotion
+`POST /api/gig-scout/positions/:positionId/promotion/retry`
 
-Backfill and re-promotion remain separate capabilities. Exact-ID backfill
-repairs Scout acquisition and processing state only; it does not mutate a Gig
-or a managed document. Re-promotion fixes a Gig after Scout holds a complete,
-successful current position.
+For pending or failed work, it continues the existing promotion attempt. For a
+completed promoted position, it reconstructs the current promotion input and
+reapplies it to the position's existing linked Gig.
 
-No API is added. The existing
-`POST /api/gig-scout/positions/:positionId/promotion/retry` endpoint remains the
-single recovery surface. It already retries pending or failed promotion work;
-it is extended so calling it for a completed promoted position re-promotes that
-position to its existing linked Gig. The endpoint remains one exact position
-per request and accepts no search filter or implicit all-positions mode. Its
-existing `ScoutPursueResult` response contract is unchanged: a successful
-completed-position replay returns `updated`, and existing resolution-stale or
-resolution-invalid outcomes retain their current meaning.
+A completed position is eligible when:
 
-The post-deployment operator reviews the affected positions and Gigs through
-their existing read APIs, then calls the retry endpoint for each exact position
-ID. No user interface, CLI command, preview endpoint, or batch repair contract
-is added.
+- it remains in the promoted state and links to exactly one Gig;
+- its current Scout projection has a complete successful normalized posting
+  and Markdown description;
+- the linked Gig exists, is not deleted, and is not closed; and
+- `GigDomainService.resolvePosting()` still identifies that exact Gig as a
+  candidate for the current posting.
 
-Re-promotion is restricted to positions that:
+The original Pursue decision established the relationship between the position
+and the Gig. Retry therefore targets that same Gig without another resolution
+choice and cannot create or select a different Gig.
 
-- are currently promoted and linked to exactly one existing Gig;
-- have a latest complete, successful Scout posting with normalized Markdown;
-- are linked to a Gig that is not deleted and not in stage `closed`; and
-- still identify that exact linked Gig as a current candidate through
-  `GigDomainService.resolvePosting()`.
+`ScoutPositionService` reconstructs the current `NormalizedPosition`, current
+description Markdown, and description provenance. It supplies a current
+`use_existing` resolution for the linked Gig to the same internal promotion
+operation used by initial Pursue.
 
-Initial promotion and completed-position retry share one core implementation for
-applying the posting, creating or updating the managed document, verifying
-idempotent replay, and returning completion. Initial Pursue wraps that step in
-the existing durable user decision and promotion attempt. Re-promotion
-does not create another user decision, alter the promoted Scout state, rewrite
-the completed promotion row, or create a separate mutation implementation.
+That shared operation performs two domain-owned steps:
 
-For completed work, the service derives a deterministic re-promotion change ID
-from the position ID, linked Gig ID, exact current observation, and exact
-current description. If the request is interrupted after one domain change
-commits, repeating the endpoint reconciles that exact change and completes the
-remaining work. A later successful backfill changes the current Scout
-identities and therefore produces a new re-promotion change ID.
+1. `GigDomainService.acceptPosting()` applies the current posting to the linked
+   Gig.
+2. `ManagedDocumentService` creates the missing managed job description,
+   creates a new immutable version when Markdown changed, or retains the
+   current version when Markdown is unchanged.
 
-The current backfill-specific managed-document update is removed. In plain
-terms, backfill stops changing a promoted Gig's document behind the Gig
-domain's back; only initial promotion or explicit promotion retry can update
-the Gig and its managed description together.
+The endpoint keeps the existing `ScoutPursueResult` contract. A successful
+completed-position retry returns `updated`. Current resolution-stale and
+resolution-invalid outcomes retain their existing meanings. Invalid or
+incomplete current Scout state uses the existing validation-error response.
 
-### Updating the linked Gig
+## Gig update semantics
 
-The original Pursue decision established that the position belongs to the
-linked Gig. Re-promotion does not ask the user to resolve that same relationship
-again and cannot select or create a different Gig. It resolves current
-candidate evidence through `GigDomainService`, supplies a fresh reviewed
-fingerprint and expected Gig revision for that exact Gig, and stops with a
-stable conflict if the linked Gig is no longer a valid candidate.
+`GigDomainService.acceptPosting()` owns the Gig mutation. It applies these
+posting-owned values from the current `NormalizedPosition`:
 
-`GigDomainService.acceptPosting()` applies the current complete
-`NormalizedPosition` to the existing Gig. It updates posting-owned title,
-requisition ID, canonical official URL, location, and work arrangement when
-the new posting supplies them. It preserves the Gig ID, company, pipeline
-state, relationships, documents, tasks, people, interactions, and all other
-pipeline-owned fields. The normal Gig transaction records immutable history.
+- title;
+- requisition ID;
+- canonical official URL;
+- location; and
+- work arrangement.
 
-This naturally repairs historical Gigs whose Apply URL came from acquisition
-provenance: the current posting's immutable canonical URL replaces it during
-the normal Gig-domain update. No URL-specific repair rule or mutation method is
-needed.
+The update preserves the Gig ID, company, pipeline stage and outcome,
+availability, relationships, documents, tasks, people, interactions, and every
+other pipeline-owned field. A changed Gig is recorded through the normal
+audited Gig transaction and immutable `gig_history`.
 
-### Updating the managed job description
+This is how a historical acquisition URL is corrected: the current posting's
+canonical URL is reapplied through the normal Gig domain operation.
 
-The shared promotion coordinator uses the current successfully processed Scout
-Markdown and provenance. If the Gig has no managed `job_description`, it
-creates and links one through `ManagedDocumentService`. If the Markdown
-changed, it creates one immutable version. If the Markdown is unchanged, it
-creates no version and does not require historical provenance to match a later
-acquisition.
+## Managed job-description semantics
 
-Re-promotion uses deterministic internal change identities derived from the
-position ID, linked Gig ID, exact current observation, and exact current
-description. A retry
-reconciles a previously committed Gig update, document creation, or document
-version instead of duplicating it. It verifies exact document ownership, type,
-media type, content, and the provenance attached to any version created by that
-attempt.
+The promotion operation supplies the current Scout Markdown and exact
+acquisition provenance to `ManagedDocumentService`.
 
-If the current Scout projection lacks authoritative normalized Markdown or any
-other required successful stage, the endpoint uses its existing validation
-error response and performs no mutation. Backfill may be used separately to
-repair that Scout state; the operator can then retry promotion again.
+- If the linked Gig has no managed `job_description`, the service creates and
+  links one.
+- If the current document has different Markdown, the service creates one new
+  immutable version.
+- If the Markdown is unchanged, the service creates no version and preserves
+  the existing document metadata and provenance.
+- User-authored document titles and metadata are preserved.
 
-## Ownership and service boundaries
+The operation verifies document ownership, type, media type, content, linkage,
+and the provenance of any version created by that attempt.
 
-`ScoutPositionService` coordinates initial promotion and re-promotion. It does
-not own Gig or document mutation rules.
+## Idempotency and recovery
 
-- `GigDomainService` owns official-URL validation, revision checking, history,
-  and mutation of `gigs` and `gig_history`.
+Completed-position retry derives deterministic internal change identities from
+the position ID, linked Gig ID, current observation, and current description.
+Repeating the same retry reconciles any already-committed Gig or document
+change and then completes the remaining work. It does not create duplicate Gig
+revisions, documents, links, or document versions.
+
+A later successful Scout backfill changes the current observation or
+description identity, so a subsequent promotion retry represents a new
+authoritative posting revision.
+
+Completed-position retry does not create a new user decision, change the Scout
+position state, or rewrite its completed promotion record. Scout persistence
+only reconstructs the current promotion input. Gig and document persistence is
+performed by the owning domain services.
+
+Position backfill remains responsible for reacquiring and reevaluating Scout
+position state. When a position lacks a complete current projection, the
+operator first repairs that state with backfill and then invokes promotion
+retry.
+
+## Service boundaries
+
+- `ScoutPositionService` coordinates the promotion workflow.
+- `GigDomainService` owns posting matching, validation, revision checks, Gig
+  mutation, audit, and history.
 - `ManagedDocumentService` owns document creation, linkage, immutable versions,
-  provenance, and idempotent replay.
-- Scout persistence provides read-only reconstruction of the exact current
-  posting and description evidence. Re-promotion writes no Scout state.
-- Data adapters do not invoke another domain service or reproduce another
-  domain's mutation SQL.
-- The composition root continues to wire the one Scout promotion coordinator
-  to the Gig and managed-document capabilities.
+  provenance, and replay.
+- Scout persistence reconstructs current observations, descriptions, and
+  promotion bindings.
+- Data adapters depend on domain contracts and do not invoke domain services or
+  reproduce another domain's mutation SQL.
+- The composition root wires the coordinator to the Gig and managed-document
+  services.
 
-This follows ADR 0016. No direct repair SQL against Gig or managed-document
-tables is permitted.
-
-## Failure and recovery behavior
-
-The retry endpoint retains its existing bounded `ScoutPursueResult` response.
-Successful re-promotion returns `updated`; changed evidence uses the existing
-resolution-stale or resolution-invalid result; invalid or incomplete Scout
-state uses the existing validation-error response. Responses contain
-identifiers and failure details, not document content.
-
-Every mutation is revision-checked, audited, and idempotent. It never rolls
-back a committed domain mutation by editing storage directly. Repeating the
-exact API request derives the same internal change identities and safely
-reconciles prior work.
+These boundaries implement ADRs 0016 and 0017.
 
 ## Security and privacy
 
-- Tests and tracked examples use synthetic records only.
-- Retry output contains bounded metadata and no description body.
-- Re-promotion reads only registered Scout and managed-document state; it cannot
-  read arbitrary filesystem paths.
-- Browser links use the current managed-document route or the stored official
-  HTTPS posting URL. Rendering Markdown does not enable raw HTML execution.
-- Existing URL validation and external-link protections remain in force.
+- Tracked tests and examples contain synthetic data only.
+- Retry responses contain bounded identifiers and failure details, never
+  description bodies or source payloads.
+- Description rendering does not enable raw HTML execution.
+- External links retain GigFinder's existing HTTPS validation and browser
+  protections.
+- Promotion reconstruction reads registered application state and cannot read
+  arbitrary filesystem paths.
 
 ## Verification
 
-The implementation uses the test pyramid:
+The implementation follows the test pyramid:
 
-1. Domain tests prove reapplying a complete posting to an existing Gig updates
-   only posting-owned fields, writes audited history, rejects stale or invalid
-   resolution, and is idempotent.
-2. Managed-document service tests prove deterministic creation, exact
-   provenance, immutable version history, conflict handling, and no overwrite
-   of user-authored documents.
-3. Data and migration tests prove both legacy artifact flags and their service,
-   port, synchronization, and verification paths are removed without losing
-   Gig/history data, constraints, indexes, foreign keys, or managed documents.
-4. HTTP and component tests prove the drawer loads the current managed version,
-   renders Markdown, exposes Open document, shows the unavailable state, and
-   makes Apply use only `Gig.sourceUrl`.
-5. Synthetic end-to-end tests cover a managed-description Gig whose former
-   legacy flag would have been false, retrying a completed promotion to replace
-   a bad acquisition URL with the canonical posting URL, missing
-   managed-document creation, changed and unchanged document content, stale
-   evidence rejection, and incomplete-current-projection validation.
+1. Gig domain tests prove that accepting a posting updates only posting-owned
+   fields, preserves pipeline-owned fields, records changed history, rejects
+   stale evidence, and replays idempotently.
+2. Managed-document tests prove creation, changed-content versioning,
+   unchanged-content reuse, provenance, ownership, and deterministic replay.
+3. Scout service and store tests prove completed-position reconstruction,
+   same-Gig enforcement, current-evidence validation, and unchanged Scout
+   decision/state/history.
+4. Migration tests prove removal of both legacy flags while preserving Gig and
+   history data, constraints, indexes, and foreign keys.
+5. HTTP and component tests prove managed-description rendering, Open document,
+   unavailable state, and Apply behavior.
+6. Synthetic end-to-end tests cover BECU-equivalent description display,
+   Providence-equivalent URL correction, creation of a missing managed
+   description, changed and unchanged Markdown, exact retry, stale evidence,
+   and incomplete current Scout state.
 
-The required application gates are `bun run db:check`, `bun run check`,
-`bun run build`, and `bun run test:e2e`. No live-site test or production-record
-fixture is required.
+The application gates are `bun run db:check`, `bun run check`,
+`bun run build`, and `bun run test:e2e`. Synthetic coverage is sufficient for
+this change.
 
-## Rollout
+## Rollout and production repair
 
-1. Deploy the schema, domain, API, and UI changes through the normal immutable
-   release workflow.
-2. Verify production health, database integrity, foreign keys, and that the
-   Gig drawer reads managed documents.
-3. Read the exact affected positions and linked Gigs through the existing APIs
-   and retain the metadata-only repair list outside source control.
-4. Call the existing promotion retry endpoint once for each reviewed exact
-   position ID.
-5. Verify each successful position retained the same linked Gig, its posting
-   fields reflect the current Scout posting, and its managed description is
-   present and current. Ineligible or failed positions remain explicit and may
-   be repaired in Scout through a separate backfill before re-promotion.
+1. Deploy the schema, domain, service, API, and UI changes through the normal
+   immutable release workflow.
+2. Verify production health, database integrity, foreign keys, managed
+   description rendering, and Apply behavior.
+3. Use the existing read APIs to identify the exact affected non-closed Gigs
+   and their linked promoted positions.
+4. Invoke the existing promotion retry endpoint once for each exact affected
+   position.
+5. Verify that each position remains linked to the same Gig, posting-owned Gig
+   fields match the current Scout posting, and the managed job description is
+   present and current.
 
-The release does not delete legacy files. Any later filesystem cleanup is a
-separate operational decision.
+The release leaves existing legacy files on disk. Closed Gigs, deleted Gigs,
+and Gigs without an exact linked Scout position are outside the repair set.
 
 ## Documentation impact
 
-- Update FRR-001 to state that Apply uses the Gig's current official posting
-  URL and Gig details obtain job descriptions from linked managed documents.
-- Update FRR-005 to state that linked managed documents are the sole
-  authoritative Gig job-description source.
-- Update FRR-006 to state that backfill repairs Scout state without mutating a
-  Gig, while retrying a completed promotion reapplies the current successful
-  position through the normal Gig and managed-document promotion flow.
-- Update the product overview to remove any implication that registered Gig
-  job descriptions can come from a legacy artifact projection.
-- Update infrastructure documentation only if it names the removed legacy Gig
-  artifact subsystem; the general runtime artifact mount remains because Scout
-  and managed-document projections still use it.
-- Do not add or amend an ADR: this change implements the accepted decisions in
-  ADRs 0006, 0016, and 0017 without changing their architecture.
+- FRR-001 states that Apply uses the Gig's current official posting URL and Gig
+  details read job descriptions from linked managed documents.
+- FRR-005 states that linked managed documents are the authoritative Gig
+  job-description source.
+- FRR-006 describes position backfill as Scout-state repair and completed
+  promotion retry as reapplying the current posting to its linked Gig.
+- The product overview describes registered Gig descriptions as managed
+  documents.
+- Infrastructure documentation removes only references to the Gig filesystem
+  artifact subsystem. The general runtime artifact mount remains for other
+  supported runtime artifacts.
+
+This design implements accepted ADRs 0006, 0016, and 0017.
 
 ## Acceptance criteria
 
-- A non-closed Gig with a linked managed job description displays its current
-  Markdown in the drawer even when no legacy artifact exists.
-- Open document opens the same exact managed version in GigFinder's document
-  view.
-- Apply opens the Gig's current canonical official posting URL and never a
-  document, artifact, search, or acquisition URL.
-- A non-closed Gig without a managed job description has an explicit
-  unavailable state.
-- Both legacy Gig artifact flags and every filesystem read, synchronization,
-  verification, domain, CLI, and HTTP path built on them are absent. Managed
-  `job_description` and `interview_prep` documents remain supported.
-- The existing promotion retry endpoint accepts a completed promoted position;
-  no repair-specific API, UI, CLI, or batch contract exists.
-- Completed-position retry uses the current successful Scout projection and
-  reuses the normal promotion coordinator for the same linked Gig.
-- Re-promotion calls `GigDomainService.acceptPosting()` and creates audited Gig
-  history when current posting-owned fields changed.
-- Missing or changed descriptions are handled through the same
-  `ManagedDocumentService` flow as initial promotion, with exact provenance and
-  immutable history; unchanged Markdown creates no version.
-- Incomplete Scout state returns the existing validation error and does not
-  report a successful re-promotion; backfill remains a separate repair
-  capability.
-- Repeating the same API request creates no duplicate Gig revision, managed
-  document, link, document version, decision, or promotion outcome.
+- A non-closed Gig with a linked managed job description renders its current
+  Markdown in the drawer and opens the same exact version in the document view.
+- Apply opens the Gig's canonical official posting URL in a new browser context.
+- A Gig without a linked managed job description displays the unavailable
+  state.
+- Managed `job_description` and `interview_prep` documents retain their normal
+  links and immutable histories after removal of the Gig filesystem artifact
+  projection.
+- The existing promotion retry endpoint accepts a completed promoted position
+  and applies its current posting to the same linked Gig.
+- `GigDomainService.acceptPosting()` owns all Gig changes and records history
+  when posting-owned fields change.
+- `ManagedDocumentService` creates a missing description, versions changed
+  Markdown once, and reuses unchanged Markdown.
+- Completed-position retry preserves Scout state and the original user decision
+  and promotion record.
+- Incomplete or stale current evidence produces the existing error or
+  resolution outcome without mutation.
+- Repeating the same retry is idempotent.
+- The production repair updates only reviewed, exact, non-closed linked Gigs.
