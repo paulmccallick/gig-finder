@@ -106,7 +106,6 @@ git commit -m "docs: define authoritative Gig descriptions"
 
 **Files:**
 - Modify: `src/core/documents.ts`
-- Modify: `src/core/managed-document-service.ts`
 - Modify: `src/core/test/services.test.ts`
 - Create: `src/web/client/data/documents.ts`
 - Modify: `src/web/client/data/gigs.ts`
@@ -306,7 +305,7 @@ Expected: all commands pass.
 - [ ] **Step 10: Commit the managed-document drawer**
 
 ```bash
-git add src/core/documents.ts src/core/managed-document-service.ts src/core/test/services.test.ts src/web/client/data/documents.ts src/web/client/data/gigs.ts src/web/client/DocumentViewer.tsx src/web/client/App.tsx src/web/client/styles.css src/web/test/client/document-viewer.test.ts src/web/e2e/dev.ts src/web/e2e/gig-board.e2e.ts
+git add src/core/documents.ts src/core/test/services.test.ts src/web/client/data/documents.ts src/web/client/data/gigs.ts src/web/client/DocumentViewer.tsx src/web/client/App.tsx src/web/client/styles.css src/web/test/client/document-viewer.test.ts src/web/e2e/dev.ts src/web/e2e/gig-board.e2e.ts
 git commit -m "feat: render Gig managed descriptions"
 ```
 
