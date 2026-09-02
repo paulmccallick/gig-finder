@@ -33,8 +33,8 @@ This change will:
 - render the current managed Markdown in the Gig drawer and provide the normal
   Open document action;
 - make Apply open the Gig's current official posting URL;
-- repair confirmed bad official URLs and missing descriptions by reprocessing
-  and re-promoting the exact linked Scout positions;
+- repair confirmed bad official URLs and missing descriptions by re-promoting
+  the current successful projection of each exact linked Scout position;
 - limit repair to non-deleted Gigs whose stage is not `closed`;
 - preserve immutable managed-document versions and audited Gig history; and
 - keep all cross-domain mutation behind the owning domain service.
@@ -44,9 +44,9 @@ This change will:
 - Closed or deleted Gigs will not be repaired.
 - A Gig without an exact linked Scout position cannot be repaired by this
   workflow.
-- A linked position whose current official description cannot be acquired will
-  remain without a new managed description and will report the acquisition
-  failure.
+- A linked position without a complete successful current Scout description
+  cannot be re-promoted. Its Scout processing must be repaired separately
+  before the existing promotion retry is attempted again.
 - User-authored managed documents will not be overwritten or renamed.
 - Legacy Gig artifact files will not be deleted from disk by the schema
   migration or deployment.
@@ -112,47 +112,54 @@ results. The Gig-artifacts HTTP route is removed. Supported job descriptions
 and interview preparation remain ordinary managed documents with immutable
 versions and Gig or Profile links.
 
-## Re-promotion through exact-ID backfill
+## Promotion retry and re-promotion
 
-Repair reuses the existing exact-ID position-backfill preview, start, and status
-API. It does not add a repair CLI, repair table, direct mutation operation, or
-second promotion implementation. Preview remains read-only; start requires an
-explicit allowlist of at most 1,000 position IDs and an operator reason. It
-never implicitly processes every eligible row.
+Backfill and re-promotion remain separate capabilities. Exact-ID backfill
+repairs Scout acquisition and processing state only; it does not mutate a Gig
+or a managed document. Re-promotion fixes a Gig after Scout holds a complete,
+successful current position.
 
-For a position already linked to a Gig, the backfill reruns the complete current
-position pipeline: authoritative posting reconstruction, description
-acquisition and normalization, relevance evaluation, and candidate scoring.
-After successful processing, `ScoutPositionService` reuses its normal promotion
-coordinator with a fresh `use_existing` resolution for the same linked Gig.
-That coordinator calls `GigDomainService.acceptPosting()` and then coordinates
-the managed job description through `ManagedDocumentService`.
+No API is added. The existing
+`POST /api/gig-scout/positions/:positionId/promotion/retry` endpoint remains the
+single recovery surface. It already retries pending or failed promotion work;
+it is extended so calling it for a completed promoted position re-promotes that
+position to its existing linked Gig. The endpoint remains one exact position
+per request and accepts no search filter or implicit all-positions mode. Its
+existing `ScoutPursueResult` response contract is unchanged: a successful
+completed-position replay returns `updated`, and existing resolution-stale or
+resolution-invalid outcomes retain their current meaning.
 
-The current backfill-only managed-document projection path is removed. Initial
-promotion and re-promotion share one implementation for applying the posting,
-creating or updating the managed document, verifying replay, and reporting
-completion.
+The post-deployment operator reviews the affected positions and Gigs through
+their existing read APIs, then calls the retry endpoint for each exact position
+ID. No user interface, CLI command, preview endpoint, or batch repair contract
+is added.
 
-The shared implementation is a core promotion step, not a second public
-workflow. Initial Pursue wraps it with the existing durable user decision and
-promotion attempt. Re-promotion wraps it with the existing durable backfill
-item and processing records; it does not create another user decision or reuse
-and rewrite the completed promotion row. The backfill run ID and position ID
-derive deterministic Gig and document change IDs, so queue recovery re-enters
-the same domain changes. The backfill item records the re-promotion outcome
-only after both the Gig and managed-document results verify.
+Re-promotion is restricted to positions that:
 
-Re-promotion is restricted to positions whose linked Gigs are:
+- are currently promoted and linked to exactly one existing Gig;
+- have a latest complete, successful Scout posting with normalized Markdown;
+- are linked to a Gig that is not deleted and not in stage `closed`; and
+- still identify that exact linked Gig as a current candidate through
+  `GigDomainService.resolvePosting()`.
 
-- not deleted;
-- not in stage `closed`; and
-- still the exact Gig recorded on the promoted Scout position.
+Initial promotion and completed-position retry share one core implementation for
+applying the posting, creating or updating the managed document, verifying
+idempotent replay, and returning completion. Initial Pursue wraps that step in
+the existing durable user decision and promotion attempt. Re-promotion
+does not create another user decision, alter the promoted Scout state, rewrite
+the completed promotion row, or create a separate mutation implementation.
 
-The existing backfill preview is extended to report bounded re-promotion
-metadata: position ID, Gig ID, company, title, current official URL, observed
-canonical URL, current managed-description ID or unavailable state, and an
-eligibility or rejection reason. It never emits job-description content,
-artifacts, configuration payloads, or private source responses.
+For completed work, the service derives a deterministic re-promotion change ID
+from the position ID, linked Gig ID, exact current observation, and exact
+current description. If the request is interrupted after one domain change
+commits, repeating the endpoint reconciles that exact change and completes the
+remaining work. A later successful backfill changes the current Scout
+identities and therefore produces a new re-promotion change ID.
+
+The current backfill-specific managed-document update is removed. In plain
+terms, backfill stops changing a promoted Gig's document behind the Gig
+domain's back; only initial promotion or explicit promotion retry can update
+the Gig and its managed description together.
 
 ### Updating the linked Gig
 
@@ -177,23 +184,25 @@ needed.
 
 ### Updating the managed job description
 
-After the backfill acquires and normalizes the current official description,
-the shared promotion coordinator uses that exact Markdown and provenance. If
-the Gig has no managed `job_description`, it creates and links one through
-`ManagedDocumentService`. If the Markdown changed, it creates one immutable
-version. If the Markdown is unchanged, it creates no version and does not
-require historical provenance to match the new acquisition.
+The shared promotion coordinator uses the current successfully processed Scout
+Markdown and provenance. If the Gig has no managed `job_description`, it
+creates and links one through `ManagedDocumentService`. If the Markdown
+changed, it creates one immutable version. If the Markdown is unchanged, it
+creates no version and does not require historical provenance to match a later
+acquisition.
 
-Re-promotion uses deterministic per-backfill change identities. A retry
+Re-promotion uses deterministic internal change identities derived from the
+position ID, linked Gig ID, exact current observation, and exact current
+description. A retry
 reconciles a previously committed Gig update, document creation, or document
 version instead of duplicating it. It verifies exact document ownership, type,
 media type, content, and the provenance attached to any version created by that
 attempt.
 
-If authoritative description acquisition fails, the position backfill reports
-the failure and does not pretend that re-promotion completed. A position with
-no linked Gig follows the existing backfill behavior and is not a repair
-candidate for this issue.
+If the current Scout projection lacks authoritative normalized Markdown or any
+other required successful stage, the endpoint uses its existing validation
+error response and performs no mutation. Backfill may be used separately to
+repair that Scout state; the operator can then retry promotion again.
 
 ## Ownership and service boundaries
 
@@ -204,8 +213,8 @@ not own Gig or document mutation rules.
   and mutation of `gigs` and `gig_history`.
 - `ManagedDocumentService` owns document creation, linkage, immutable versions,
   provenance, and idempotent replay.
-- Scout persistence records durable backfill and promotion attempts and
-  reconstructs the exact current posting and description evidence.
+- Scout persistence provides read-only reconstruction of the exact current
+  posting and description evidence. Re-promotion writes no Scout state.
 - Data adapters do not invoke another domain service or reproduce another
   domain's mutation SQL.
 - The composition root continues to wire the one Scout promotion coordinator
@@ -216,25 +225,21 @@ tables is permitted.
 
 ## Failure and recovery behavior
 
-Preview reports per-position eligibility and a stable reason instead of
-failing the entire request for an ineligible row. Infrastructure or database
-failures remain explicit and stop the operation from claiming a complete
-preview.
+The retry endpoint retains its existing bounded `ScoutPursueResult` response.
+Successful re-promotion returns `updated`; changed evidence uses the existing
+resolution-stale or resolution-invalid result; invalid or incomplete Scout
+state uses the existing validation-error response. Responses contain
+identifiers and failure details, not document content.
 
-Backfill status retains its durable per-position results and adds the
-re-promotion outcome: `updated`, `unchanged`, `unavailable`, `stale`,
-`conflict`, or `failed`. The result contains identifiers and failure codes, not
-document content.
-
-Every mutation is revision-checked, audited, and idempotent. Queue recovery can
-resume the backfill after interruption. It never rolls back a committed domain
-mutation by editing storage directly. Repeating the exact request safely
+Every mutation is revision-checked, audited, and idempotent. It never rolls
+back a committed domain mutation by editing storage directly. Repeating the
+exact API request derives the same internal change identities and safely
 reconciles prior work.
 
 ## Security and privacy
 
 - Tests and tracked examples use synthetic records only.
-- Preview and status output contain bounded metadata and no description body.
+- Retry output contains bounded metadata and no description body.
 - Re-promotion reads only registered Scout and managed-document state; it cannot
   read arbitrary filesystem paths.
 - Browser links use the current managed-document route or the stored official
@@ -258,10 +263,10 @@ The implementation uses the test pyramid:
    renders Markdown, exposes Open document, shows the unavailable state, and
    makes Apply use only `Gig.sourceUrl`.
 5. Synthetic end-to-end tests cover a managed-description Gig whose former
-   legacy flag would have been false, a full exact-ID backfill that re-promotes
-   an existing Gig and replaces a bad acquisition URL with the canonical
-   posting URL, missing managed-document creation, changed and unchanged
-   document content, and an ineligible description acquisition.
+   legacy flag would have been false, retrying a completed promotion to replace
+   a bad acquisition URL with the canonical posting URL, missing
+   managed-document creation, changed and unchanged document content, stale
+   evidence rejection, and incomplete-current-projection validation.
 
 The required application gates are `bun run db:check`, `bun run check`,
 `bun run build`, and `bun run test:e2e`. No live-site test or production-record
@@ -273,15 +278,14 @@ fixture is required.
    release workflow.
 2. Verify production health, database integrity, foreign keys, and that the
    Gig drawer reads managed documents.
-3. Run the existing exact-ID position-backfill preview for the affected
-   promoted positions and retain its metadata-only report outside source
-   control.
-4. Review the exact accepted and rejected position IDs.
-5. Start the backfill for the reviewed accepted IDs and monitor its durable
-   status to a terminal outcome.
-6. Verify each successful position retained the same linked Gig, its posting
-   fields reflect the current official posting, and its managed description is
-   present and current. Rejected or failed positions remain explicit.
+3. Read the exact affected positions and linked Gigs through the existing APIs
+   and retain the metadata-only repair list outside source control.
+4. Call the existing promotion retry endpoint once for each reviewed exact
+   position ID.
+5. Verify each successful position retained the same linked Gig, its posting
+   fields reflect the current Scout posting, and its managed description is
+   present and current. Ineligible or failed positions remain explicit and may
+   be repaired in Scout through a separate backfill before re-promotion.
 
 The release does not delete legacy files. Any later filesystem cleanup is a
 separate operational decision.
@@ -292,8 +296,9 @@ separate operational decision.
   URL and Gig details obtain job descriptions from linked managed documents.
 - Update FRR-005 to state that linked managed documents are the sole
   authoritative Gig job-description source.
-- Update FRR-006 so a promoted-position rerun reuses normal promotion to update
-  both posting-owned Gig fields and its managed job description.
+- Update FRR-006 to state that backfill repairs Scout state without mutating a
+  Gig, while retrying a completed promotion reapplies the current successful
+  position through the normal Gig and managed-document promotion flow.
 - Update the product overview to remove any implication that registered Gig
   job descriptions can come from a legacy artifact projection.
 - Update infrastructure documentation only if it names the removed legacy Gig
@@ -315,16 +320,17 @@ separate operational decision.
 - Both legacy Gig artifact flags and every filesystem read, synchronization,
   verification, domain, CLI, and HTTP path built on them are absent. Managed
   `job_description` and `interview_prep` documents remain supported.
-- Exact-ID backfill preview identifies eligible promoted positions without
-  emitting description content.
-- Reprocessing a promoted position reruns the complete current pipeline and
-  reuses the normal Scout promotion coordinator for the same linked Gig.
+- The existing promotion retry endpoint accepts a completed promoted position;
+  no repair-specific API, UI, CLI, or batch contract exists.
+- Completed-position retry uses the current successful Scout projection and
+  reuses the normal promotion coordinator for the same linked Gig.
 - Re-promotion calls `GigDomainService.acceptPosting()` and creates audited Gig
   history when current posting-owned fields changed.
 - Missing or changed descriptions are handled through the same
   `ManagedDocumentService` flow as initial promotion, with exact provenance and
   immutable history; unchanged Markdown creates no version.
-- A description acquisition failure remains explicit and does not report a
-  successful re-promotion.
-- Repeating or recovering the backfill creates no duplicate Gig revision,
-  managed document, link, document version, decision, or promotion outcome.
+- Incomplete Scout state returns the existing validation error and does not
+  report a successful re-promotion; backfill remains a separate repair
+  capability.
+- Repeating the same API request creates no duplicate Gig revision, managed
+  document, link, document version, decision, or promotion outcome.
