@@ -391,14 +391,22 @@ test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   await page
     .getByLabel("Search locations", { exact: true })
     .fill("Nowhere");
+  const runResponse = page.waitForResponse(response =>
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/gig-scout/runs"
+  );
   await page.getByRole("button", { name: "Start full scan" }).click();
+  const { run } = await (await runResponse).json() as { run: { id: string } };
   expect(submittedProfile).toEqual({
     searchProfile: {
       terms: ["nonmatching specialty"],
       locations: ["Nowhere"],
     },
   });
-  await expect(page.getByRole("status")).toContainText("completed");
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
+    return (await response.json() as { status: string }).status;
+  }).toBe("completed");
   await expect(page.getByLabel("Run search profile")).toContainText(
     "nonmatching specialty",
   );
