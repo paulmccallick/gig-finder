@@ -92,7 +92,7 @@ const gigs: GigData[] = [
     sourceUrl: "https://example.com/jobs/1", location: "Seattle", workArrangement: "hybrid",
     postedDate: "2026-07-15", businessUnitTeam: "Product", recruiterSource: "Referral",
     bonus: null, equity: null, otherCompensation: null, tagsJson: "[]",
-    availability: "unknown", availabilityUpdatedAt: null,
+    hasJobDescription: false, hasInterviewPrep: false, availability: "unknown", availabilityUpdatedAt: null,
   },
   {
     id: "gig-archive", company: "Sample Systems", title: "VP Product",
@@ -103,7 +103,7 @@ const gigs: GigData[] = [
     payPeriod: null, payNotes: null, sourceUrl: null, location: null,
     workArrangement: null, postedDate: null, businessUnitTeam: null,
     recruiterSource: null, bonus: null, equity: null, otherCompensation: null,
-    tagsJson: "[]", availability: "unknown", availabilityUpdatedAt: null,
+    tagsJson: "[]", hasJobDescription: false, hasInterviewPrep: false, availability: "unknown", availabilityUpdatedAt: null,
   },
   {
     id: "gig-identity-existing", company: "Example Labs", title: "Director of Identity Platforms",
@@ -115,7 +115,7 @@ const gigs: GigData[] = [
     sourceUrl: "https://legacy.example.test/jobs/identity-exact", location: "Remote",
     workArrangement: "remote", postedDate: "2026-08-10", businessUnitTeam: "Identity",
     recruiterSource: "Synthetic referral", bonus: null, equity: null, otherCompensation: null,
-    tagsJson: "[]",
+    tagsJson: "[]", hasJobDescription: true, hasInterviewPrep: false,
     availability: "available", availabilityUpdatedAt: "2026-08-20T12:00:00.000Z",
   },
   {
@@ -127,7 +127,7 @@ const gigs: GigData[] = [
     sourceUrl: "https://careers.example.test/jobs/SYN-149", location: "Remote",
     workArrangement: "remote", postedDate: "2026-08-21", businessUnitTeam: null,
     recruiterSource: null, bonus: null, equity: null, otherCompensation: null,
-    tagsJson: "[]",
+    tagsJson: "[]", hasJobDescription: false, hasInterviewPrep: false,
     availability: "available", availabilityUpdatedAt: "2026-08-21T12:00:00.000Z",
   },
 ];

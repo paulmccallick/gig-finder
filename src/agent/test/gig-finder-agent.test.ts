@@ -94,6 +94,7 @@ function gigRecord(
 ): GigRecord {
   return {
     externalJobId: null,
+    artifactDirectory: null,
     stage: "identified",
     outcome: "pending",
     statusSummary: "Considering",
@@ -103,6 +104,8 @@ function gigRecord(
     payRange: null,
     sourceUrl: null,
     tags: [],
+    hasJobDescription: false,
+    hasInterviewPrep: false,
     location: null,
     workArrangement: null,
     postedDate: null,

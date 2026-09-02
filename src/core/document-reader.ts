@@ -1,5 +1,7 @@
 import type { ManagedDocumentType } from "./documents";
 import type { ManagedDocumentService } from "./managed-document-service";
+import { createHash } from "node:crypto";
+import type { GigRecord } from "./gigs";
 import { page, type Page, type ReadResult } from "./queries";
 import { candidateProfileId, documentIdFromIdentifier, type DocumentLinkEntityType, type DocumentMediaType, type UploadedDocumentProvenance } from "./documents";
 
@@ -14,10 +16,10 @@ interface DocumentReferenceBase {
   displayName: string;
 }
 
-export type DocumentReference = DocumentReferenceBase & {
-  storage: "managed";
-  currentVersion: number;
-};
+export type DocumentReference = DocumentReferenceBase & (
+  | { storage: "artifact"; currentVersion: null }
+  | { storage: "managed"; currentVersion: number }
+);
 
 export type ReadableDocument = DocumentReference & {
   mediaType: DocumentMediaType;
@@ -46,24 +48,23 @@ export type DocumentVersionDiscoveryResult =
   | {status:"unsupported";id:string;message:string};
 
 export interface DocumentReaderServices {
-  gigs: { get(id: string): unknown | null };
+  gigs: {
+    get(id: string): GigRecord | null;
+    description(id: string): Promise<string | null>;
+    prep(id: string): Promise<Array<{ name: string; content: string }>>;
+  };
   people: { get(id: string): unknown | null };
   managed?: Pick<ManagedDocumentService, "get" | "list" | "versions">;
 }
 
-type ManagedDocumentListing = ReturnType<ManagedDocumentService["list"]>[number];
-const toReference = (document: ManagedDocumentListing): DocumentReference => {
-  const link = document.links[0]!;
-  return {
-    reference: document.id,
-    entityType: link.entityType,
-    entityId: link.entityId,
-    documentType: document.documentType,
-    title: document.title,
-    displayName: document.displayName,
-    storage: "managed",
-    currentVersion: document.currentVersion,
-  };
+const encoded = (value: string) => encodeURIComponent(value);
+const contentHash=(value:string)=>createHash("sha256").update(value).digest("hex");
+const decoded = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
 };
 
 export class ApplicationDocumentReader implements DocumentReader {
@@ -74,16 +75,77 @@ export class ApplicationDocumentReader implements DocumentReader {
     entityId: string,
   ): Promise<DocumentReference[]> {
     if (entityType === "profile") {
-      return (this.services.managed?.list("profile", entityId) ?? []).map(toReference);
+      return (this.services.managed?.list("profile", entityId) ?? []).map(document => ({
+        reference: document.id,
+        entityType,
+        entityId,
+        documentType: document.documentType,
+        title: document.title,
+        displayName: document.displayName,
+        storage: "managed" as const,
+        currentVersion: document.currentVersion,
+      }));
     }
     if (entityType === "person") {
       return (this.services.people.get(entityId) ? this.services.managed?.list("person", entityId) ?? [] : [])
-        .map(toReference);
+        .map(document => ({
+          reference: document.id,
+          entityType,
+          entityId,
+          documentType: document.documentType,
+          title: document.title,
+          displayName: document.displayName,
+          storage: "managed" as const,
+          currentVersion: document.currentVersion,
+        }));
     }
 
     const gig = this.services.gigs.get(entityId);
     if (!gig) return [];
-    return (this.services.managed?.list("gig", entityId) ?? []).map(toReference);
+    const references: DocumentReference[] = [];
+    const managedDocuments=this.services.managed?.list("gig",entityId)??[];
+    const managedDescriptions=managedDocuments.filter(document=>document.documentType==="job_description");
+    const legacyDescription=gig.hasJobDescription?await this.services.gigs.description(entityId):null;
+    if (legacyDescription!==null&&!managedDescriptions.some(document=>document.contentHash===contentHash(legacyDescription))) {
+      references.push({
+        reference: `gig:${encoded(entityId)}:job_description`,
+        entityType,
+        entityId,
+        documentType: "job_description",
+        title: "Job description",
+        displayName: "Gig Description",
+        storage: "artifact",
+        currentVersion: null,
+      });
+    }
+    if (gig.hasInterviewPrep) {
+      for (const document of await this.services.gigs.prep(entityId)) {
+        if(managedDocuments.some(managed=>managed.documentType==="interview_prep"&&managed.title===document.name&&managed.contentHash===contentHash(document.content)))continue;
+        references.push({
+          reference: `gig:${encoded(entityId)}:interview_prep:${encoded(document.name)}`,
+          entityType,
+          entityId,
+          documentType: "interview_prep",
+          title: document.name,
+          displayName: document.name,
+          storage: "artifact",
+          currentVersion: null,
+        });
+      }
+    }
+    for (const document of managedDocuments) {
+      references.push({
+        reference: document.id,
+        entityType,
+        entityId,
+        documentType: document.documentType,
+        title: document.title,
+        displayName: document.displayName,
+        storage: "managed",
+        currentVersion: document.currentVersion,
+      });
+    }
+    return references;
   }
 
   async query(input: DocumentDiscoveryInput): Promise<DocumentDiscoveryResult> {
@@ -108,7 +170,7 @@ export class ApplicationDocumentReader implements DocumentReader {
   }
 
   async get(reference: string, version?: number | null): Promise<ReadResult<ReadableDocument>> {
-    if (reference.startsWith("doc_")) {
+    if (reference.startsWith("doc_") || reference.startsWith("document:")) {
       const managed = this.services.managed?.get(reference) ?? null;
       const primaryLink = managed?.links[0];
       const selected = version === undefined || version === null
@@ -131,7 +193,30 @@ export class ApplicationDocumentReader implements DocumentReader {
           }
         : { status: "not_found", id: reference };
     }
-    return { status: "not_found", id: reference };
+
+    const parts = reference.split(":");
+    const entityType = parts[0];
+    const entityId = parts[1] ? decoded(parts[1]) : null;
+    const documentType = parts[2];
+    if (!entityId || !["gig", "person", "profile"].includes(entityType ?? "")) {
+      return { status: "not_found", id: reference };
+    }
+    const match = (await this.list(entityType as "gig" | "person" | "profile", entityId))
+      .find(item => item.reference === reference);
+    if (!match) return { status: "not_found", id: reference };
+    if (documentType === "job_description") {
+      const content = await this.services.gigs.description(entityId);
+      return content === null
+        ? { status: "not_found", id: reference }
+        : { status: "ok", record: documentRecord(match, content, "text/markdown") };
+    }
+    const title = parts[3] ? decoded(parts[3]) : null;
+    const document = title
+      ? (await this.services.gigs.prep(entityId)).find(item => item.name === title)
+      : null;
+    return document
+      ? { status: "ok", record: documentRecord(match, document.content, "text/markdown") }
+      : { status: "not_found", id: reference };
   }
 }
 

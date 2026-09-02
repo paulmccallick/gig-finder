@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { GigFinderApplication } from "../application";
 import type {
+  ArtifactPort,
+  ArtifactVerification,
   AuditPort,
   DocumentWriteRepository,
   Persistence,
@@ -65,6 +67,13 @@ class EmptyDocuments implements DocumentWriteRepository {
   }
 }
 
+const artifacts: ArtifactPort = {
+  jobDescription: async () => "description",
+  interviewPrep: async () => [],
+  jobDescriptionExists: async () => false,
+  interviewPrepExists: async () => false,
+  verify: async (): Promise<ArtifactVerification> => ({ ok: true, errors: [], unregistered: [] }),
+};
 const audit: AuditPort = { query: () => null };
 const context: ChangeContext = { actor: "test", source: "test", summary: "seed" };
 const personData = (identity: Pick<PersonData, "id" | "name" | "company" | "title" | "linkedInProfileUrl" | "connectedOn">, overrides: Partial<PersonData> = {}): PersonData => ({
@@ -121,7 +130,7 @@ function application() {
     revertChange: () => ({ changeId: "revert", value: [] }),
   };
   return {
-    app: new GigFinderApplication(persistence, audit),
+    app: new GigFinderApplication(persistence, audit, artifacts),
     repos: { gigs, people, gigPeople, tasks, interactions, interactionParticipants },
     changes: () => readChanges,
   };
@@ -155,6 +164,8 @@ const gig = (id: string, company: string, stage: GigData["stage"] = "applied"): 
   equity: null,
   otherCompensation: null,
   tagsJson: "[]",
+  hasJobDescription: false,
+  hasInterviewPrep: false,
   availability: "unknown",
   availabilityUpdatedAt: null,
 });

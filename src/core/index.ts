@@ -19,5 +19,6 @@ export * from "./ports";
 export * from "./queries";
 export * from "./gig-domain-service";
 export * from "./task-domain-service";
+export * from "./artifact-domain-service";
 export * from "./deep-patch";
 export * from "./services";

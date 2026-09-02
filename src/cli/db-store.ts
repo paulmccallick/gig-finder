@@ -22,7 +22,7 @@ function withApplication<T>(runtime:TrackerPaths,action:(app:GigFinderApplicatio
 export const getGig=(paths:TrackerPaths,id:string)=>withApplication(paths,app=>app.gigs.get(id));
 export const listGigs=(paths:TrackerPaths)=>withApplication(paths,app=>app.gigs.list());
 export const createGig=(paths:TrackerPaths,record:GigSummary,options:UpdateOptions={})=>withApplication(paths,app=>{
-  const{id,...input}=record;
+  const{id,artifactDirectory:_,hasJobDescription:__,hasInterviewPrep:___,...input}=record;
   return app.gigs.createNew(context(paths,"CLI gig create",record.lastActivity),id,{
     location:input.location??null,workArrangement:input.workArrangement??null,postedDate:input.postedDate??null,
     businessUnitTeam:input.businessUnitTeam??null,recruiterSource:input.recruiterSource??null,bonus:input.bonus??null,
@@ -49,6 +49,8 @@ export const createInteraction=(paths:TrackerPaths,id:string,input:InteractionIn
 export const updateInteraction=(paths:TrackerPaths,id:string,input:InteractionInput,options:UpdateOptions={})=>withApplication(paths,app=>app.interactions.update(context(paths,`CLI interaction update ${id}`,options.date),id,input,options).record);
 export const deleteInteraction=(paths:TrackerPaths,id:string,expectedRevision:number,options:UpdateOptions={})=>withApplication(paths,app=>app.interactions.delete(context(paths,`CLI interaction delete ${id}`,options.date),id,expectedRevision,options).record);
 
+export const verifyArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.verify());
+export const syncArtifacts=(paths:TrackerPaths)=>withApplication(paths,app=>app.artifacts.sync(context(paths,"Sync local artifacts")));
 export const listDocuments=(paths:TrackerPaths,entityType:"gig"|"person"|"profile",entityId:string)=>withApplication(paths,async app=>{
   return app.documentReader.query({owner:{entityType,entityId},offset:0,limit:50});
 });

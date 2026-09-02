@@ -59,6 +59,8 @@ const gig: GigData = {
   equity: null,
   otherCompensation: null,
   tagsJson: "[]",
+  hasJobDescription: false,
+  hasInterviewPrep: false,
   availability: "unknown",
   availabilityUpdatedAt: null,
 };

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { completeTask, createDocument, createGig, createGigPerson, createInteraction, createPerson, createTaskFromInput, deleteInteraction, getDocument, getGig, getInteraction, getPerson, getTask, listDocuments, listDocumentVersions, listGigs, listInteractions, listPeople, listTasks, pacificDate, touchGig, updateDocument, updateGig, updateInteraction, updatePerson, updateTask, type CliRuntime, type TaskRecord } from "./db-store";
+import { completeTask, createDocument, createGig, createGigPerson, createInteraction, createPerson, createTaskFromInput, deleteInteraction, getDocument, getGig, getInteraction, getPerson, getTask, listDocuments, listDocumentVersions, listGigs, listInteractions, listPeople, listTasks, pacificDate, syncArtifacts, touchGig, updateDocument, updateGig, updateInteraction, updatePerson, updateTask, verifyArtifacts, type CliRuntime, type TaskRecord } from "./db-store";
 import type { GigPersonData } from "../core/models";
 import type { Person } from "../core";
 import { gigInputSchema, type GigSummary, type Outcome, type PipelineStage } from "../core/gigs";
@@ -33,6 +33,8 @@ Usage:
   gig-finder interactions add <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
   gig-finder interactions update <id> --patch-file <path> [--date YYYY-MM-DD] [--dry-run]
   gig-finder interactions delete <id> --expected-revision <number> [--date YYYY-MM-DD] [--dry-run]
+  gig-finder artifacts verify
+  gig-finder artifacts sync
   gig-finder documents list (--gig <gig-id> | --person <person-id> | --profile)
   gig-finder documents get <document-id>
   gig-finder documents create [--gigs <id,...>] [--people <id,...>] [--profile] --type <type> --media-type <type> --content-file <path> [--title <text>] [--description <text>] [--source-description <text>]
@@ -216,6 +218,8 @@ async function handleDocuments(args: string[], runtime: CliRuntime): Promise<boo
 export async function runCli(args: string[], runtime: CliRuntime) {
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) { console.log(usage); return; }
   if (await handleDocuments(args, runtime)) return;
+  if(args[0]==="artifacts"&&args[1]==="verify"){const result=await verifyArtifacts(runtime);console.log(JSON.stringify({ok:result.ok,result},null,2));if(!result.ok)process.exitCode=1;return}
+  if(args[0]==="artifacts"&&args[1]==="sync"){const result=await syncArtifacts(runtime);console.log(JSON.stringify({ok:true,result},null,2));return}
   const aliases:Record<string,string>={gigs:"gig",tasks:"task",people:"person","gig-people":"gig-person",interactions:"interaction"};
   const [rawEntity, command, id, ...rest] = args;const entity=aliases[rawEntity??""]??rawEntity;
   if (!entity || !["gig", "person", "gig-person", "task", "interaction"].includes(entity) || !["get", "list", "update", "touch", "add", "complete", "delete"].includes(command ?? "")) throw new Error(usage);

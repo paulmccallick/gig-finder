@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import pino from "pino";
 import { GigFinderApplication } from "../../core/application";
+import type { ArtifactPort } from "../../core/ports";
 import {
   AuditReader,
   DataStore,
@@ -13,6 +14,13 @@ import { importScoutCompany } from "../../core/scout/engine/company-import";
 import { ScoutPositionService } from "../../core/scout/engine/scout-position-service";
 import { createWebHandler } from "../request-handler";
 
+const artifacts: ArtifactPort = {
+  jobDescription: async () => "",
+  interviewPrep: async () => [],
+  jobDescriptionExists: async () => false,
+  interviewPrepExists: async () => false,
+  verify: async () => ({ ok: true, errors: [], unregistered: [] }),
+};
 const logger = pino({ enabled: false });
 const requestServer = { timeout: () => undefined };
 
@@ -26,6 +34,7 @@ beforeEach(() => {
   application = new GigFinderApplication(
     new DataStore(database),
     new AuditReader(database),
+    artifacts,
   );
   fetchRequest = createWebHandler({
     gigFinder: application,
@@ -485,10 +494,10 @@ describe("explicit position backfill API", () => {
 function createVersionedDocument() {
   application.gigs.create({ actor: "test", source: "test", summary: "Create synthetic gig" }, {
     id: "gig-document", company: "Example Company", title: "Director",
-    externalJobId: null, stage: "identified",
+    externalJobId: null, artifactDirectory: null, stage: "identified",
     outcome: "pending", statusSummary: "Identified", lastActivity: "2026-08-08",
     nextAction: null, fit: { rating: "good", summary: null }, payRange: null,
-    sourceUrl: null, tags: [],
+    sourceUrl: null, tags: [], hasJobDescription: false, hasInterviewPrep: false,
   });
   const created = application.documents.create({
     actor: "test", source: "test", summary: "Create synthetic document",
@@ -568,6 +577,7 @@ describe("application health", () => {
     const application = new GigFinderApplication(
       new DataStore(database),
       new AuditReader(database),
+      artifacts,
     );
     const handler = createWebHandler({
       gigFinder: application,
