@@ -52,12 +52,14 @@ export interface DocumentReaderServices {
 }
 
 type ManagedDocumentListing = ReturnType<ManagedDocumentService["list"]>[number];
-const toReference = (document: ManagedDocumentListing): DocumentReference => {
-  const link = document.links[0]!;
+const toReference = (
+  document: ManagedDocumentListing,
+  owner: DocumentDiscoveryInput["owner"],
+): DocumentReference => {
   return {
     reference: document.id,
-    entityType: link.entityType,
-    entityId: link.entityId,
+    entityType: owner.entityType,
+    entityId: owner.entityId,
     documentType: document.documentType,
     title: document.title,
     displayName: document.displayName,
@@ -74,16 +76,18 @@ export class ApplicationDocumentReader implements DocumentReader {
     entityId: string,
   ): Promise<DocumentReference[]> {
     if (entityType === "profile") {
-      return (this.services.managed?.list("profile", entityId) ?? []).map(toReference);
+      return (this.services.managed?.list("profile", entityId) ?? [])
+        .map(document => toReference(document, { entityType, entityId }));
     }
     if (entityType === "person") {
       return (this.services.people.get(entityId) ? this.services.managed?.list("person", entityId) ?? [] : [])
-        .map(toReference);
+        .map(document => toReference(document, { entityType, entityId }));
     }
 
     const gig = this.services.gigs.get(entityId);
     if (!gig) return [];
-    return (this.services.managed?.list("gig", entityId) ?? []).map(toReference);
+    return (this.services.managed?.list("gig", entityId) ?? [])
+      .map(document => toReference(document, { entityType, entityId }));
   }
 
   async query(input: DocumentDiscoveryInput): Promise<DocumentDiscoveryResult> {
