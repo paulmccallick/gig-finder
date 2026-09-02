@@ -14,7 +14,7 @@ import {
   type BoardFilters,
   type BoardMode,
 } from "./domain/board";
-import { fitRatings, type Gig, type GigSummary } from "../../core/gigs";
+import { fitRatings, type GigRecord, type GigSummary } from "../../core/gigs";
 import { loadGigs, type GigsResult } from "./data/gigs";
 import { loadPeople, type PeopleResult } from "./data/people";
 import { NetworkingBoard } from "./NetworkingBoard";
@@ -27,6 +27,8 @@ import {
   initialAgentWorkspace,
   updateAgentWorkspace,
 } from "./agent/agent-workspace";
+import { loadManagedDocumentVersion, type ManagedDocumentViewData } from "./data/documents";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 type WorkspaceView = "gigs" | "network" | "tasks" | "scout";
 
@@ -34,12 +36,6 @@ export function initialWorkspaceView(search: string): WorkspaceView {
   return new URLSearchParams(search).get("workspace") === "scout"
     ? "scout"
     : "gigs";
-}
-
-interface GigArtifacts {
-  jobDescription: string | null;
-  sourceUrl: string | null;
-  artifactDirectory: string | null;
 }
 
 const emptyFilters: BoardFilters = {
@@ -58,11 +54,11 @@ function Icon({ name }: { name: "search" | "close" | "arrow" }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>;
 }
 
-function GigCard({ gig, onSelect }: { gig: GigSummary; onSelect: (gig: GigSummary) => void }) {
+function GigCard({ gig, onSelect }: { gig: GigSummary; onSelect: (gigId: string) => void }) {
   const overdue = isOverdue(gig);
   const pay = formatPay(gig);
   return (
-    <button className="record-card" onClick={() => onSelect(gig)} type="button">
+    <button className="record-card" onClick={() => onSelect(gig.id)} type="button">
       <span className="card-signal" data-fit={gig.fit.rating} />
       <span className="card-company">{gig.company}</span>
       <span className="card-title">{gig.title}</span>
@@ -84,11 +80,14 @@ function DetailItem({ label, children }: { label: string; children: React.ReactN
   return <div className="detail-item"><dt>{label}</dt><dd>{children}</dd></div>;
 }
 
-function GigDrawer({ gig, onClose }: { gig: GigSummary; onClose: () => void }) {
+function GigDrawer({ gig, onClose }: { gig: GigRecord; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [artifacts, setArtifacts] = useState<GigArtifacts | null>(null);
-  const [artifactError, setArtifactError] = useState<string | null>(null);
+  const [managedDocument, setManagedDocument] = useState<ManagedDocumentViewData | null>(null);
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const description = gig.documents
+    .filter(candidate => candidate.type === "job_description")
+    .sort((left, right) => left.id.localeCompare(right.id))[0] ?? null;
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
@@ -104,17 +103,18 @@ function GigDrawer({ gig, onClose }: { gig: GigSummary; onClose: () => void }) {
 
   useEffect(() => {
     let active = true;
-    setArtifacts(null);
-    setArtifactError(null);
-    fetch(`/api/gigs/${encodeURIComponent(gig.id)}/artifacts`, { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Artifacts API returned ${response.status}.`);
-        return response.json() as Promise<GigArtifacts>;
-      })
-      .then((data) => { if (active) setArtifacts(data); })
-      .catch((error: unknown) => { if (active) setArtifactError(error instanceof Error ? error.message : "Could not load gig artifacts."); });
+    setManagedDocument(null);
+    setDocumentError(null);
+    setDescriptionExpanded(false);
+    if (!description) return () => { active = false; };
+    void loadManagedDocumentVersion({
+      reference: description.id,
+      version: description.currentVersion,
+    })
+      .then(value => { if (active) setManagedDocument(value); })
+      .catch((error: unknown) => { if (active) setDocumentError(error instanceof Error ? error.message : "Could not load the job description."); });
     return () => { active = false; };
-  }, [gig.id]);
+  }, [gig.id, description?.id, description?.currentVersion]);
 
   return (
     <div className="drawer-layer">
@@ -137,10 +137,10 @@ function GigDrawer({ gig, onClose }: { gig: GigSummary; onClose: () => void }) {
             {isOverdue(gig) && <span className="overdue-chip">Overdue</span>}
           </div>
           <div className="drawer-actions">
-            {artifacts?.sourceUrl ? (
-              <a className="apply-link" href={artifacts.sourceUrl} target="_blank" rel="noreferrer">Apply / view posting <Icon name="arrow" /></a>
+            {gig.sourceUrl ? (
+              <a className="apply-link" href={gig.sourceUrl} target="_blank" rel="noreferrer">Apply / view posting <Icon name="arrow" /></a>
             ) : (
-              <span className="application-unavailable">{artifacts ? "No application URL captured" : "Locating application URL…"}</span>
+              <span className="application-unavailable">No application URL captured</span>
             )}
           </div>
           <section>
@@ -153,14 +153,19 @@ function GigDrawer({ gig, onClose }: { gig: GigSummary; onClose: () => void }) {
             <DetailItem label="Action due">{gig.nextAction?.due}</DetailItem>
             <DetailItem label="Fit assessment">{gig.fit.summary ?? fitLabels[gig.fit.rating]}</DetailItem>
             <DetailItem label="External job ID">{gig.externalJobId}</DetailItem>
-            <DetailItem label="Artifact directory"><code>{artifacts?.artifactDirectory}</code></DetailItem>
           </dl>
           <section className="description-section">
-            <div className="section-heading"><h3>Job description</h3>{artifacts?.jobDescription && <button onClick={() => setDescriptionExpanded((value) => !value)}>{descriptionExpanded ? "Collapse" : "Expand"}</button>}</div>
-            {!artifacts && !artifactError && <p className="secondary-copy">Locating the current gig files…</p>}
-            {artifactError && <p className="artifact-error">{artifactError}</p>}
-            {artifacts && !artifacts.jobDescription && <p className="secondary-copy">No captured job description is available for this gig.</p>}
-            {artifacts?.jobDescription && <pre className={`description-copy ${descriptionExpanded ? "is-expanded" : ""}`}>{artifacts.jobDescription}</pre>}
+            <div className="section-heading">
+              <h3>Job description</h3>
+              {managedDocument && <button onClick={() => setDescriptionExpanded(value => !value)}>{descriptionExpanded ? "Collapse" : "Expand"}</button>}
+            </div>
+            {description && !managedDocument && !documentError && <p className="secondary-copy">Loading the current job description…</p>}
+            {documentError && <p className="artifact-error">{documentError}</p>}
+            {!description && <p className="secondary-copy">No managed job description is available for this gig.</p>}
+            {description && managedDocument && <>
+              <a href={`/documents/${encodeURIComponent(description.id)}/versions/${description.currentVersion}`} target="_blank" rel="noreferrer">Open document</a>
+              <div className={`description-copy ${descriptionExpanded ? "is-expanded" : ""}`}><MarkdownRenderer>{managedDocument.content}</MarkdownRenderer></div>
+            </>}
           </section>
           {gig.payRange && (
             <section>
@@ -185,10 +190,10 @@ function Masthead({ today, active, onChange }: { today: string; active: Workspac
   return <><header className="masthead"><div className="brand-block"><span className="system-mark"><span /> PM</span><div><p className="eyebrow">Search operations / {today}</p><h1>{titles[active]}</h1></div></div><div className="system-status"><span /> DATABASE ONLINE</div></header><WorkspaceTabs active={active} onChange={onChange} /></>;
 }
 
-function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: WorkspaceView) => void }) {
+function GigBoard({ gigs, onNavigate }: { gigs: GigRecord[]; onNavigate: (value: WorkspaceView) => void }) {
   const [mode, setMode] = useState<BoardMode>("active");
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
-  const [selectedGig, setSelectedGig] = useState<GigSummary | null>(null);
+  const [selectedGig, setSelectedGig] = useState<GigRecord | null>(null);
   useEffect(() => {
     if (!selectedGig) return;
     setSelectedGig(gigs.find(gig => gig.id === selectedGig.id) ?? null);
@@ -271,7 +276,7 @@ function GigBoard({ gigs, onNavigate }: { gigs: Gig[]; onNavigate: (value: Works
           <section className="kanban-column" key={group.key} style={{ "--column-index": index } as React.CSSProperties}>
             <header><span className="column-number">{String(index + 1).padStart(2, "0")}</span><h3>{group.label}</h3><span className="column-count">{group.gigs.length}</span></header>
             <div className="card-stack">
-              {group.gigs.map((gig) => <GigCard gig={gig} onSelect={setSelectedGig} key={gig.id} />)}
+              {group.gigs.map((gig) => <GigCard gig={gig} onSelect={(gigId) => setSelectedGig(gigs.find(candidate => candidate.id === gigId) ?? null)} key={gig.id} />)}
               {group.gigs.length === 0 && <div className="column-empty"><span>NO MATCHES</span><p>{group.totalGigs} {group.totalGigs === 1 ? "gig" : "gigs"} hidden by filters</p></div>}
             </div>
           </section>

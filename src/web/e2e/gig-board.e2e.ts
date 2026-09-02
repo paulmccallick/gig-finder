@@ -80,6 +80,23 @@ test("active board, filters, gig drawer, and archive are functional", async ({ p
   expect(pageErrors).toEqual([]);
 });
 
+test("managed Gig description and canonical Apply link drive the drawer", async ({ page }) => {
+  const documentId = "doc_14900000-0000-4000-8000-000000000149";
+  await page.goto("/");
+  await page.locator(".record-card", { hasText: "Synthetic Company" }).click();
+
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.locator(".document-markdown h1")).toHaveText("Synthetic managed description");
+  await expect(drawer.getByRole("link", { name: "Open document" })).toHaveAttribute(
+    "href",
+    new RegExp(`/documents/${documentId}/versions/1$`),
+  );
+  await expect(drawer.getByRole("link", { name: /Apply/ })).toHaveAttribute(
+    "href",
+    "https://careers.example.test/jobs/SYN-149",
+  );
+});
+
 test("mobile board remains usable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

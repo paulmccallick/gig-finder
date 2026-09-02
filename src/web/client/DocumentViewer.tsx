@@ -3,22 +3,15 @@ import {
   DocumentViewShell,
   parseScoutDescriptionViewerPath,
 } from "./DocumentViewShell";
+import {
+  loadManagedDocumentVersion,
+  type ManagedDocumentLocation,
+  type ManagedDocumentViewData,
+} from "./data/documents";
 
 const managedReferencePattern = /^doc_[0-9a-f]+(?:-[0-9a-f]+)*$/i;
 
-export interface DocumentViewerLocation {
-  reference: string;
-  version: number;
-}
-
-interface DocumentViewData extends DocumentViewerLocation {
-  storage: "managed";
-  displayName: string;
-  documentType: string;
-  mediaType: "text/markdown" | "text/plain";
-  currentVersion: number;
-  content: string;
-}
+export type DocumentViewerLocation = ManagedDocumentLocation;
 
 interface ScoutDescriptionViewData {
   id: string;
@@ -49,26 +42,6 @@ export function parseDocumentViewerPath(pathname: string): DocumentViewerLocatio
   return Number.isSafeInteger(version) ? { reference, version } : null;
 }
 
-function parseDocumentViewData(value: unknown, expected: DocumentViewerLocation): DocumentViewData {
-  if (!isRecord(value)) throw new Error("The document service returned an invalid response.");
-  const mediaType = value.mediaType;
-  if (
-    value.reference !== expected.reference
-    || value.version !== expected.version
-    || value.storage !== "managed"
-    || typeof value.displayName !== "string"
-    || value.displayName.trim().length === 0
-    || typeof value.documentType !== "string"
-    || (mediaType !== "text/markdown" && mediaType !== "text/plain")
-    || typeof value.currentVersion !== "number"
-    || !Number.isSafeInteger(value.currentVersion)
-    || value.currentVersion <= 0
-    || expected.version > value.currentVersion
-    || typeof value.content !== "string"
-  ) throw new Error("The document service returned an invalid response.");
-  return value as unknown as DocumentViewData;
-}
-
 function parseScoutDescriptionViewData(value: unknown, positionId: string): ScoutDescriptionViewData {
   if (!isRecord(value)) throw new Error("The Scout position service returned an invalid response.");
   if (
@@ -85,7 +58,7 @@ function parseScoutDescriptionViewData(value: unknown, positionId: string): Scou
 }
 
 export function DocumentViewer({ location }: { location: DocumentViewerLocation | null }) {
-  const [document, setDocument] = useState<DocumentViewData | null>(null);
+  const [document, setDocument] = useState<ManagedDocumentViewData | null>(null);
   const [failure, setFailure] = useState<string | null>(
     location ? null : "This document link is invalid.",
   );
@@ -94,14 +67,7 @@ export function DocumentViewer({ location }: { location: DocumentViewerLocation 
     let active = true;
     setDocument(null);
     setFailure(null);
-    const reference = encodeURIComponent(location.reference);
-    void fetch(`/api/documents/${reference}/versions/${location.version}`, {
-      cache: "no-store",
-    }).then(async response => {
-      if (response.status === 404) throw new Error("This document version could not be found.");
-      if (!response.ok) throw new Error("This document could not be opened.");
-      return parseDocumentViewData(await response.json(), location);
-    }).then(value => {
+    void loadManagedDocumentVersion(location).then(value => {
       if (active) setDocument(value);
     }).catch(error => {
       if (active) setFailure(error instanceof Error ? error.message : "This document could not be opened.");

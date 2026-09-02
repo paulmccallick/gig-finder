@@ -57,6 +57,7 @@ export interface DocumentSummary {
   type: ManagedDocumentType;
   title: string | null;
   displayName: string;
+  currentVersion: number;
 }
 
 export interface ManagedDocumentVersionData {
@@ -182,6 +183,7 @@ export const documentSummary = (document: ManagedDocumentRecord): DocumentSummar
   type: document.documentType,
   title: document.title,
   displayName: document.displayName,
+  currentVersion: document.currentVersion,
 });
 
 export function profileDocumentFilePath(id: string, title: string): string {

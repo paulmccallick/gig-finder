@@ -272,8 +272,8 @@ describe("application services",()=>{
   expect(updated).toMatchObject({changed:true,changeId:"document-update",document:{currentVersion:2,content:"Corrected description"}});
   expect(app.documents.versions(created.document.id).map(version=>version.content)).toEqual(["Corrected description","Original description"]);
   expect(app.documents.versions(created.document.id)).toMatchObject([{sourceDescription,sourceProvenance},{sourceDescription:null,sourceProvenance:null}]);
- expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description",mediaType:"text/plain",version:2,currentVersion:2}});
- expect(await app.documentReader.get(created.document.id,1)).toMatchObject({status:"ok",record:{content:"Original description",mediaType:"text/plain",version:1,currentVersion:2}});
+  expect(await app.documentReader.get(created.document.id)).toMatchObject({status:"ok",record:{content:"Corrected description",mediaType:"text/plain",version:2,currentVersion:2}});
+  expect(await app.documentReader.get(created.document.id,1)).toMatchObject({status:"ok",record:{content:"Original description",mediaType:"text/plain",version:1,currentVersion:2}});
   const discovery=await app.documentReader.query({owner:{entityType:"gig",entityId:"gig"},offset:0,limit:50});
   expect(discovery).toMatchObject({status:"ok",page:{limit:50,total:3}});
   expect(discovery.status==="ok"?discovery.items:[]).toContainEqual(expect.objectContaining({reference:created.document.id,storage:"managed"}));
@@ -283,7 +283,12 @@ describe("application services",()=>{
   expect(app.documentReader.versionQuery({documentId:"gig:gig:job_description"})).toMatchObject({status:"unsupported"});
   const sourced=app.documents.create({...context,changeId:"document-sourced-create"},{links:[{entityType:"gig",entityId:"gig"}],documentType:"job_description",title:"Official job description",mediaType:"text/markdown",sourceDescription,sourceProvenance,content:"Official description"});
   expect(app.documents.versions(sourced.document.id)).toMatchObject([{version:1,sourceDescription,sourceProvenance}]);
- expect(()=>app.documents.update(context,{documentId:created.document.id,expectedVersion:1,content:"Stale description",changeSummary:"Stale update"})).toThrow(new MutationError("revision_conflict",`Document ${created.document.id} expected version 1 but is at version 2.`));
+  expect(()=>app.documents.update(context,{documentId:created.document.id,expectedVersion:1,content:"Stale description",changeSummary:"Stale update"})).toThrow(new MutationError("revision_conflict",`Document ${created.document.id} expected version 1 but is at version 2.`));
+ });
+ test("Gig document summaries expose the current managed version",()=>{
+  const gig=seedGig("document-summary-gig")!;
+  const created=app.documents.create({...context,changeId:"document-summary-create"},{links:[{entityType:"gig",entityId:gig.id}],documentType:"job_description",title:"Synthetic Company — Director",mediaType:"text/markdown",sourceDescription:null,content:"# Synthetic role"}).document;
+  expect(app.gigs.get(gig.id)?.documents).toContainEqual({id:created.id,type:"job_description",title:"Synthetic Company — Director",displayName:"Synthetic Company — Director",currentVersion:1});
  });
  test("uploaded source documents preserve provenance and cannot be edited",()=>{
   if(!app.gigs.get("gig"))app.gigs.create(context,{id:"gig",company:"Company",title:"VP",externalJobId:null,artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-07-22",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[],hasJobDescription:true,hasInterviewPrep:true});
@@ -297,8 +302,8 @@ describe("application services",()=>{
   const person=app.people.get("network-person")??app.people.create(context,{id:"network-person",name:"Network Person",company:"Company",title:"Director",linkedInProfileUrl:null,connectedOn:null,relationshipType:"colleague",relationshipStrength:"warm",priority:"high",status:"active_relationship"});
   const created=app.documents.create(context,{links:[{entityType:"person",entityId:person.id},{entityType:"gig",entityId:"gig"}],documentType:"profile",title:null,mediaType:"text/markdown",sourceDescription:null,content:"Person profile"});
   expect(created.document.displayName).toBe("Profile");
-  expect(app.gigs.get("gig")?.documents).toContainEqual({id:created.document.id,type:"profile",title:null,displayName:"Profile"});
-  expect(app.people.get(person.id)).toMatchObject({hasProfile:true,documents:[{id:created.document.id,type:"profile",title:null,displayName:"Profile"}]});
+  expect(app.gigs.get("gig")?.documents).toContainEqual({id:created.document.id,type:"profile",title:null,displayName:"Profile",currentVersion:1});
+  expect(app.people.get(person.id)).toMatchObject({hasProfile:true,documents:[{id:created.document.id,type:"profile",title:null,displayName:"Profile",currentVersion:1}]});
   expect(()=>app.documents.create(context,{links:[{entityType:"gig",entityId:"gig"}],documentType:"profile",title:null,mediaType:"text/markdown",sourceDescription:null,content:"Missing person"})).toThrow(new DomainValidationError("A profile must link to exactly one person."));
  });
  test("shared gig service returns complete models and preserves fields on patch",()=>{const gig=app.gigs.create(context,{id:"complete-gig",company:"Company",title:"VP Engineering",externalJobId:"123",artifactDirectory:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-07-22",nextAction:null,fit:{rating:"good",summary:null},payRange:null,sourceUrl:null,tags:[],hasJobDescription:false,hasInterviewPrep:false,location:"Seattle",workArrangement:"hybrid",postedDate:"2026-07-20",businessUnitTeam:"Platform",recruiterSource:"Referral",bonus:"20%",equity:"RSUs",otherCompensation:null});expect(gig.location).toBe("Seattle");const updated=app.gigs.update(context,gig.id,{stage:"applied",statusSummary:"Applied"});expect(updated.record).toMatchObject({stage:"applied",location:"Seattle",workArrangement:"hybrid",bonus:"20%",equity:"RSUs"});expect(updated.changeId).toBe("test-change");expect(gigs.get(gig.id)).toMatchObject({location:"Seattle",workArrangement:"hybrid",bonus:"20%",equity:"RSUs"})});

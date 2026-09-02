@@ -513,7 +513,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
       { title: "My reviewed role notes", displayName: "My reviewed role notes" },
     );
     documents.records.set(existingDocument.id, existingDocument);
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -535,7 +535,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
     documents.records.set(existingDocument.id, existingDocument);
     documents.seedVersion(existingDocument, sourceProvenance);
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -562,7 +562,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
     documents.records.set(existingDocument.id, existingDocument);
     documents.seedVersion(existingDocument, persistedProvenance);
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -599,7 +599,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", "# Earlier Markdown");
     documents.records.set(existingDocument.id, existingDocument);
     documents.conflictAfterUpdate = true;
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };

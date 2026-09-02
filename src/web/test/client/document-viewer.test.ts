@@ -10,8 +10,37 @@ import {
 } from "../../client/DocumentViewShell";
 import { initialWorkspaceView } from "../../client/App";
 import { MarkdownRenderer } from "../../client/MarkdownRenderer";
+import {
+  parseManagedDocumentViewData,
+  type ManagedDocumentViewData,
+} from "../../client/data/documents";
 
 describe("document viewer route", () => {
+  test("validates the exact managed document version response", () => {
+    const location = {
+      reference: "doc_11111111-1111-4111-8111-111111111111",
+      version: 2,
+    };
+    const response: ManagedDocumentViewData = {
+      ...location,
+      storage: "managed",
+      displayName: "Synthetic role",
+      documentType: "job_description",
+      mediaType: "text/markdown",
+      currentVersion: 2,
+      content: "# Synthetic role",
+    };
+
+    expect(parseManagedDocumentViewData(response, location)).toEqual(response);
+    expect(() => parseManagedDocumentViewData({ ...response, version: 1 }, location)).toThrow(
+      "The document service returned an invalid response.",
+    );
+    expect(() => parseManagedDocumentViewData({
+      ...response,
+      reference: "doc_22222222-2222-4222-8222-222222222222",
+    }, location)).toThrow("The document service returned an invalid response.");
+  });
+
   test("accepts one encoded managed reference and positive version", () => {
     expect(parseDocumentViewerPath(
       "/documents/doc_11111111-1111-4111-8111-111111111111/versions/2",

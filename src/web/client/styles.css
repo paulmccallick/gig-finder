@@ -254,7 +254,7 @@ h1, h2, h3, p { margin-top: 0; }
 .secondary-copy { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; }
 .section-heading button { border: 0; background: transparent; color: var(--signal); text-transform: uppercase; font: 9px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; }
-.description-copy { max-height: 360px; overflow: auto; margin: 0; padding: 16px; border: 1px solid var(--line); background: #f8faf7; color: var(--ink); font: 11px/1.6 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-color: var(--line-bright) transparent; }
+.description-copy { max-height: 360px; overflow: auto; margin: 12px 0 0; padding: 16px; border: 1px solid var(--line); background: #f8faf7; color: var(--ink); overflow-wrap: anywhere; scrollbar-color: var(--line-bright) transparent; }
 .description-copy.is-expanded { max-height: none; }
 .artifact-error { color: var(--red); font-size: 12px; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 22px; }

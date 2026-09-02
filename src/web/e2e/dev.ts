@@ -118,6 +118,18 @@ const gigs: GigData[] = [
     tagsJson: "[]", hasJobDescription: true, hasInterviewPrep: false,
     availability: "available", availabilityUpdatedAt: "2026-08-20T12:00:00.000Z",
   },
+  {
+    id: "gig-managed-description", company: "Synthetic Company", title: "Director",
+    externalJobId: "SYN-149", stage: "applied", outcome: "pending",
+    statusSummary: "Synthetic managed description fixture", lastActivity: "2026-08-21",
+    nextActionDescription: null, nextActionDue: null, fitRating: "strong", fitSummary: null,
+    payCurrency: null, payMinimum: null, payMaximum: null, payPeriod: null, payNotes: null,
+    sourceUrl: "https://careers.example.test/jobs/SYN-149", location: "Remote",
+    workArrangement: "remote", postedDate: "2026-08-21", businessUnitTeam: null,
+    recruiterSource: null, bonus: null, equity: null, otherCompensation: null,
+    tagsJson: "[]", hasJobDescription: false, hasInterviewPrep: false,
+    availability: "available", availabilityUpdatedAt: "2026-08-21T12:00:00.000Z",
+  },
 ];
 const person: PersonData = {
   id: "person-one", name: "Alex Example", company: "Example Labs", title: "VP Product",
@@ -170,6 +182,18 @@ const identityDocument: ManagedDocumentData = {
   uploadProvenance: null,
 };
 const identityDocumentContent = "# Existing identity platform role\n\nOriginal synthetic role description.";
+const managedDescriptionDocument: ManagedDocumentData = {
+  id: "doc_14900000-0000-4000-8000-000000000149",
+  links: [{ entityType: "gig", entityId: "gig-managed-description" }],
+  documentType: "job_description",
+  title: "Synthetic Company — Director",
+  description: null,
+  mediaType: "text/markdown",
+  sourceDescription: "Synthetic managed drawer fixture",
+  filePath: null,
+  uploadProvenance: null,
+};
+const managedDescriptionContent = "# Synthetic managed description\n\nManaged Markdown is authoritative.";
 
 const database = openDatabase(databasePath);
 migrateDatabase(database);
@@ -187,6 +211,11 @@ store.change(change, transaction => {
     document: identityDocument,
     content: identityDocumentContent,
     contentHash: createHash("sha256").update(identityDocumentContent).digest("hex"),
+  });
+  transaction.documents.create({
+    document: managedDescriptionDocument,
+    content: managedDescriptionContent,
+    contentHash: createHash("sha256").update(managedDescriptionContent).digest("hex"),
   });
 });
 const scoutImport = importScoutCompany(
