@@ -236,6 +236,7 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
     return this.review.detail;
   }
   positionDetail() { return this.currentPosition; }
+  promotionPositionDetail() { return this.currentPosition; }
   reviewDetail() { return this.reviewable ? this.review.detail : null; }
   decide(): never { throw new Error("Non-pursue decision is not used by this fake."); }
   pendingPositionJobs() { return []; }
@@ -266,6 +267,7 @@ class FakeGigs {
     expect(value).toEqual(posting);
     return this.resolution;
   }
+  get(id: string) { return this.acceptedGig.id === id ? this.acceptedGig : null; }
   acceptPosting(context: ChangeContext, value: NormalizedPosition, resolution?: PostingResolution) {
     this.accepted.push({ context, posting: value, resolution });
     if (this.nextAcceptance) {
@@ -408,7 +410,7 @@ class FakeDocuments {
 
 const setup = () => {
   const store = new FakeScoutStore();
-  const gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting"> = new FakeGigs();
+  const gigs: Pick<GigDomainService, "get" | "resolvePosting" | "acceptPosting"> = new FakeGigs();
   const documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange"> = new FakeDocuments();
   const service = new ScoutPositionService(store, gigs, documents);
   return { store, gigs: gigs as FakeGigs, documents: documents as FakeDocuments, service };

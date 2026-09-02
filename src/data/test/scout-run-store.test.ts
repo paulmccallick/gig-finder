@@ -590,6 +590,25 @@ test("completed promotion work reconstructs the latest complete current Scout ev
     `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
   ).get(initialReview.detail.id)).toEqual(promotionBefore);
 
+  application.gigs.update({
+    actor: "Synthetic Reviewer",
+    source: "test",
+    summary: "Change completed retry work arrangement",
+    changeId: "synthetic-completed-retry-work-arrangement-drift",
+    occurredAt: "2026-09-01T13:01:04Z",
+  }, completedPromotion.gigId, { workArrangement: "on-site" });
+  expect(() => positions.retryPromotion(initialReview.detail.id)).toThrow(
+    "no longer matches the accepted posting-owned Gig fields",
+  );
+  expect(application.documents.versions(completedPromotion.managedDocumentId)).toHaveLength(1);
+  application.gigs.update({
+    actor: "Synthetic Reviewer",
+    source: "test",
+    summary: "Restore completed retry work arrangement",
+    changeId: "synthetic-completed-retry-work-arrangement-restore",
+    occurredAt: "2026-09-01T13:01:05Z",
+  }, completedPromotion.gigId, { workArrangement: "hybrid" });
+
   expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({
     status: "updated",
     position: {
@@ -1103,6 +1122,24 @@ test("screening persists bounded comments and exposes only the score explanation
   });
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
   expect(positions.get(review.id)).toBeNull();
+  const promotedState = database.query(
+    `SELECT revision FROM scout_position_states WHERE position_id=?`,
+  ).get(review.id) as { revision: number };
+  const pursueDecision = database.query(
+    `SELECT id FROM scout_position_decisions WHERE change_id='change-pursue'`,
+  ).get() as { id: string };
+  expect(positions.reverse(review.id, {
+    decisionId: pursueDecision.id,
+    changeId: "change-reverse-promoted",
+    actor: "Reviewer",
+    expectedStateRevision: promotedState.revision,
+  })).toBeNull();
+  expect(changedStore.positionDetail(review.id)).toBeNull();
+  expect(changedStore.promotionWork(review.id)).toMatchObject({
+    kind: "completed_retry",
+    positionId: review.id,
+    linkedGigId: promotedGig,
+  });
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
   const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};

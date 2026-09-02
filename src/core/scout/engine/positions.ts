@@ -94,6 +94,7 @@ export interface ScoutPositionStore {
  backfillStatus(runId:string):ScoutPositionBackfillStatus|null;
  workspace(input:{text?:string;company?:string;state?:string;sort:string;direction:"asc"|"desc";offset:number;limit:number}):ScoutWorkspacePage;
  positionDetail(id:string):ScoutPositionDetail|null;
+ promotionPositionDetail?(id:string):ScoutPositionDetail|null;
  reviewDetail?(id:string):ScoutPositionDetail|null;
  decide(command:ScoutUserDecisionCommand,now:string):ScoutPositionDetail;
  restoreAgentIrrelevant(input:{positionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;

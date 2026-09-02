@@ -70,7 +70,7 @@ function normalizeBackfillCommand(input: unknown): ScoutPositionBackfillCommand 
 export class ScoutPositionService {
   constructor(
     private readonly store: ScoutPostingResolutionStore,
-    private readonly gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting">,
+    private readonly gigs: Pick<GigDomainService, "get" | "resolvePosting" | "acceptPosting">,
     private readonly documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange">,
   ) {}
 
@@ -286,17 +286,33 @@ export class ScoutPositionService {
             position: this.completedPosition(work.positionId),
           };
         }
+        const committed = this.gigs.get(resolution.gigId);
+        if (!committed) {
+          throw new MutationError(
+            "revision_conflict",
+            `Change ${changeId}:gig matches missing Gig ${resolution.gigId}.`,
+          );
+        }
+        const expectedTitle = work.posting.title.trim();
         const expectedExternalId = work.posting.externalId?.trim();
         const expectedLocation = work.posting.location?.trim();
-        const committedPostingMatches = linked.title === work.posting.title
-          && linked.sourceUrl === work.posting.canonicalUrl
-          && (!expectedExternalId || linked.externalJobId === expectedExternalId)
-          && (!expectedLocation || linked.location === expectedLocation);
-        if (!committedPostingMatches) throw reason;
+        const expectedWorkArrangement = work.posting.workArrangement?.trim();
+        if (
+          committed.title !== expectedTitle
+          || committed.sourceUrl !== work.posting.canonicalUrl
+          || (expectedExternalId && committed.externalJobId !== expectedExternalId)
+          || (expectedLocation && committed.location !== expectedLocation)
+          || (expectedWorkArrangement && committed.workArrangement !== expectedWorkArrangement)
+        ) {
+          throw new MutationError(
+            "revision_conflict",
+            `Change ${changeId}:gig no longer matches the accepted posting-owned Gig fields.`,
+          );
+        }
         acceptedStatus = "updated";
         acceptedGig = {
-          id: linked.gigId,
-          documents: linked.jobDescription ? [linked.jobDescription] : [],
+          id: committed.id,
+          documents: committed.documents,
         };
       }
       const document = this.coordinateDocument(
@@ -328,7 +344,7 @@ export class ScoutPositionService {
   }
 
   private completedPosition(positionId: string): ScoutPositionDetail {
-    const position = this.store.positionDetail(positionId);
+    const position = this.store.promotionPositionDetail?.(positionId) ?? null;
     if (!position || position.state !== "promoted") {
       throw new Error("Completed Scout promotion position is unavailable.");
     }
