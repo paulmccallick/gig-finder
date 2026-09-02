@@ -11,7 +11,9 @@ import {
 import { initialWorkspaceView } from "../../client/App";
 import { MarkdownRenderer } from "../../client/MarkdownRenderer";
 import {
+  loadedManagedDocumentForLocation,
   parseManagedDocumentViewData,
+  type LoadedManagedDocument,
   type ManagedDocumentViewData,
 } from "../../client/data/documents";
 
@@ -39,6 +41,33 @@ describe("document viewer route", () => {
       ...response,
       reference: "doc_22222222-2222-4222-8222-222222222222",
     }, location)).toThrow("The document service returned an invalid response.");
+  });
+
+  test("stale loaded content is ineligible for a refreshed document location", () => {
+    const document: ManagedDocumentViewData = {
+      reference: "doc_11111111-1111-4111-8111-111111111111",
+      version: 1,
+      storage: "managed",
+      displayName: "Earlier synthetic role",
+      documentType: "job_description",
+      mediaType: "text/markdown",
+      currentVersion: 1,
+      content: "# Earlier synthetic role",
+    };
+    const loaded: LoadedManagedDocument = {
+      location: { reference: document.reference, version: document.version },
+      document,
+    };
+
+    expect(loadedManagedDocumentForLocation(loaded, {
+      reference: document.reference,
+      version: 2,
+    })).toBeNull();
+    expect(loadedManagedDocumentForLocation(loaded, {
+      reference: "doc_22222222-2222-4222-8222-222222222222",
+      version: 1,
+    })).toBeNull();
+    expect(loadedManagedDocumentForLocation(loaded, loaded.location)).toBe(document);
   });
 
   test("accepts one encoded managed reference and positive version", () => {

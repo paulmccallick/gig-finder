@@ -12,6 +12,24 @@ export interface ManagedDocumentViewData extends ManagedDocumentLocation {
   content: string;
 }
 
+export interface LoadedManagedDocument {
+  location: ManagedDocumentLocation;
+  document: ManagedDocumentViewData;
+}
+
+export function loadedManagedDocumentForLocation(
+  loaded: LoadedManagedDocument | null,
+  location: ManagedDocumentLocation | null,
+): ManagedDocumentViewData | null {
+  if (
+    !loaded
+    || !location
+    || loaded.location.reference !== location.reference
+    || loaded.location.version !== location.version
+  ) return null;
+  return loaded.document;
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 

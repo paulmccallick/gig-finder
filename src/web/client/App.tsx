@@ -27,7 +27,11 @@ import {
   initialAgentWorkspace,
   updateAgentWorkspace,
 } from "./agent/agent-workspace";
-import { loadManagedDocumentVersion, type ManagedDocumentViewData } from "./data/documents";
+import {
+  loadedManagedDocumentForLocation,
+  loadManagedDocumentVersion,
+  type LoadedManagedDocument,
+} from "./data/documents";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 type WorkspaceView = "gigs" | "network" | "tasks" | "scout";
@@ -82,12 +86,19 @@ function DetailItem({ label, children }: { label: string; children: React.ReactN
 
 function GigDrawer({ gig, onClose }: { gig: GigRecord; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [managedDocument, setManagedDocument] = useState<ManagedDocumentViewData | null>(null);
+  const [loadedManagedDocument, setLoadedManagedDocument] = useState<LoadedManagedDocument | null>(null);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const description = gig.documents
     .filter(candidate => candidate.type === "job_description")
     .sort((left, right) => left.id.localeCompare(right.id))[0] ?? null;
+  const descriptionLocation = description
+    ? { reference: description.id, version: description.currentVersion }
+    : null;
+  const managedDocument = loadedManagedDocumentForLocation(
+    loadedManagedDocument,
+    descriptionLocation,
+  );
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
@@ -103,15 +114,13 @@ function GigDrawer({ gig, onClose }: { gig: GigRecord; onClose: () => void }) {
 
   useEffect(() => {
     let active = true;
-    setManagedDocument(null);
+    setLoadedManagedDocument(null);
     setDocumentError(null);
     setDescriptionExpanded(false);
-    if (!description) return () => { active = false; };
-    void loadManagedDocumentVersion({
-      reference: description.id,
-      version: description.currentVersion,
-    })
-      .then(value => { if (active) setManagedDocument(value); })
+    if (!descriptionLocation) return () => { active = false; };
+    const location = descriptionLocation;
+    void loadManagedDocumentVersion(location)
+      .then(document => { if (active) setLoadedManagedDocument({ location, document }); })
       .catch((error: unknown) => { if (active) setDocumentError(error instanceof Error ? error.message : "Could not load the job description."); });
     return () => { active = false; };
   }, [gig.id, description?.id, description?.currentVersion]);
@@ -159,11 +168,11 @@ function GigDrawer({ gig, onClose }: { gig: GigRecord; onClose: () => void }) {
               <h3>Job description</h3>
               {managedDocument && <button onClick={() => setDescriptionExpanded(value => !value)}>{descriptionExpanded ? "Collapse" : "Expand"}</button>}
             </div>
-            {description && !managedDocument && !documentError && <p className="secondary-copy">Loading the current job description…</p>}
+            {descriptionLocation && !managedDocument && !documentError && <p className="secondary-copy">Loading the current job description…</p>}
             {documentError && <p className="artifact-error">{documentError}</p>}
-            {!description && <p className="secondary-copy">No managed job description is available for this gig.</p>}
-            {description && managedDocument && <>
-              <a href={`/documents/${encodeURIComponent(description.id)}/versions/${description.currentVersion}`} target="_blank" rel="noreferrer">Open document</a>
+            {!descriptionLocation && <p className="secondary-copy">No managed job description is available for this gig.</p>}
+            {descriptionLocation && managedDocument && <>
+              <a href={`/documents/${encodeURIComponent(descriptionLocation.reference)}/versions/${descriptionLocation.version}`} target="_blank" rel="noreferrer">Open document</a>
               <div className={`description-copy ${descriptionExpanded ? "is-expanded" : ""}`}><MarkdownRenderer>{managedDocument.content}</MarkdownRenderer></div>
             </>}
           </section>
