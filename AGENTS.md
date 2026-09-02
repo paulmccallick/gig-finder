@@ -23,8 +23,8 @@ Project](https://github.com/users/paulmccallick/projects/5).
   - A branch is taken from main for feature development
   - Superpowers drives the development to its final review
   - A PR is created in Github with the changes
-  - `release-verifier` is asked to verify the release
-  - change overview agent is run against the changes with overview captured in an md file
+  - `release-verifier` is asked to verify the release immediately upon pr creation.
+  - change overview agent is run against the changes with overview captured in an md filea immediately upon pr creation.
   - Github runs PR checks which can be viewed via `gh pr checks --watch`
   - user must approve PR before moving to Release
 - Release
