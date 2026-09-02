@@ -10,13 +10,15 @@ import type {
   ManagedDocumentSourceProvenance,
   ManagedDocumentVersionData,
 } from "../../documents";
+import { createHash } from "node:crypto";
+import { MutationError } from "../../errors";
 import type { ManagedDocumentService } from "../../managed-document-service";
 import type { GigDomainService } from "../../gig-domain-service";
 import type {
   ScoutPositionBackfillCommand,
   ScoutPositionDetail,
   ScoutPostingResolutionStore,
-  ScoutPromotionWork,
+  ScoutPromotionMaterial,
   ScoutUserDecisionCommand,
 } from "./positions";
 
@@ -68,7 +70,7 @@ function normalizeBackfillCommand(input: unknown): ScoutPositionBackfillCommand 
 export class ScoutPositionService {
   constructor(
     private readonly store: ScoutPostingResolutionStore,
-    private readonly gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting">,
+    private readonly gigs: Pick<GigDomainService, "get" | "resolvePosting" | "acceptPosting">,
     private readonly documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange">,
   ) {}
 
@@ -86,7 +88,10 @@ export class ScoutPositionService {
     return this.store.workspace({ text: input.text?.trim().slice(0, 200), company: input.company?.trim().slice(0, 200), state, sort, direction, offset, limit });
   }
 
-  get(id: string) { return this.store.reviewDetail?.(id) ?? this.store.positionDetail(id); }
+  get(id: string) {
+    const position = this.store.reviewDetail?.(id) ?? this.store.positionDetail(id);
+    return position?.state === "promoted" ? null : position;
+  }
 
   decide(positionId: string, input: ScoutDecisionInput): ScoutPositionDetail | ScoutPursueResult {
     if (!input.changeId?.trim() || !input.actor?.trim()) {
@@ -125,7 +130,16 @@ export class ScoutPositionService {
     if (stableResolution) return stableResolution;
     const reviewedResolution = parsedResolution ?? { kind: "create_new", reviewedFingerprint: candidates.fingerprint };
     const work = this.store.beginPursue(command, reviewedResolution, now);
-    return this.promote(work, now);
+    if (work.kind !== "attempt") {
+      throw new Error("Reviewed Scout promotion intent is unavailable.");
+    }
+    return this.applyPromotion(
+      work,
+      work.resolution,
+      work.changeId,
+      "record_attempt",
+      now,
+    );
   }
 
   restore(positionId: string, input: { changeId: string; actor: string; expectedStateRevision: number }) { return this.store.restoreAgentIrrelevant({ ...input, positionId }, new Date().toISOString()); }
@@ -133,7 +147,49 @@ export class ScoutPositionService {
   addNote(positionId: string, input: { decisionId?: string; actor: string; body: string }) { const body = input.body?.trim(); if (!body || body.length > 2000) throw new Error("Position note must contain 1 to 2000 characters."); this.store.appendPositionNote({ ...input, positionId, body }, new Date().toISOString()); return { ok: true }; }
   retryPromotion(positionId: string): ScoutPursueResult | null {
     const work = this.store.promotionWork(positionId);
-    return work ? this.promote(work, new Date().toISOString()) : null;
+    if (!work) return null;
+    const now = new Date().toISOString();
+    if (work.kind === "attempt") {
+      return this.applyPromotion(
+        work,
+        work.resolution,
+        work.changeId,
+        "record_attempt",
+        now,
+      );
+    }
+
+    const current = this.gigs.resolvePosting(work.posting);
+    const linked = current.candidates.find(
+      candidate => candidate.gigId === work.linkedGigId,
+    );
+    if (!linked || linked.stage === "closed") {
+      return {
+        status: "resolution_invalid",
+        position: this.completedPosition(work.positionId),
+      };
+    }
+    const resolution: PostingResolution = {
+      kind: "use_existing",
+      reviewedFingerprint: current.fingerprint,
+      gigId: linked.gigId,
+      expectedGigRevision: linked.revision,
+    };
+    const retryChangeId = `scout-promotion-retry:${createHash("sha256")
+      .update([
+        work.positionId,
+        work.linkedGigId,
+        work.observationId,
+        work.descriptionId,
+      ].join("\0"))
+      .digest("hex")}`;
+    return this.applyPromotion(
+      work,
+      resolution,
+      retryChangeId,
+      "completed_retry",
+      now,
+    );
   }
   relevance() { return this.store.relevanceCriteria(); }
   configureRelevance(input: { criteria: unknown; confidenceThreshold: unknown }) { if (typeof input.criteria !== "string" || input.criteria.trim().length < 10 || input.criteria.length > 4_000) throw new Error("Relevance criteria must contain 10 to 4000 characters."); if (typeof input.confidenceThreshold !== "number" || input.confidenceThreshold < 0 || input.confidenceThreshold > 1) throw new Error("Relevance confidence threshold must be from 0 through 1."); return this.store.appendRelevanceCriteria(input.criteria.trim(), input.confidenceThreshold, new Date().toISOString()); }
@@ -178,48 +234,131 @@ export class ScoutPositionService {
       : { status: "resolution_stale", ...current, position };
   }
 
-  private promote(work: ScoutPromotionWork, now: string): ScoutPursueResult {
+  private applyPromotion(
+    work: ScoutPromotionMaterial,
+    resolution: PostingResolution,
+    changeId: string,
+    completion: "record_attempt" | "completed_retry",
+    now: string,
+  ): ScoutPursueResult {
     try {
-      const accepted = this.gigs.acceptPosting(
-        {
-          actor: work.actor,
-          source: "automation",
-          summary: "Promote reviewed Scout posting",
-          changeId: `${work.changeId}:gig`,
-          occurredAt: now,
-        },
-        work.posting,
-        work.resolution,
-      );
-      if (accepted.status === "resolution_stale" || accepted.status === "resolution_invalid") {
-        const position = this.store.releasePromotion(work.positionId, work.changeId, accepted.status, now);
-        return { ...accepted, position };
+      let acceptedStatus: "created" | "updated";
+      let acceptedGig: { id: string; documents: DocumentSummary[] };
+      try {
+        const accepted = this.gigs.acceptPosting(
+          {
+            actor: work.actor,
+            source: "automation",
+            summary: completion === "completed_retry"
+              ? "Retry completed Scout promotion"
+              : "Promote reviewed Scout posting",
+            changeId: `${changeId}:gig`,
+            occurredAt: now,
+          },
+          work.posting,
+          resolution,
+        );
+        if (accepted.status === "resolution_stale" || accepted.status === "resolution_invalid") {
+          const position = completion === "record_attempt"
+            ? this.store.releasePromotion(work.positionId, changeId, accepted.status, now)
+            : this.completedPosition(work.positionId);
+          return { ...accepted, position };
+        }
+        if (accepted.status !== "created" && accepted.status !== "updated") return accepted;
+        acceptedStatus = accepted.status;
+        acceptedGig = accepted.gig;
+      } catch (reason) {
+        if (
+          completion !== "completed_retry"
+          || !(reason instanceof MutationError)
+          || reason.code !== "duplicate_change"
+          || resolution.kind !== "use_existing"
+        ) {
+          throw reason;
+        }
+        const replay = this.gigs.resolvePosting(work.posting);
+        const linked = replay.candidates.find(
+          candidate => candidate.gigId === resolution.gigId,
+        );
+        if (!linked || linked.stage === "closed") {
+          return {
+            status: "resolution_invalid",
+            position: this.completedPosition(work.positionId),
+          };
+        }
+        const committed = this.gigs.get(resolution.gigId);
+        if (!committed) {
+          throw new MutationError(
+            "revision_conflict",
+            `Change ${changeId}:gig matches missing Gig ${resolution.gigId}.`,
+          );
+        }
+        const expectedTitle = work.posting.title.trim();
+        const expectedExternalId = work.posting.externalId?.trim();
+        const expectedLocation = work.posting.location?.trim();
+        const expectedWorkArrangement = work.posting.workArrangement?.trim();
+        if (
+          committed.title !== expectedTitle
+          || committed.sourceUrl !== work.posting.canonicalUrl
+          || (expectedExternalId && committed.externalJobId !== expectedExternalId)
+          || (expectedLocation && committed.location !== expectedLocation)
+          || (expectedWorkArrangement && committed.workArrangement !== expectedWorkArrangement)
+        ) {
+          throw new MutationError(
+            "revision_conflict",
+            `Change ${changeId}:gig no longer matches the accepted posting-owned Gig fields.`,
+          );
+        }
+        acceptedStatus = "updated";
+        acceptedGig = {
+          id: committed.id,
+          documents: committed.documents,
+        };
       }
-      if (accepted.status !== "created" && accepted.status !== "updated") return accepted;
-      const document = this.coordinateDocument(work, accepted.gig.id, accepted.gig.documents, now);
-      this.store.completePromotion(work.positionId, accepted.gig.id, document.id, now);
-      return {
-        status: accepted.status,
-        position: this.store.reviewDetail?.(work.positionId)
-          ?? this.store.positionDetail(work.positionId),
-      };
-    } catch (reason) {
-      this.store.failPromotion(
-        work.positionId,
-        reason instanceof Error ? reason.message : "Promotion failed.",
+      const document = this.coordinateDocument(
+        work,
+        changeId,
+        acceptedGig.id,
+        acceptedGig.documents,
         now,
       );
+      if (completion === "record_attempt") {
+        this.store.completePromotion(work.positionId, acceptedGig.id, document.id, now);
+      }
+      return {
+        status: acceptedStatus,
+        position: completion === "completed_retry"
+          ? this.completedPosition(work.positionId)
+          : null,
+      };
+    } catch (reason) {
+      if (completion === "record_attempt") {
+        this.store.failPromotion(
+          work.positionId,
+          reason instanceof Error ? reason.message : "Promotion failed.",
+          now,
+        );
+      }
       throw reason;
     }
   }
 
+  private completedPosition(positionId: string): ScoutPositionDetail {
+    const position = this.store.promotionPositionDetail?.(positionId) ?? null;
+    if (!position || position.state !== "promoted") {
+      throw new Error("Completed Scout promotion position is unavailable.");
+    }
+    return position;
+  }
+
   private coordinateDocument(
-    work: ScoutPromotionWork,
+    work: ScoutPromotionMaterial,
+    promotionChangeId: string,
     gigId: string,
     summaries: DocumentSummary[],
     now: string,
   ): ManagedDocumentRecord {
-    const changeId = `${work.changeId}:document`;
+    const changeId = `${promotionChangeId}:document`;
     const expectedTitle = `${work.posting.company} — ${work.posting.title}`;
     const created = this.documents.createdByChange(changeId);
     if (created) {
@@ -291,7 +430,7 @@ export class ScoutPositionService {
   private reconcileCreatedDocument(
     document: ManagedDocumentRecord,
     changeId: string,
-    work: ScoutPromotionWork,
+    work: ScoutPromotionMaterial,
     gigId: string,
     expectedTitle: string,
   ) {
@@ -307,7 +446,7 @@ export class ScoutPositionService {
   private reconcileVersion(
     documentId: string,
     version: ManagedDocumentVersionData,
-    work: ScoutPromotionWork,
+    work: ScoutPromotionMaterial,
     gigId: string,
   ) {
     this.verifyVersion(version, documentId, work.markdown, work.sourceDescription, work.sourceProvenance);

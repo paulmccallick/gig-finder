@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { migrateDatabase } from "../database";
+import { prepareInteractionMigration } from "../interaction-migration";
 
 const applyStatements = async (database: Database, migrationUrl: URL) => {
   const sql = await Bun.file(migrationUrl).text();
@@ -13,6 +14,20 @@ const columnNames = (database: Database, table: string) =>
   (database.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(column => column.name);
 const tableNames = (database: Database) =>
   (database.query("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map(table => table.name);
+const indexColumns = (database: Database, index: string) =>
+  (database.query(`PRAGMA index_info(${index})`).all() as Array<{ name: string }>).map(column => column.name);
+
+const migrateThrough = async (database: Database, lastMigration: number) => {
+  prepareInteractionMigration(database);
+  database.exec("PRAGMA foreign_keys=OFF");
+  const migrations = [...new Bun.Glob("*.sql").scanSync(new URL("../migrations", import.meta.url).pathname)]
+    .sort()
+    .filter(name => Number(name.slice(0, 4)) <= lastMigration);
+  for (const migration of migrations) {
+    await applyStatements(database, new URL(`../migrations/${migration}`, import.meta.url));
+  }
+  database.exec("PRAGMA foreign_keys=ON");
+};
 
 test("0025 keeps the deployed Scout source constraint on JSON and HTML methods", async () => {
   const database = new Database(":memory:");
@@ -207,13 +222,8 @@ test("0033 installs revision-bound Scout decision, note, and promotion storage",
 
 test("0034 renames Gig availability columns and removes the Scout-specific history",async()=>{
   const database=new Database(":memory:");
-  migrateDatabase(database);
+  await migrateThrough(database,33);
   database.exec(`
-    ALTER TABLE gigs RENAME COLUMN availability TO scout_availability;
-    ALTER TABLE gigs RENAME COLUMN availability_updated_at TO scout_availability_updated_at;
-    ALTER TABLE gig_history RENAME COLUMN availability TO scout_availability;
-    ALTER TABLE gig_history RENAME COLUMN availability_updated_at TO scout_availability_updated_at;
-    CREATE TABLE scout_gig_availability_history (history_id integer PRIMARY KEY);
     INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at,scout_availability,scout_availability_updated_at)
     VALUES('gig-1','Synthetic Company','Synthetic Role','identified','pending','Found','2026-08-20','good','[]',0,0,1,0,'2026-08-20T00:00:00Z','2026-08-20T00:00:00Z','available','2026-08-20T12:00:00Z');
     INSERT INTO changes(id,occurred_at,actor,source,summary,status)
@@ -569,5 +579,79 @@ test("0040 adds the company display snapshot without weakening run-company invar
     expect.objectContaining({ seqno: 1, name: "status" }),
   ]);
   expect(database.query(`PRAGMA foreign_key_check`).all()).toEqual([]);
+  database.close();
+});
+
+test("0041 removes Gig artifact projection without weakening Gig storage", async () => {
+  const database = new Database(":memory:");
+  await migrateThrough(database, 40);
+  database.exec(`
+    INSERT INTO changes(id,occurred_at,actor,source,summary,status) VALUES
+      ('change-gig','2026-08-31T12:00:00Z','Synthetic User','test','Synthetic Gig update','committed'),
+      ('change-document','2026-08-31T12:05:00Z','Synthetic User','test','Synthetic document','committed');
+    INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,next_action_due,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES
+      ('gig-live','Synthetic Company','Synthetic Role','identified','pending','Active','2026-08-31','2026-09-02','good','[]',1,1,3,0,'2026-08-30T12:00:00Z','2026-08-31T12:00:00Z'),
+      ('gig-deleted','Archived Synthetic Company','Archived Synthetic Role','closed','withdrawn','Archived','2026-08-30',NULL,'not_a_fit','[]',0,0,2,1,'2026-08-29T12:00:00Z','2026-08-30T12:00:00Z');
+    INSERT INTO gig_history(change_id,operation,recorded_at,recorded_by,id,company,title,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES
+      ('change-gig','update','2026-08-31T12:00:00Z','Synthetic User','gig-live','Synthetic Company','Synthetic Role','identified','pending','Before update','2026-08-30','good','[]',1,1,2,0,'2026-08-30T12:00:00Z','2026-08-30T12:00:00Z');
+
+    INSERT INTO people(id,name,created_at,updated_at) VALUES('person','Synthetic Person','2026-08-30T12:00:00Z','2026-08-30T12:00:00Z');
+    INSERT INTO gig_people(id,gig_id,person_id,relationship,created_at,updated_at) VALUES('relationship','gig-live','person','hiring_manager','2026-08-30T12:00:00Z','2026-08-30T12:00:00Z');
+    INSERT INTO gig_people_history(change_id,operation,recorded_at,recorded_by,id,gig_id,person_id,relationship,revision,is_deleted,created_at,updated_at) VALUES('change-gig','update','2026-08-31T12:00:00Z','Synthetic User','relationship','gig-live','person','hiring_manager',1,0,'2026-08-30T12:00:00Z','2026-08-30T12:00:00Z');
+
+    INSERT INTO managed_documents(id,document_type,title,media_type,source_description,current_version,created_at,updated_at) VALUES('doc-job-description','job_description','Synthetic Role','text/markdown','Synthetic official posting',1,'2026-08-31T12:05:00Z','2026-08-31T12:05:00Z');
+    INSERT INTO managed_document_links(document_id,gig_id) VALUES('doc-job-description','gig-live');
+    INSERT INTO managed_document_versions(document_id,version,parent_version,content,content_hash,change_id,change_summary,created_at,created_by) VALUES('doc-job-description',1,NULL,'# Synthetic Role','synthetic-content-hash','change-document','Initial synthetic description','2026-08-31T12:05:00Z','Synthetic User');
+
+    INSERT INTO interactions(id,subject,kind,channel,direction,status,starts_at,gig_id,structured_data_json,created_at,updated_at) VALUES('interaction','Synthetic conversation','conversation','video','mutual','completed','2026-08-31T15:00:00Z','gig-live','{}','2026-08-31T15:00:00Z','2026-08-31T15:00:00Z');
+    INSERT INTO interaction_history(change_id,operation,recorded_at,recorded_by,id,subject,kind,channel,direction,status,starts_at,gig_id,structured_data_json,revision,is_deleted,created_at,updated_at) VALUES('change-gig','update','2026-08-31T16:00:00Z','Synthetic User','interaction','Synthetic conversation','conversation','video','mutual','completed','2026-08-31T15:00:00Z','gig-live','{}',1,0,'2026-08-31T15:00:00Z','2026-08-31T15:00:00Z');
+
+    INSERT INTO scout_companies(id,name,current_configuration_id,created_at,updated_at) VALUES('company','Synthetic Company','configuration','2026-08-31T10:00:00Z','2026-08-31T10:00:00Z');
+    INSERT INTO scout_company_configurations(id,company_id,version,fingerprint,created_at) VALUES('configuration','company',1,'configuration-fingerprint','2026-08-31T10:00:00Z');
+    INSERT INTO scout_company_configuration_sources(id,company_configuration_id,source_key,source_type,settings_json) VALUES('source','configuration','official','json','{}');
+    INSERT INTO scout_runs(id,status,batch_size,concurrency,created_at,company_count) VALUES('run','completed',20,5,'2026-08-31T10:00:00Z',1);
+    INSERT INTO scout_run_companies(id,run_id,company_id,company_name,company_configuration_id,status) VALUES('run-company','run','company','Synthetic Company','configuration','succeeded');
+    INSERT INTO scout_run_sources(id,run_company_id,configuration_source_id,status,candidate_count,accepted_count,rejected_count) VALUES('run-source','run-company','source','succeeded_with_results',1,1,0);
+    INSERT INTO scout_positions(id,company_id,source_key,identity_kind,identity_value,canonical_url,title,first_seen_at,last_seen_at) VALUES('position','company','official','canonical_url','https://careers.example.test/jobs/1','https://careers.example.test/jobs/1','Synthetic Role','2026-08-31T10:00:00Z','2026-08-31T10:00:00Z');
+    INSERT INTO scout_description_artifacts(id,file_path,content_hash,media_type,byte_count,provenance_json,created_at) VALUES('scout-artifact','scout/synthetic.md','scout-content-hash','text/markdown',16,'{}','2026-08-31T10:00:00Z');
+    INSERT INTO scout_position_observations(id,run_source_id,position_id,title,canonical_url,provenance_json,observed_at) VALUES('observation','run-source','position','Synthetic Role','https://careers.example.test/jobs/1','{}','2026-08-31T10:00:00Z');
+    INSERT INTO scout_position_descriptions(id,position_id,artifact_id,source_url,retrieved_at,source_content_hash,markdown_content_hash,converter_version,created_at) VALUES('description','position','scout-artifact','https://careers.example.test/jobs/1','2026-08-31T10:00:00Z','source-hash','markdown-hash','synthetic-v1','2026-08-31T10:00:00Z');
+    INSERT INTO scout_position_decisions(id,change_id,position_id,action,origin,actor,description_id,expected_state_revision,resulting_state_revision,created_at) VALUES('decision','change-gig','position','pursue','system','Synthetic System','description',1,2,'2026-08-31T11:00:00Z');
+    INSERT INTO scout_position_states(position_id,state,linked_gig_id,revision,created_at,updated_at,current_decision_id) VALUES('position','promoted','gig-live',2,'2026-08-31T10:00:00Z','2026-08-31T12:00:00Z','decision');
+    INSERT INTO scout_position_backfill_items(run_id,position_id,observation_id,configuration_source_id,linked_gig_id,requested_at) VALUES('run','position','observation','source','gig-live','2026-08-31T10:00:00Z');
+    INSERT INTO scout_position_promotions(id,decision_id,position_id,description_id,gig_id,managed_document_id,status,attempt_count,created_at,updated_at,completed_at) VALUES('promotion','decision','position','description','gig-live','doc-job-description','completed',1,'2026-08-31T11:00:00Z','2026-08-31T12:00:00Z','2026-08-31T12:00:00Z');
+  `);
+
+  const migration = [...new Bun.Glob("0041_*.sql").scanSync(new URL("../migrations", import.meta.url).pathname)][0];
+  expect(migration).toBeDefined();
+  if (!migration) {
+    database.close();
+    return;
+  }
+  await applyStatements(database, new URL(`../migrations/${migration}`, import.meta.url));
+
+  expect(columnNames(database, "gigs")).not.toContain("has_job_description");
+  expect(columnNames(database, "gigs")).not.toContain("has_interview_prep");
+  expect(columnNames(database, "gig_history")).not.toContain("has_job_description");
+  expect(columnNames(database, "gig_history")).not.toContain("has_interview_prep");
+  expect(database.query("SELECT id, revision, is_deleted FROM gigs ORDER BY id").all()).toEqual([
+    { id: "gig-deleted", revision: 2, is_deleted: 1 },
+    { id: "gig-live", revision: 3, is_deleted: 0 },
+  ]);
+  expect(database.query("SELECT id, revision, operation FROM gig_history").all()).toEqual([
+    { id: "gig-live", revision: 2, operation: "update" },
+  ]);
+  expect(database.query("SELECT document_id, gig_id FROM managed_document_links").all()).toEqual([
+    { document_id: "doc-job-description", gig_id: "gig-live" },
+  ]);
+  expect(indexColumns(database, "gigs_stage_idx")).toEqual(["stage"]);
+  expect(indexColumns(database, "gigs_due_idx")).toEqual(["next_action_due"]);
+  expect(indexColumns(database, "gigs_deleted_idx")).toEqual(["is_deleted"]);
+  expect(indexColumns(database, "gig_history_entity_idx")).toEqual(["id", "revision"]);
+  expect(indexColumns(database, "gig_history_change_idx")).toEqual(["change_id"]);
+  expect(() => database.query("UPDATE gigs SET is_deleted=2 WHERE id='gig-live'").run()).toThrow("CHECK constraint failed");
+  expect(() => database.query("UPDATE gig_history SET is_deleted=2").run()).toThrow("CHECK constraint failed");
+  expect(() => database.query("UPDATE gig_history SET operation='create'").run()).toThrow("CHECK constraint failed");
+  expect(database.query("PRAGMA foreign_key_check").all()).toEqual([]);
   database.close();
 });

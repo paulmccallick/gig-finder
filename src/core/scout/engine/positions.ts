@@ -49,18 +49,20 @@ export interface ScoutPostingReview {
  sourceDescription:string;
  sourceProvenance:ManagedDocumentSourceProvenance;
 }
-export interface ScoutPromotionWork {
+export interface ScoutPromotionMaterial {
  positionId:string;
  observationId:string;
  descriptionId:string;
- changeId:string;
  actor:string;
  posting:NormalizedPosition;
  markdown:string;
  sourceDescription:string;
  sourceProvenance:ManagedDocumentSourceProvenance;
- resolution:PostingResolution;
 }
+export type ScoutPromotionWork = ScoutPromotionMaterial & (
+ | {kind:"attempt";changeId:string;resolution:PostingResolution}
+ | {kind:"completed_retry";linkedGigId:string}
+);
 export interface ScoutPromotedDescriptionWork {
  processingId:string;
  positionId:string;
@@ -92,6 +94,7 @@ export interface ScoutPositionStore {
  backfillStatus(runId:string):ScoutPositionBackfillStatus|null;
  workspace(input:{text?:string;company?:string;state?:string;sort:string;direction:"asc"|"desc";offset:number;limit:number}):ScoutWorkspacePage;
  positionDetail(id:string):ScoutPositionDetail|null;
+ promotionPositionDetail?(id:string):ScoutPositionDetail|null;
  reviewDetail?(id:string):ScoutPositionDetail|null;
  decide(command:ScoutUserDecisionCommand,now:string):ScoutPositionDetail;
  restoreAgentIrrelevant(input:{positionId:string;changeId:string;actor:string;expectedStateRevision:number},now:string):ScoutPositionDetail;

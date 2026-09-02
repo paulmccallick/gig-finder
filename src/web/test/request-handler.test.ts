@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import pino from "pino";
 import { GigFinderApplication } from "../../core/application";
-import type { ArtifactPort } from "../../core/ports";
 import {
   AuditReader,
   DataStore,
@@ -14,13 +13,6 @@ import { importScoutCompany } from "../../core/scout/engine/company-import";
 import { ScoutPositionService } from "../../core/scout/engine/scout-position-service";
 import { createWebHandler } from "../request-handler";
 
-const artifacts: ArtifactPort = {
-  jobDescription: async () => "",
-  interviewPrep: async () => [],
-  jobDescriptionExists: async () => false,
-  interviewPrepExists: async () => false,
-  verify: async () => ({ ok: true, errors: [], unregistered: [] }),
-};
 const logger = pino({ enabled: false });
 const requestServer = { timeout: () => undefined };
 
@@ -34,7 +26,6 @@ beforeEach(() => {
   application = new GigFinderApplication(
     new DataStore(database),
     new AuditReader(database),
-    artifacts,
   );
   fetchRequest = createWebHandler({
     gigFinder: application,
@@ -157,6 +148,40 @@ describe("Gig Scout position mutation API",()=>{
     expect(await response.json()).toMatchObject({
       candidates: [{ jobDescription: { id: documentId, version: 2 } }],
     });
+  });
+
+  test("completed promotion retry keeps the existing body-free HTTP 202 updated contract", async () => {
+    const positionId = `spos_${"1".repeat(32)}`;
+    const calls: string[] = [];
+    const scoutPositions = {
+      retryPromotion(id: string) {
+        calls.push(id);
+        return {
+          status: "updated",
+          position: { id, state: "promoted", stateRevision: 7 },
+        };
+      },
+    };
+    const handler = createWebHandler({
+      gigFinder: application,
+      agentApi: { messages: async () => new Response(null), list: () => Response.json({ conversations: [] }), load: () => Response.json({ error: "Not found" }, { status: 404 }) },
+      uploadHandler: async () => new Response(null),
+      discardStagedDocument: () => false,
+      requestLogger: () => logger,
+      scoutPositions: scoutPositions as never,
+    });
+
+    const response = await handler(new Request(
+      `http://localhost/api/gig-scout/positions/${positionId}/promotion/retry`,
+      { method: "POST" },
+    ), requestServer);
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      status: "updated",
+      position: { id: positionId, state: "promoted", stateRevision: 7 },
+    });
+    expect(calls).toEqual([positionId]);
   });
 
   test("retry enriches stale candidate documents through the decision response path", async () => {
@@ -460,10 +485,10 @@ describe("explicit position backfill API", () => {
 function createVersionedDocument() {
   application.gigs.create({ actor: "test", source: "test", summary: "Create synthetic gig" }, {
     id: "gig-document", company: "Example Company", title: "Director",
-    externalJobId: null, artifactDirectory: null, stage: "identified",
+    externalJobId: null, stage: "identified",
     outcome: "pending", statusSummary: "Identified", lastActivity: "2026-08-08",
     nextAction: null, fit: { rating: "good", summary: null }, payRange: null,
-    sourceUrl: null, tags: [], hasJobDescription: false, hasInterviewPrep: false,
+    sourceUrl: null, tags: [],
   });
   const created = application.documents.create({
     actor: "test", source: "test", summary: "Create synthetic document",
@@ -543,7 +568,6 @@ describe("application health", () => {
     const application = new GigFinderApplication(
       new DataStore(database),
       new AuditReader(database),
-      artifacts,
     );
     const handler = createWebHandler({
       gigFinder: application,

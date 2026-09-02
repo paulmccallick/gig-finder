@@ -1,39 +1,34 @@
 # Codex Project Guide
 
-The installed Superpowers workflow is authoritative for development. The rules
-below are GigFinder-specific extensions.
+Apply `$coding-guide` to all implementation and review work. Before changing
+behavior or contracts, read and update the relevant files in `docs/product/`
+and `docs/architecture/`.
 
-Apply `$coding-guide` to all implementation and review work.
-
-Before changing behavior or contracts, read the relevant files in
-`docs/product/` and `docs/architecture/`. Update them in the same change and
-stop if they conflict with the code.
-
-The backlog is the [GigFinder GitHub
-Project](https://github.com/users/paulmccallick/projects/5).
+The backlog is the [GigFinder GitHub Project](https://github.com/users/paulmccallick/projects/5).
 
 ## Workflow
 
-- Grooming
-  - The issue is in Grooming in github
-  - Superpowers does brainstorming and drives to commited spec and plan
-  - spec and plan are attatched to GH issue
-- Development
-  - The issue moves to Development in Github
-  - A branch is taken from main for feature development
-  - Superpowers drives the development to its final review
-  - A PR is created in Github with the changes
-  - `release-verifier` is asked to verify the release
-  - change overview agent is run against the changes with overview captured in an md file
-  - Github runs PR checks which can be viewed via `gh pr checks --watch`
-  - user must approve PR before moving to Release
-- Release
-  - Deployer agent drives the release process via the deployment skill
-  - GH issue is moved to Done
+The workflow stages are **Grooming → Development → Verification -> Release → Done**. Root moves
+the github issue between stages, orchestrates the overall process, and performs GitHub actions. Superpowers owns its
+internal orchestration.
 
-## Root coordination
+- **Grooming:** Move the issue to Grooming and invoke
+  `$superpowers:brainstorming`. Follow its workflow through the approved,
+  committed spec and its required transition to `$superpowers:writing-plans`.
+  Commit the resulting plan and attach the spec and plan to the issue.
+- **Development:** Move the issue to Development and create a branch from
+  `main`. Invoke `$superpowers:subagent-driven-development` to execute the plan
+  through final review and verification, including its required transition to
+  `$superpowers:finishing-a-development-branch`.
+- **Verification:** - Run the `release-verifier` and `change-overview` against the branch.
+  Issues found during release verification revert the stage to Development.
+  A later commit requires fresh verification.
+- **Pull request:** Push the feature branch and
+  create or update its PR without prompting.
+  checks, `release-verifier`, and `change-overview` against that exact revision.
+- **Release:** Enter Release only after user approval and all exact-head gates
+  pass. Set the issue to Release. nvoke the deployer.
+- **Done:** Move the issue to Done only after production verification.
 
-- The main thread is responsible for moving issues through the workflow
-- The main thread should check on subagents periodically (maximum of 30 minutes)
-- if a subagent has a blocking issue notify the user immediately
-- if a subagent completes its task and no user input is needed the main agent moves to the next stage of the workflow
+While an agent is running, root waits and continues when it completes. Report
+blockers immediately.

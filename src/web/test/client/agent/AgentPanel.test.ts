@@ -228,7 +228,6 @@ describe("managed document actions", () => {
       { type: "text", text: "Interim text" },
       completed("read-duplicate", managedOutput),
       completed("read-staged", { status: "ok", record: { ...managedOutput.record, storage: "staged" } }),
-      completed("read-artifact", { status: "ok", record: { ...managedOutput.record, storage: "artifact" } }),
       completed("read-malformed", { status: "ok", record: { ...managedOutput.record, version: 0 } }),
       {
         type: "dynamic-tool", toolName: "get_document", toolCallId: "read-failed",
@@ -247,7 +246,7 @@ describe("managed document actions", () => {
       documentType: "job_description",
       mediaType: "text/markdown",
     }]);
-    expect(lastCompletedDocumentReadIndex(parts)).toBe(6);
+    expect(lastCompletedDocumentReadIndex(parts)).toBe(5);
   });
 
   test("renders only friendly labels and application-owned links", () => {

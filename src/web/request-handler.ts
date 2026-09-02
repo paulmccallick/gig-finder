@@ -403,13 +403,7 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
       } else if (url.pathname === "/api/tasks") {
         response = json(gigFinder.tasks.list());
       } else {
-        const match = url.pathname.match(/^\/api\/gigs\/([^/]+)\/artifacts$/);
-        if (match) {
-          const id=decodeURIComponent(match[1]??"");const gig=gigFinder.gigs.get(id);
-          response = gig?json({jobDescription:await gigFinder.gigs.description(id),sourceUrl:gig.sourceUrl,artifactDirectory:`artifacts/gigs/${id}/`}):json({error:"Gig not found"},404);
-        } else {
-          response = await staticFiles?.(request) ?? json({ error: "Not found" }, 404);
-        }
+        response = await staticFiles?.(request) ?? json({ error: "Not found" }, 404);
       }
     } catch (error) {
       log.error({ event: "http.request.failed", err: error }, "HTTP request failed");

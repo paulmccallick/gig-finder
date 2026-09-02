@@ -587,7 +587,12 @@ export function AgentPanel({
   }, [error]);
 
   useEffect(() => {
-    if (open) window.setTimeout(() => inputRef.current?.focus(), 100);
+    if (!open) return;
+    const focusedElement = document.activeElement;
+    const timer = window.setTimeout(() => {
+      if (document.activeElement === focusedElement) inputRef.current?.focus();
+    }, 100);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {

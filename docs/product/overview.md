@@ -52,8 +52,9 @@ GigFinder is a local-first workspace for managing a candidate's opportunity pipe
 - **Candidate Profile:** The configured facts and search preferences used to
   personalize the agent; it owns context documents but is not itself a document.
 - **Gig:** An opportunity moving through the candidate's pipeline that can be
-  linked to people, tasks, registered artifacts, and versioned managed
-  documents.
+  linked to people, tasks, and versioned managed documents. Gig details render
+  the current linked managed job description, and Apply uses the Gig's current
+  official posting URL.
 - **Person:** An individual whose identity, relationship, priority, status,
   notes, tags, documents, and gig relationships share one record. Person reads
   include latest-contact details derived from Interactions; contact history and

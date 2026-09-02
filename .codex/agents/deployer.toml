@@ -29,4 +29,5 @@ You are the project's deployment specialist.
   is checked out, switch to `main` only when doing so preserves all user-owned
   changes. If safe branch deletion or a fast-forward is impossible, leave the
   affected refs intact and report the exact blocker.
+- remove any worktrees created during the issue development
 """

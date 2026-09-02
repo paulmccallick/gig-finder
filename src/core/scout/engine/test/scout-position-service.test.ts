@@ -146,7 +146,6 @@ const gig = (id: string, documents: GigRecord["documents"] = []): GigRecord => (
   company: posting.company,
   title: posting.title,
   externalJobId: posting.externalId,
-  artifactDirectory: `artifacts/gigs/${id}`,
   stage: "identified",
   outcome: "pending",
   statusSummary: "Promoted from Gig Scout",
@@ -156,8 +155,6 @@ const gig = (id: string, documents: GigRecord["documents"] = []): GigRecord => (
   payRange: null,
   sourceUrl: posting.canonicalUrl,
   tags: [],
-  hasJobDescription: documents.some(document => document.type === "job_description"),
-  hasInterviewPrep: false,
   availability: "unknown",
   availabilityUpdatedAt: null,
   location: posting.location,
@@ -179,6 +176,7 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
   readonly failures: string[] = [];
   readonly released: Array<{ positionId: string; changeId: string; outcome: "resolution_stale" | "resolution_invalid" }> = [];
   pending: ScoutPromotionWork | null = null;
+  currentPosition: ScoutPositionDetail | null = null;
   reviewable = true;
 
   reviewPosting(id: string) { return id === positionId && this.reviewable ? this.review : null; }
@@ -187,6 +185,7 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
     this.begun.push({ command, resolution });
     this.reviewable = false;
     this.pending = {
+      kind: "attempt",
       positionId,
       observationId: this.review.observationId,
       descriptionId: this.review.detail.descriptionId!,
@@ -199,6 +198,29 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
       resolution,
     };
     return this.pending;
+  }
+  useCompletedRetry(overrides: Partial<{
+    observationId: string;
+    descriptionId: string;
+    linkedGigId: string;
+  }> = {}) {
+    this.reviewable = false;
+    this.currentPosition = {
+      ...detail(),
+      state: "promoted",
+    };
+    this.pending = {
+      kind: "completed_retry",
+      positionId,
+      observationId: overrides.observationId ?? this.review.observationId,
+      descriptionId: overrides.descriptionId ?? this.review.detail.descriptionId!,
+      actor: "Gig Scout",
+      posting: this.review.posting,
+      markdown: this.review.markdown,
+      sourceDescription: this.review.sourceDescription,
+      sourceProvenance: this.review.sourceProvenance,
+      linkedGigId: overrides.linkedGigId ?? "synthetic-existing-gig",
+    } as ScoutPromotionWork;
   }
   promotionWork(id: string) { return id === positionId ? this.pending : null; }
   completePromotion(id: string, gigId: string, documentId: string) {
@@ -213,7 +235,8 @@ class FakeScoutStore implements ScoutPostingResolutionStore {
     this.review.detail.stateRevision += 1;
     return this.review.detail;
   }
-  positionDetail() { return null; }
+  positionDetail() { return this.currentPosition; }
+  promotionPositionDetail() { return this.currentPosition; }
   reviewDetail() { return this.reviewable ? this.review.detail : null; }
   decide(): never { throw new Error("Non-pursue decision is not used by this fake."); }
   pendingPositionJobs() { return []; }
@@ -244,6 +267,7 @@ class FakeGigs {
     expect(value).toEqual(posting);
     return this.resolution;
   }
+  get(id: string) { return this.acceptedGig.id === id ? this.acceptedGig : null; }
   acceptPosting(context: ChangeContext, value: NormalizedPosition, resolution?: PostingResolution) {
     this.accepted.push({ context, posting: value, resolution });
     if (this.nextAcceptance) {
@@ -386,7 +410,7 @@ class FakeDocuments {
 
 const setup = () => {
   const store = new FakeScoutStore();
-  const gigs: Pick<GigDomainService, "resolvePosting" | "acceptPosting"> = new FakeGigs();
+  const gigs: Pick<GigDomainService, "get" | "resolvePosting" | "acceptPosting"> = new FakeGigs();
   const documents: Pick<ManagedDocumentService, "get" | "create" | "update" | "createdByChange" | "versionByChange"> = new FakeDocuments();
   const service = new ScoutPositionService(store, gigs, documents);
   return { store, gigs: gigs as FakeGigs, documents: documents as FakeDocuments, service };
@@ -513,7 +537,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
       { title: "My reviewed role notes", displayName: "My reviewed role notes" },
     );
     documents.records.set(existingDocument.id, existingDocument);
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -535,7 +559,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
     documents.records.set(existingDocument.id, existingDocument);
     documents.seedVersion(existingDocument, sourceProvenance);
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -562,7 +586,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", posting.description!);
     documents.records.set(existingDocument.id, existingDocument);
     documents.seedVersion(existingDocument, persistedProvenance);
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -599,7 +623,7 @@ describe("ScoutPositionService reviewed posting promotion", () => {
     const existingDocument = document("synthetic-existing-document", "synthetic-existing-gig", "# Earlier Markdown");
     documents.records.set(existingDocument.id, existingDocument);
     documents.conflictAfterUpdate = true;
-    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName } });
+    const existing = candidate({ jobDescription: { id: existingDocument.id, type: "job_description", title: existingDocument.title, displayName: existingDocument.displayName, currentVersion: existingDocument.currentVersion } });
     gigs.resolution = { fingerprint, candidates: [existing] };
     gigs.acceptedGig = gig(existing.gigId, [existing.jobDescription!]);
     const resolution = { kind: "use_existing" as const, reviewedFingerprint: fingerprint, gigId: existing.gigId, expectedGigRevision: existing.revision };
@@ -611,5 +635,198 @@ describe("ScoutPositionService reviewed posting promotion", () => {
       content: posting.description,
       sourceDescription,
     });
+  });
+
+  test("completed promotion retry reapplies the current posting to the same linked active Gig", () => {
+    const { store, gigs, documents, service } = setup();
+    store.useCompletedRetry();
+    const linked = candidate({ revision: 4 });
+    gigs.resolution = { fingerprint, candidates: [linked] };
+    gigs.acceptedGig = gig(linked.gigId);
+
+    expect(service.retryPromotion(positionId)).toEqual({
+      status: "updated",
+      position: expect.objectContaining({ id: positionId, state: "promoted" }),
+    });
+    expect(gigs.accepted).toHaveLength(1);
+    expect(gigs.accepted[0]).toMatchObject({
+      context: {
+        actor: "Gig Scout",
+        source: "automation",
+        summary: "Retry completed Scout promotion",
+        changeId: "scout-promotion-retry:e027d513f9e8b5207258740ee12381c9d6b49f66f7317faddbb2e98f69982bcc:gig",
+      },
+      resolution: {
+        kind: "use_existing",
+        reviewedFingerprint: fingerprint,
+        gigId: linked.gigId,
+        expectedGigRevision: 4,
+      },
+    });
+    expect(documents.createdByChange("scout-promotion-retry:e027d513f9e8b5207258740ee12381c9d6b49f66f7317faddbb2e98f69982bcc:document")).toMatchObject({
+      content: posting.description,
+    });
+    expect(store.completed).toEqual([]);
+    expect(store.failures).toEqual([]);
+    expect(store.released).toEqual([]);
+  });
+
+  test.each([
+    ["missing", []],
+    ["no-longer-matching", [candidate({ gigId: "different-gig" })]],
+    ["closed", [candidate({ stage: "closed", outcome: "rejected" })]],
+  ] as const)("completed promotion retry rejects a %s linked Gig without changing Scout state", (_case, candidates) => {
+    const { store, gigs, documents, service } = setup();
+    store.useCompletedRetry();
+    gigs.resolution = { fingerprint, candidates: [...candidates] };
+
+    expect(service.retryPromotion(positionId)).toEqual({
+      status: "resolution_invalid",
+      position: expect.objectContaining({ id: positionId, state: "promoted" }),
+    });
+    expect(gigs.accepted).toEqual([]);
+    expect(documents.createAttempts).toBe(0);
+    expect(documents.updateAttempts).toBe(0);
+    expect(store.completed).toEqual([]);
+    expect(store.failures).toEqual([]);
+    expect(store.released).toEqual([]);
+  });
+
+  test.each(["resolution_stale", "resolution_invalid"] as const)(
+    "completed promotion retry returns %s after an acceptance race without changing Scout state",
+    status => {
+      const { store, gigs, service } = setup();
+      store.useCompletedRetry();
+      const linked = candidate({ revision: 4 });
+      gigs.resolution = { fingerprint, candidates: [linked] };
+      gigs.nextAcceptance = status === "resolution_stale"
+        ? { status, fingerprint: changedFingerprint, candidates: [candidate({ revision: 5 })] }
+        : { status };
+
+      expect(service.retryPromotion(positionId)).toMatchObject({
+        status,
+        position: { id: positionId, state: "promoted" },
+      });
+      expect(store.completed).toEqual([]);
+      expect(store.failures).toEqual([]);
+      expect(store.released).toEqual([]);
+    },
+  );
+
+  test("completed promotion retry updates changed Markdown through the shared document coordinator", () => {
+    const { store, gigs, documents, service } = setup();
+    store.useCompletedRetry();
+    const existingDocument = document(
+      "synthetic-existing-document",
+      "synthetic-existing-gig",
+      "# Earlier Markdown",
+      { title: "My synthetic role notes", displayName: "My synthetic role notes" },
+    );
+    documents.records.set(existingDocument.id, existingDocument);
+    const linked = candidate({
+      revision: 4,
+      jobDescription: {
+        id: existingDocument.id,
+        type: "job_description",
+        title: existingDocument.title,
+        displayName: existingDocument.displayName,
+        currentVersion: existingDocument.currentVersion,
+      },
+    });
+    gigs.resolution = { fingerprint, candidates: [linked] };
+    gigs.acceptedGig = gig(linked.gigId, [linked.jobDescription!]);
+
+    expect(service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+    expect(documents.createAttempts).toBe(0);
+    expect(documents.updateAttempts).toBe(1);
+    expect(documents.get(existingDocument.id)).toMatchObject({
+      title: "My synthetic role notes",
+      currentVersion: 2,
+      content: posting.description,
+    });
+    expect(store.completed).toEqual([]);
+  });
+
+  test("completed promotion retry leaves unchanged Markdown at the current document version", () => {
+    const { store, gigs, documents, service } = setup();
+    store.useCompletedRetry();
+    const existingDocument = document(
+      "synthetic-existing-document",
+      "synthetic-existing-gig",
+      posting.description!,
+    );
+    documents.records.set(existingDocument.id, existingDocument);
+    documents.seedVersion(existingDocument, sourceProvenance);
+    const linked = candidate({
+      revision: 4,
+      jobDescription: {
+        id: existingDocument.id,
+        type: "job_description",
+        title: existingDocument.title,
+        displayName: existingDocument.displayName,
+        currentVersion: existingDocument.currentVersion,
+      },
+    });
+    gigs.resolution = { fingerprint, candidates: [linked] };
+    gigs.acceptedGig = gig(linked.gigId, [linked.jobDescription!]);
+
+    expect(service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+    expect(documents.createAttempts).toBe(0);
+    expect(documents.updateAttempts).toBe(0);
+    expect(documents.get(existingDocument.id)?.currentVersion).toBe(1);
+    expect(store.completed).toEqual([]);
+  });
+
+  test("completed promotion retry resumes after the Gig change commits without recording a Scout failure", () => {
+    const { store, gigs, documents, service } = setup();
+    store.useCompletedRetry();
+    const linked = candidate({ revision: 4 });
+    gigs.resolution = { fingerprint, candidates: [linked] };
+    gigs.acceptedGig = gig(linked.gigId);
+    documents.failNextCreate = true;
+
+    expect(() => service.retryPromotion(positionId)).toThrow("Synthetic document creation failure.");
+    expect(store.failures).toEqual([]);
+    expect(gigs.persistedChanges).toHaveLength(1);
+
+    expect(service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+    expect(gigs.persistedChanges).toHaveLength(1);
+    expect(documents.records).toHaveLength(1);
+    expect(documents.changedVersions).toHaveLength(1);
+    expect(store.completed).toEqual([]);
+  });
+
+  test("completed promotion retry reconciles an already-committed document change", () => {
+    const { store, gigs, documents, service } = setup();
+    store.useCompletedRetry();
+    const linked = candidate({ revision: 4 });
+    gigs.resolution = { fingerprint, candidates: [linked] };
+    gigs.acceptedGig = gig(linked.gigId);
+
+    expect(service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+    expect(service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+    expect(documents.createAttempts).toBe(1);
+    expect(documents.records).toHaveLength(1);
+    expect(documents.changedVersions).toHaveLength(1);
+    expect(store.completed).toEqual([]);
+  });
+
+  test("completed promotion retry uses a different change identity for later current evidence", () => {
+    const first = setup();
+    first.store.useCompletedRetry();
+    first.gigs.resolution = { fingerprint, candidates: [candidate({ revision: 4 })] };
+    first.gigs.acceptedGig = gig("synthetic-existing-gig");
+    expect(first.service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+
+    const later = setup();
+    later.store.useCompletedRetry({
+      observationId: "synthetic-observation-later",
+      descriptionId: "synthetic-description-later",
+    });
+    later.gigs.resolution = { fingerprint, candidates: [candidate({ revision: 4 })] };
+    later.gigs.acceptedGig = gig("synthetic-existing-gig");
+    expect(later.service.retryPromotion(positionId)).toMatchObject({ status: "updated" });
+
+    expect(first.gigs.accepted[0]!.context.changeId).not.toBe(later.gigs.accepted[0]!.context.changeId);
   });
 });

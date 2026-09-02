@@ -125,10 +125,10 @@ test("exact requisition and URL Gig candidates remain reviewable", async () => {
     sources: [{ sourceKey: "official", status: "succeeded_with_results", positions, attempts: [] }],
   }, "2026-09-01T12:00:01Z");
   database.exec(`
-    INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
-    VALUES('gig-requisition','Example Company','Existing requisition candidate','REQ-EXACT','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
-    INSERT INTO gigs(id,company,title,source_url,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
-    VALUES('gig-url','Example Company','Existing URL candidate','https://careers.example.test/jobs/url-candidate','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
+    INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-requisition','Example Company','Existing requisition candidate','REQ-EXACT','identified','pending','Tracked','2026-09-01','good','[]',1,0,'2026-09-01','2026-09-01');
+    INSERT INTO gigs(id,company,title,source_url,stage,outcome,status_summary,last_activity,fit_rating,tags_json,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-url','Example Company','Existing URL candidate','https://careers.example.test/jobs/url-candidate','identified','pending','Tracked','2026-09-01','good','[]',1,0,'2026-09-01','2026-09-01');
   `);
   const model: ScoutScreeningModel = {
     async screenRelevance() {
@@ -325,6 +325,327 @@ test("reviewed posting intent binds the exact observation, description, and subm
   expect(()=>reviewedStore.beginPursue(replacementCommand,replacementResolution,"2026-09-01T12:00:06Z")).toThrow("Reviewed Scout promotion intent is unavailable.");
 });
 
+test("completed promotion work reconstructs the latest complete current Scout evidence without writes", async () => {
+  setup("Synthetic Company");
+  const database = databases.at(-1)!;
+  const descriptionsRoot = mkdtempSync(path.join(process.cwd(), "tmp", "scout-completed-promotion-"));
+  temporaryDirectories.push(descriptionsRoot);
+  const screening = {
+    profile: { summary: "Synthetic candidate" },
+    profileVersion: "synthetic-profile-v1",
+    profileArtifactId: "synthetic-profile-artifact",
+    profileHash: "synthetic-profile-hash",
+    model: "synthetic-model",
+    provider: "synthetic-provider",
+    modelConfiguration: "synthetic-configuration",
+  };
+  const store = new SqliteScoutRunStore(database, descriptionsRoot, screening);
+  store.startOrReuse(20, 5, "2026-09-01T13:00:00Z");
+  const initialJob = store.pendingJobs(1)[0]!;
+  const initialPosition = {
+    company: initialJob.companyName,
+    sourceKey: "official",
+    externalId: "SYN-149",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-149-historical",
+    title: "Historical Synthetic Director",
+    location: "Remote",
+    description: "# Historical synthetic posting",
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "listing" as const,
+      descriptionUrl: "https://careers.example.test/jobs/SYN-149-historical",
+    },
+  };
+  prepareAndComplete(store, initialJob, {
+    companyId: initialJob.companyId,
+    configurationVersionId: initialJob.configurationVersionId,
+    positions: [initialPosition],
+    sources: [{
+      sourceKey: "official",
+      status: "succeeded_with_results",
+      positions: [initialPosition],
+      attempts: [],
+    }],
+  }, "2026-09-01T13:00:01Z");
+  const model: ScoutScreeningModel = {
+    async screenRelevance() {
+      return {
+        value: {
+          decision: "passes_relevance",
+          reason: "Synthetic leadership role",
+          confidence: .99,
+          evidence: ["Leadership"],
+          ambiguities: [],
+        },
+        metrics: {
+          provider: screening.provider,
+          model: screening.model,
+          modelConfiguration: screening.modelConfiguration,
+          inputTokens: 1,
+          outputTokens: 1,
+          latencyMs: 1,
+        },
+      };
+    },
+    async scoreCandidateMatch() {
+      return {
+        value: { score: 9, scoreExplanation: "Synthetic candidate match" },
+        metrics: {
+          provider: screening.provider,
+          model: screening.model,
+          modelConfiguration: screening.modelConfiguration,
+          inputTokens: 1,
+          outputTokens: 1,
+          latencyMs: 1,
+        },
+      };
+    },
+  };
+  const processor = new ScoutPositionProcessor(store, model, () => "2026-09-01T13:00:02Z");
+  while (store.pendingPositionJobs(20)[0]) {
+    await processor.process(store.pendingPositionJobs(20)[0]!.id);
+  }
+  const initialReview = store.reviewPosting(
+    (database.query(`SELECT id FROM scout_positions WHERE external_id='SYN-149'`).get() as { id: string }).id,
+  )!;
+  const application = new GigFinderApplication(new DataStore(database), new AuditReader(database));
+  const positions = new ScoutPositionService(store, application.gigs, application.documents);
+  store.beginPursue({
+    positionId: initialReview.detail.id,
+    action: "pursue",
+    actor: "Synthetic Reviewer",
+    changeId: "synthetic-completed-promotion",
+    expectedStateRevision: initialReview.detail.stateRevision,
+    descriptionId: initialReview.detail.descriptionId!,
+    relevanceEvaluationId: initialReview.detail.relevanceEvaluationId!,
+    candidateMatchEvaluationId: initialReview.detail.candidateMatchEvaluationId!,
+  }, {
+    kind: "create_new",
+    reviewedFingerprint: application.gigs.resolvePosting(initialReview.posting).fingerprint,
+  }, "2026-09-01T13:00:03Z");
+  expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({ status: "created" });
+  const completedPromotion = database.query(
+    `SELECT gig_id gigId,managed_document_id managedDocumentId FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id) as { gigId: string; managedDocumentId: string };
+
+  store.startOrReuse(20, 5, "2026-09-01T13:01:00Z");
+  const currentJob = store.pendingJobs(1)[0]!;
+  const currentPosition = {
+    company: currentJob.companyName,
+    sourceKey: "official",
+    externalId: "SYN-149",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-149",
+    title: "Current Synthetic Director",
+    location: "Seattle, WA",
+    locations: [{ label: "Seattle, WA", workArrangement: "hybrid" as const }],
+    workArrangement: "hybrid" as const,
+    description: "# Current synthetic posting",
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "listing" as const,
+      descriptionUrl: "https://careers.example.test/jobs/SYN-149",
+    },
+  };
+  prepareAndComplete(store, currentJob, {
+    companyId: currentJob.companyId,
+    configurationVersionId: currentJob.configurationVersionId,
+    positions: [currentPosition],
+    sources: [{
+      sourceKey: "official",
+      status: "succeeded_with_results",
+      positions: [currentPosition],
+      attempts: [],
+    }],
+  }, "2026-09-01T13:01:01Z");
+  const currentBinding = database.query(`
+    SELECT observation.id observationId, description.id descriptionId
+    FROM scout_position_observations observation
+    JOIN scout_position_descriptions description ON description.position_id=observation.position_id
+    WHERE observation.position_id=?
+    ORDER BY observation.observed_at DESC, observation.id DESC,
+             description.created_at DESC, description.id DESC
+    LIMIT 1
+  `).get(initialReview.detail.id) as { observationId: string; descriptionId: string };
+  const criteria = database.query(
+    `SELECT id FROM scout_relevance_criteria ORDER BY version DESC LIMIT 1`,
+  ).get() as { id: string };
+  const rubric = database.query(
+    `SELECT id FROM scout_candidate_match_rubrics ORDER BY version DESC LIMIT 1`,
+  ).get() as { id: string };
+  database.query(`
+    INSERT INTO scout_relevance_evaluations(
+      id,position_id,description_id,criteria_id,input_identity,decision,reason,
+      confidence,evidence_json,ambiguities_json,provider,model,
+      model_configuration,latency_ms,created_at
+    ) VALUES(
+      'current-relevance-149',?,?,?,'current-relevance-input-149',
+      'passes_relevance','Current synthetic evidence',990,'[]','[]',
+      'synthetic','synthetic','synthetic',1,'2026-09-01T13:01:02Z'
+    )
+  `).run(initialReview.detail.id, currentBinding.descriptionId, criteria.id);
+  database.query(`
+    INSERT INTO scout_candidate_match_evaluations(
+      id,position_id,relevance_evaluation_id,input_identity,profile_version,
+      profile_artifact_id,profile_hash,rubric_id,score,score_explanation,
+      provider,model,model_configuration,latency_ms,created_at
+    ) VALUES(
+      'current-match-149',?,'current-relevance-149','current-match-input-149',
+      'synthetic-v1','synthetic-artifact','synthetic-hash',?,9,
+      'Current synthetic match','synthetic','synthetic','synthetic',1,
+      '2026-09-01T13:01:03Z'
+    )
+  `).run(initialReview.detail.id, rubric.id);
+  database.query(`
+    INSERT INTO scout_position_processing(
+      id,position_id,run_id,observation_id,description_id,
+      relevance_evaluation_id,rubric_id,stage,input_identity,status,
+      attempt_count,created_at,updated_at,completed_at
+    ) VALUES(
+      'current-match-processing-149',?,?,?,?,?,?,'score_candidate_match',
+      'current-match-input-149','completed',1,'2026-09-01T13:01:03Z',
+      '2026-09-01T13:01:03Z','2026-09-01T13:01:03Z'
+    )
+  `).run(
+    initialReview.detail.id,
+    currentJob.runId,
+    currentBinding.observationId,
+    currentBinding.descriptionId,
+    "current-relevance-149",
+    rubric.id,
+  );
+
+  const stateBefore = database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id) as Record<string, unknown> & { revision: number };
+  const decisionBefore = database.query(`
+    SELECT decision.*
+    FROM scout_position_decisions decision
+    JOIN scout_position_states state ON state.current_decision_id=decision.id
+    WHERE state.position_id=?
+  `).get(initialReview.detail.id);
+  const promotionBefore = database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id);
+
+  const work = store.promotionWork(initialReview.detail.id);
+
+  expect(work).toMatchObject({
+    kind: "completed_retry",
+    positionId: initialReview.detail.id,
+    linkedGigId: completedPromotion.gigId,
+    observationId: currentBinding.observationId,
+    descriptionId: currentBinding.descriptionId,
+    actor: "Gig Scout",
+    posting: {
+      company: "Synthetic Company",
+      externalId: "SYN-149",
+      canonicalUrl: "https://careers.example.test/jobs/SYN-149",
+      title: "Current Synthetic Director",
+      locations: [{ label: "Seattle, WA", workArrangement: "hybrid" }],
+      workArrangement: "hybrid",
+    },
+    markdown: "# Current synthetic posting",
+  });
+  expect(database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id)).toEqual(stateBefore);
+  expect(database.query(`
+    SELECT decision.*
+    FROM scout_position_decisions decision
+    JOIN scout_position_states state ON state.current_decision_id=decision.id
+    WHERE state.position_id=?
+  `).get(initialReview.detail.id)).toEqual(decisionBefore);
+  expect(database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id)).toEqual(promotionBefore);
+
+  const interruptedDocuments = {
+    get: (...args: Parameters<typeof application.documents.get>) => application.documents.get(...args),
+    create: (...args: Parameters<typeof application.documents.create>) => application.documents.create(...args),
+    update: () => {
+      throw new Error("Synthetic interruption after completed-retry Gig commit.");
+    },
+    createdByChange: (...args: Parameters<typeof application.documents.createdByChange>) => application.documents.createdByChange(...args),
+    versionByChange: (...args: Parameters<typeof application.documents.versionByChange>) => application.documents.versionByChange(...args),
+  };
+  const interruptedRetry = new ScoutPositionService(
+    store,
+    application.gigs,
+    interruptedDocuments,
+  );
+  expect(() => interruptedRetry.retryPromotion(initialReview.detail.id)).toThrow(
+    "Synthetic interruption after completed-retry Gig commit.",
+  );
+  expect(application.gigs.get(completedPromotion.gigId)).toMatchObject({
+    title: currentPosition.title,
+    sourceUrl: currentPosition.canonicalUrl,
+  });
+  expect(application.documents.versions(completedPromotion.managedDocumentId)).toHaveLength(1);
+  expect(database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id)).toEqual(stateBefore);
+  expect(database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id)).toEqual(promotionBefore);
+
+  application.gigs.update({
+    actor: "Synthetic Reviewer",
+    source: "test",
+    summary: "Change completed retry work arrangement",
+    changeId: "synthetic-completed-retry-work-arrangement-drift",
+    occurredAt: "2026-09-01T13:01:04Z",
+  }, completedPromotion.gigId, { workArrangement: "on-site" });
+  expect(() => positions.retryPromotion(initialReview.detail.id)).toThrow(
+    "no longer matches the accepted posting-owned Gig fields",
+  );
+  expect(application.documents.versions(completedPromotion.managedDocumentId)).toHaveLength(1);
+  application.gigs.update({
+    actor: "Synthetic Reviewer",
+    source: "test",
+    summary: "Restore completed retry work arrangement",
+    changeId: "synthetic-completed-retry-work-arrangement-restore",
+    occurredAt: "2026-09-01T13:01:05Z",
+  }, completedPromotion.gigId, { workArrangement: "hybrid" });
+
+  expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({
+    status: "updated",
+    position: {
+      id: initialReview.detail.id,
+      state: "promoted",
+      stateRevision: stateBefore.revision,
+    },
+  });
+  expect(positions.retryPromotion(initialReview.detail.id)).toMatchObject({
+    status: "updated",
+    position: { id: initialReview.detail.id, state: "promoted" },
+  });
+  expect(application.documents.versions(completedPromotion.managedDocumentId)).toHaveLength(2);
+  expect(database.query(
+    `SELECT * FROM scout_position_states WHERE position_id=?`,
+  ).get(initialReview.detail.id)).toEqual(stateBefore);
+  expect(database.query(`
+    SELECT decision.*
+    FROM scout_position_decisions decision
+    JOIN scout_position_states state ON state.current_decision_id=decision.id
+    WHERE state.position_id=?
+  `).get(initialReview.detail.id)).toEqual(decisionBefore);
+  expect(database.query(
+    `SELECT * FROM scout_position_promotions WHERE position_id=? AND status='completed'`,
+  ).get(initialReview.detail.id)).toEqual(promotionBefore);
+
+  database.query(
+    `UPDATE scout_position_processing SET status='failed' WHERE id='current-match-processing-149'`,
+  ).run();
+  database.query(`
+    UPDATE scout_position_processing
+    SET status='failed'
+    WHERE position_id=? AND stage='score_candidate_match'
+  `).run(initialReview.detail.id);
+  expect(store.promotionWork(initialReview.detail.id)).toBeNull();
+});
+
 test("company result preparation remains nonterminal and is replay safe", () => {
   const store = setup();
   const database = databases.at(-1)!;
@@ -385,13 +706,6 @@ test("Scout result persistence never mutates tracked Gig availability", () => {
   const application = new GigFinderApplication(
     new DataStore(database),
     new AuditReader(database),
-    {
-      jobDescription: async () => "",
-      interviewPrep: async () => [],
-      jobDescriptionExists: async () => false,
-      interviewPrepExists: async () => false,
-      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
-    },
   );
   application.gigs.create(
     {
@@ -406,7 +720,6 @@ test("Scout result persistence never mutates tracked Gig availability", () => {
       company: "Example Company",
       title: "Synthetic Systems Gardener",
       externalJobId: "job-1",
-      artifactDirectory: null,
       stage: "identified",
       outcome: "pending",
       statusSummary: "Tracked",
@@ -716,7 +1029,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const laterPosition={...position,title:"Later mutable title",location:"Later location",canonicalUrl:"https://careers.example.test/jobs/screen-1-later",provenance:{...position.provenance,descriptionUrl:"https://careers.example.test/jobs/screen-1-later"}};
   prepareAndComplete(laterStore,laterJob,{companyId:laterJob.companyId,configurationVersionId:laterJob.configurationVersionId,positions:[laterPosition],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[laterPosition],attempts:[]}]} ,"2026-01-01T00:00:01.200Z");
   expect(laterRun.id).not.toBe(run.id);
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-later-only','Example Company','Later tracked role','identified','pending','Tracked','2026-01-01','good',?,'[]',0,0,1,0,'2026-01-01','2026-01-01')`).run(laterPosition.canonicalUrl);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('gig-later-only','Example Company','Later tracked role','identified','pending','Tracked','2026-01-01','good',?,'[]',1,0,'2026-01-01','2026-01-01')`).run(laterPosition.canonicalUrl);
   database.query(`UPDATE scout_runs SET screening_cache_key=NULL,candidate_profile_json=NULL,candidate_profile_version=NULL,candidate_profile_artifact_id=NULL,candidate_profile_hash=NULL WHERE id=?`).run(run.id);
   const backfill=store.backfillPositions(run.id,20,"2026-01-01T00:00:01.300Z");
   expect(backfill).toMatchObject({sourceRunId:run.id,selection:{selected:1,complete:true},downstream:{pending:1}});
@@ -736,7 +1049,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const boundScore=store.candidateMatchInput(scoreJob.id);
   database.query(`INSERT INTO scout_candidate_match_rubrics(id,version,rubric,prompt_version,created_at) VALUES('later-rubric',2,'Later synthetic rubric','later-match-prompt','2026-01-01T00:00:03Z')`).run();
   expect(store.candidateMatchInput(scoreJob.id)).toMatchObject({descriptionHash:boundScore.descriptionHash,rubric:boundScore.rubric,rubricVersion:1,profileVersion:"profile-v1",promptCacheKey:boundScore.promptCacheKey});
-  const promotionApplication=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
+  const promotionApplication=new GigFinderApplication(new DataStore(database),new AuditReader(database));
   const changedStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Current Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
   const positions=new ScoutPositionService(changedStore,promotionApplication.gigs,promotionApplication.documents);
   expect(changedStore.refreshCandidateMatch(scoreJob.id,"2026-01-01T00:00:03.500Z")).toBeTrue();
@@ -803,8 +1116,30 @@ test("screening persists bounded comments and exposes only the score explanation
   database.query(`UPDATE managed_document_versions SET source_description=?,source_provenance_json=? WHERE document_id=? AND version=1`).run(promotionWork.sourceDescription,JSON.stringify(promotionWork.sourceProvenance),mismatchedDocument.id);
   const promoted=positions.retryPromotion(review.id);
   expect(promoted).toEqual({status:"created",position:null});
-  expect(positions.retryPromotion(review.id)).toBeNull();
+  expect(positions.retryPromotion(review.id)).toMatchObject({
+    status:"updated",
+    position:{id:review.id,state:"promoted"},
+  });
   expect(database.query(`SELECT s.state,p.status FROM scout_position_states s JOIN scout_position_promotions p ON p.position_id=s.position_id WHERE s.position_id=?`).get(review.id)).toEqual({state:"promoted",status:"completed"});
+  expect(positions.get(review.id)).toBeNull();
+  const promotedState = database.query(
+    `SELECT revision FROM scout_position_states WHERE position_id=?`,
+  ).get(review.id) as { revision: number };
+  const pursueDecision = database.query(
+    `SELECT id FROM scout_position_decisions WHERE change_id='change-pursue'`,
+  ).get() as { id: string };
+  expect(positions.reverse(review.id, {
+    decisionId: pursueDecision.id,
+    changeId: "change-reverse-promoted",
+    actor: "Reviewer",
+    expectedStateRevision: promotedState.revision,
+  })).toBeNull();
+  expect(changedStore.positionDetail(review.id)).toBeNull();
+  expect(changedStore.promotionWork(review.id)).toMatchObject({
+    kind: "completed_retry",
+    positionId: review.id,
+    linkedGigId: promotedGig,
+  });
   const promotedContent=database.query(`SELECT v.content,d.actor FROM managed_document_versions v JOIN scout_position_promotions p ON p.managed_document_id=v.document_id JOIN scout_position_decisions d ON d.id=p.decision_id WHERE p.position_id=?`).get(review.id) as {content:string;actor:string};
   expect(promotedContent).toEqual({content:review.descriptionMarkdown!,actor:"Reviewer"});
   const promotedProvenance=database.query(`SELECT d.source_description sourceDescription FROM managed_documents d JOIN scout_position_promotions p ON p.managed_document_id=d.id WHERE p.position_id=?`).get(review.id) as {sourceDescription:string};
@@ -1036,7 +1371,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   while(store.pendingPositionJobs(20)[0])await initialProcessor.process(store.pendingPositionJobs(20)[0]!.id);
   const positionId=(database.query(`SELECT id FROM scout_positions LIMIT 1`).get() as {id:string}).id;
   const review=store.reviewDetail(positionId)!;
-  const application=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
+  const application=new GigFinderApplication(new DataStore(database),new AuditReader(database));
   const positions=new ScoutPositionService(store,application.gigs,application.documents);
   const reviewedPosting=store.reviewPosting(positionId)!;
   store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:application.gigs.resolvePosting(reviewedPosting.posting).fingerprint},"2026-08-29T01:00:02Z");
@@ -1158,8 +1493,8 @@ test("position backfill reruns the complete pipeline",async()=>{
   expect(historical).toHaveLength(8);
   expect(historical.every(row=>row.status==="completed")).toBeTrue();
 
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-a','Example Company','Previously linked infrastructure role','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/previous-link','[]',1,0,1,0,'2026-08-28','2026-08-28')`).run();
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-b','Example Company','Newly discovered infrastructure role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,1,0,'2026-08-28','2026-08-28')`).run(positions[1]!.canonicalUrl);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-a','Example Company','Previously linked infrastructure role','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/previous-link','[]',1,0,'2026-08-28','2026-08-28')`).run();
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-b','Example Company','Newly discovered infrastructure role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,'2026-08-28','2026-08-28')`).run(positions[1]!.canonicalUrl);
   database.query(`UPDATE scout_position_states SET state='promoted',linked_gig_id='pipeline-gig-a' WHERE position_id=?`).run(positionIds[1]!);
   importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{source.origin}/details/{position.id}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-28T14:00:03Z"));
 
@@ -1260,7 +1595,7 @@ test("position backfill reruns the complete pipeline",async()=>{
   expect(database.query(`SELECT state,revision,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(correctedPositionId)).toEqual(successfulState);
   expect(store.backfillStatus(failedRun.runId)).toMatchObject({status:"failed",completedAt:"2026-08-28T14:00:21Z",positionOutcomes:{failed:1},positions:[expect.objectContaining({positionId:correctedPositionId,company:"Example Company",template:"custom",descriptionOutcome:"corrected",outcome:"failed",failureCode:"synthetic_failure"})]});
 
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-c','Example Company','Discovered user-owned role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,1,0,'2026-08-28','2026-08-28')`).run(positions[0]!.canonicalUrl);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-c','Example Company','Discovered user-owned role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,'2026-08-28','2026-08-28')`).run(positions[0]!.canonicalUrl);
   const successfulIds=successfulProjection as {descriptionId:string;relevanceId:string;matchId:string};
   const beforeUserIrrelevant=database.query(`SELECT revision FROM scout_position_states WHERE position_id=?`).get(correctedPositionId) as {revision:number};
   database.query(`INSERT INTO changes(id,occurred_at,actor,source,summary,status) VALUES('user-irrelevant-change','2026-08-28T14:00:22Z','Reviewer','web','Synthetic user irrelevance','committed')`).run();
