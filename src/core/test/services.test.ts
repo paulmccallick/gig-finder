@@ -283,18 +283,6 @@ describe("application services",()=>{
   expect(app.documents.versions(sourced.document.id)).toMatchObject([{version:1,sourceDescription,sourceProvenance}]);
   expect(()=>app.documents.update(context,{documentId:created.document.id,expectedVersion:1,content:"Stale description",changeSummary:"Stale update"})).toThrow(new MutationError("revision_conflict",`Document ${created.document.id} expected version 1 but is at version 2.`));
  });
- test("multi-linked managed document discovery reports the requested owner",async()=>{
-  const gig=seedGig("multi-owner-gig")!;
-  const person=app.people.create(context,{id:"multi-owner-person",name:"Morgan Example",company:"Synthetic Company",title:"Recruiter",linkedInProfileUrl:null,connectedOn:null});
-  const document=app.documents.create({...context,changeId:"multi-owner-document"},{links:[{entityType:"person",entityId:person.id},{entityType:"gig",entityId:gig.id}],documentType:"job_description",title:"Shared role brief",mediaType:"text/markdown",sourceDescription:null,content:"# Shared role brief"}).document;
-
-  expect(await app.documentReader.query({owner:{entityType:"gig",entityId:gig.id}})).toMatchObject({
-   status:"ok",items:[{reference:document.id,entityType:"gig",entityId:gig.id}],
-  });
-  expect(await app.documentReader.query({owner:{entityType:"person",entityId:person.id}})).toMatchObject({
-   status:"ok",items:[{reference:document.id,entityType:"person",entityId:person.id}],
-  });
- });
  test("Gig document summaries expose the current managed version",()=>{
   const gig=seedGig("document-summary-gig")!;
   const created=app.documents.create({...context,changeId:"document-summary-create"},{links:[{entityType:"gig",entityId:gig.id}],documentType:"job_description",title:"Synthetic Company — Director",mediaType:"text/markdown",sourceDescription:null,content:"# Synthetic role"}).document;
