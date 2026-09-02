@@ -5,14 +5,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { DataStore, migrateDatabase, openDatabase, validateDatabase } from "..";
 import { GigFinderApplication } from "../../core/application";
 import { AuditReader } from "../audit";
-import type { ArtifactPort } from "../../core/ports";
 import type { GigData, PersonData } from "../../core/models";
 
 const root=path.resolve(import.meta.dir,"../../..");
 let directory="";let database:Database;
-const artifacts:ArtifactPort={jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})};
 const person:PersonData={id:"person-1",name:"Person One",company:"Example",title:"Recruiter",linkedInProfileUrl:null,connectedOn:null,relationshipType:"professional_contact",relationshipStrength:"warm",introducedBy:null,relationshipNotes:null,priority:"high",status:"active_relationship",whyInteresting:null,notesJson:"[]",tagsJson:"[]"};
-const gig:GigData={id:"gig-1",company:"Example",title:"Director",externalJobId:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-08-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",hasJobDescription:false,hasInterviewPrep:false,availability:"unknown",availabilityUpdatedAt:null};
+const gig:GigData={id:"gig-1",company:"Example",title:"Director",externalJobId:null,stage:"identified",outcome:"pending",statusSummary:"Found",lastActivity:"2026-08-01",nextActionDescription:null,nextActionDue:null,fitRating:"good",fitSummary:null,payCurrency:null,payMinimum:null,payMaximum:null,payPeriod:null,payNotes:null,sourceUrl:null,location:null,workArrangement:null,postedDate:null,businessUnitTeam:null,recruiterSource:null,bonus:null,equity:null,otherCompensation:null,tagsJson:"[]",availability:"unknown",availabilityUpdatedAt:null};
 
 beforeEach(async()=>{await mkdir(path.join(root,"tmp"),{recursive:true});directory=await mkdtemp(path.join(root,"tmp","interaction-data-test-"));database=openDatabase(path.join(directory,"test.sqlite"));migrateDatabase(database)});
 afterEach(async()=>{database.close();await rm(directory,{recursive:true,force:true})});
@@ -27,14 +25,14 @@ test("final schema adds Interaction storage while retaining legacy Business Even
 });
 
 test("Interaction changes version participants, soft-delete, revert, and drive Person projections",()=>{
- const store=new DataStore(database);store.change({actor:"test",source:"test",summary:"seed"},tx=>{tx.people.create(person);tx.gigs.create(gig)});const app=new GigFinderApplication(store,new AuditReader(database),artifacts);
+ const store=new DataStore(database);store.change({actor:"test",source:"test",summary:"seed"},tx=>{tx.people.create(person);tx.gigs.create(gig)});const app=new GigFinderApplication(store,new AuditReader(database));
  app.interactions.create({actor:"test",source:"test",summary:"create",changeId:"create-interaction"},"interaction-1",{subject:"Recruiter screen",kind:"interview",channel:"video",direction:"mutual",status:"confirmed",startsAt:"2026-08-03T10:00:00-07:00",endsAt:"2026-08-03T10:30:00-07:00",timezone:"America/Los_Angeles",personIds:[person.id],gigId:gig.id,structuredData:{provider:"synthetic"}});
  const updated=app.interactions.update({actor:"test",source:"test",summary:"complete",changeId:"complete-interaction"},"interaction-1",{status:"completed",summary:"Good conversation"});expect(updated.record.revision).toBe(2);expect(app.people.get(person.id)).toMatchObject({lastContacted:"2026-08-03",lastContactMethod:"video",lastContactSummary:"Good conversation"});
  expect(app.interactions.delete({actor:"test",source:"test",summary:"delete",changeId:"delete-interaction"},"interaction-1",2).record.isDeleted).toBe(true);expect(app.interactions.get("interaction-1")).toBeNull();app.changes.revert({actor:"test",source:"test",summary:"restore"},"delete-interaction");expect(app.interactions.get("interaction-1")?.isDeleted).toBe(false);
 });
 
 test("Gig availability changes create one complete audited revision and unchanged values create none",()=>{
- const store=new DataStore(database);store.change({actor:"test",source:"test",summary:"seed"},tx=>{tx.gigs.create(gig)});const app=new GigFinderApplication(store,new AuditReader(database),artifacts);
+ const store=new DataStore(database);store.change({actor:"test",source:"test",summary:"seed"},tx=>{tx.gigs.create(gig)});const app=new GigFinderApplication(store,new AuditReader(database));
  const changesBefore=database.query("SELECT count(*) count FROM changes").get() as {count:number};
  const historyBefore=database.query("SELECT count(*) count FROM gig_history").get() as {count:number};
  const changed=app.gigs.setAvailability({actor:"Synthetic Scout",source:"automation",summary:"Observed official position availability",changeId:"scout-availability:run-1:gig-1",occurredAt:"2026-08-27T12:00:00Z"},gig.id,"available");

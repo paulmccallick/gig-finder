@@ -125,10 +125,10 @@ test("exact requisition and URL Gig candidates remain reviewable", async () => {
     sources: [{ sourceKey: "official", status: "succeeded_with_results", positions, attempts: [] }],
   }, "2026-09-01T12:00:01Z");
   database.exec(`
-    INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
-    VALUES('gig-requisition','Example Company','Existing requisition candidate','REQ-EXACT','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
-    INSERT INTO gigs(id,company,title,source_url,stage,outcome,status_summary,last_activity,fit_rating,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at)
-    VALUES('gig-url','Example Company','Existing URL candidate','https://careers.example.test/jobs/url-candidate','identified','pending','Tracked','2026-09-01','good','[]',0,0,1,0,'2026-09-01','2026-09-01');
+    INSERT INTO gigs(id,company,title,external_job_id,stage,outcome,status_summary,last_activity,fit_rating,tags_json,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-requisition','Example Company','Existing requisition candidate','REQ-EXACT','identified','pending','Tracked','2026-09-01','good','[]',1,0,'2026-09-01','2026-09-01');
+    INSERT INTO gigs(id,company,title,source_url,stage,outcome,status_summary,last_activity,fit_rating,tags_json,revision,is_deleted,created_at,updated_at)
+    VALUES('gig-url','Example Company','Existing URL candidate','https://careers.example.test/jobs/url-candidate','identified','pending','Tracked','2026-09-01','good','[]',1,0,'2026-09-01','2026-09-01');
   `);
   const model: ScoutScreeningModel = {
     async screenRelevance() {
@@ -385,13 +385,6 @@ test("Scout result persistence never mutates tracked Gig availability", () => {
   const application = new GigFinderApplication(
     new DataStore(database),
     new AuditReader(database),
-    {
-      jobDescription: async () => "",
-      interviewPrep: async () => [],
-      jobDescriptionExists: async () => false,
-      interviewPrepExists: async () => false,
-      verify: async () => ({ ok: true, errors: [], unregistered: [] }),
-    },
   );
   application.gigs.create(
     {
@@ -406,7 +399,6 @@ test("Scout result persistence never mutates tracked Gig availability", () => {
       company: "Example Company",
       title: "Synthetic Systems Gardener",
       externalJobId: "job-1",
-      artifactDirectory: null,
       stage: "identified",
       outcome: "pending",
       statusSummary: "Tracked",
@@ -716,7 +708,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const laterPosition={...position,title:"Later mutable title",location:"Later location",canonicalUrl:"https://careers.example.test/jobs/screen-1-later",provenance:{...position.provenance,descriptionUrl:"https://careers.example.test/jobs/screen-1-later"}};
   prepareAndComplete(laterStore,laterJob,{companyId:laterJob.companyId,configurationVersionId:laterJob.configurationVersionId,positions:[laterPosition],sources:[{sourceKey:"official",status:"succeeded_with_results",positions:[laterPosition],attempts:[]}]} ,"2026-01-01T00:00:01.200Z");
   expect(laterRun.id).not.toBe(run.id);
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('gig-later-only','Example Company','Later tracked role','identified','pending','Tracked','2026-01-01','good',?,'[]',0,0,1,0,'2026-01-01','2026-01-01')`).run(laterPosition.canonicalUrl);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('gig-later-only','Example Company','Later tracked role','identified','pending','Tracked','2026-01-01','good',?,'[]',1,0,'2026-01-01','2026-01-01')`).run(laterPosition.canonicalUrl);
   database.query(`UPDATE scout_runs SET screening_cache_key=NULL,candidate_profile_json=NULL,candidate_profile_version=NULL,candidate_profile_artifact_id=NULL,candidate_profile_hash=NULL WHERE id=?`).run(run.id);
   const backfill=store.backfillPositions(run.id,20,"2026-01-01T00:00:01.300Z");
   expect(backfill).toMatchObject({sourceRunId:run.id,selection:{selected:1,complete:true},downstream:{pending:1}});
@@ -736,7 +728,7 @@ test("screening persists bounded comments and exposes only the score explanation
   const boundScore=store.candidateMatchInput(scoreJob.id);
   database.query(`INSERT INTO scout_candidate_match_rubrics(id,version,rubric,prompt_version,created_at) VALUES('later-rubric',2,'Later synthetic rubric','later-match-prompt','2026-01-01T00:00:03Z')`).run();
   expect(store.candidateMatchInput(scoreJob.id)).toMatchObject({descriptionHash:boundScore.descriptionHash,rubric:boundScore.rubric,rubricVersion:1,profileVersion:"profile-v1",promptCacheKey:boundScore.promptCacheKey});
-  const promotionApplication=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
+  const promotionApplication=new GigFinderApplication(new DataStore(database),new AuditReader(database));
   const changedStore=new SqliteScoutRunStore(database,descriptionsRoot,{...screening,profile:{candidate:"Current Candidate"},profileVersion:"profile-v2",profileArtifactId:"profile-artifact-v2",profileHash:"profile-hash-v2"});
   const positions=new ScoutPositionService(changedStore,promotionApplication.gigs,promotionApplication.documents);
   expect(changedStore.refreshCandidateMatch(scoreJob.id,"2026-01-01T00:00:03.500Z")).toBeTrue();
@@ -1036,7 +1028,7 @@ test("real processor durably records promoted document outcomes and reconciles a
   while(store.pendingPositionJobs(20)[0])await initialProcessor.process(store.pendingPositionJobs(20)[0]!.id);
   const positionId=(database.query(`SELECT id FROM scout_positions LIMIT 1`).get() as {id:string}).id;
   const review=store.reviewDetail(positionId)!;
-  const application=new GigFinderApplication(new DataStore(database),new AuditReader(database),{jobDescription:async()=>"",interviewPrep:async()=>[],jobDescriptionExists:async()=>false,interviewPrepExists:async()=>false,verify:async()=>({ok:true,errors:[],unregistered:[]})});
+  const application=new GigFinderApplication(new DataStore(database),new AuditReader(database));
   const positions=new ScoutPositionService(store,application.gigs,application.documents);
   const reviewedPosting=store.reviewPosting(positionId)!;
   store.beginPursue({positionId,action:"pursue",actor:"Reviewer",changeId:"promote-description-143",expectedStateRevision:review.stateRevision,descriptionId:review.descriptionId!,relevanceEvaluationId:review.relevanceEvaluationId!,candidateMatchEvaluationId:review.candidateMatchEvaluationId!},{kind:"create_new",reviewedFingerprint:application.gigs.resolvePosting(reviewedPosting.posting).fingerprint},"2026-08-29T01:00:02Z");
@@ -1158,8 +1150,8 @@ test("position backfill reruns the complete pipeline",async()=>{
   expect(historical).toHaveLength(8);
   expect(historical.every(row=>row.status==="completed")).toBeTrue();
 
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-a','Example Company','Previously linked infrastructure role','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/previous-link','[]',1,0,1,0,'2026-08-28','2026-08-28')`).run();
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-b','Example Company','Newly discovered infrastructure role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,1,0,'2026-08-28','2026-08-28')`).run(positions[1]!.canonicalUrl);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-a','Example Company','Previously linked infrastructure role','identified','pending','Synthetic','2026-08-28','good','https://careers.example.test/jobs/previous-link','[]',1,0,'2026-08-28','2026-08-28')`).run();
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-b','Example Company','Newly discovered infrastructure role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,'2026-08-28','2026-08-28')`).run(positions[1]!.canonicalUrl);
   database.query(`UPDATE scout_position_states SET state='promoted',linked_gig_id='pipeline-gig-a' WHERE position_id=?`).run(positionIds[1]!);
   importScoutCompany({id:"company-1",name:"Example Company",active:true,sources:[{key:"official",type:"json",url:"https://careers.example.test/jobs",recordsPath:"jobs",fields:{id:"id",title:"title",url:"url"},detailDescription:{response:"json",request:{urlTemplate:"{source.origin}/details/{position.id}",method:"GET"},descriptionPath:"job.description",identity:{idPath:"job.id"}}}]},new SqliteScoutCompanyImportStore(database),undefined,new Date("2026-08-28T14:00:03Z"));
 
@@ -1260,7 +1252,7 @@ test("position backfill reruns the complete pipeline",async()=>{
   expect(database.query(`SELECT state,revision,current_decision_id currentDecisionId FROM scout_position_states WHERE position_id=?`).get(correctedPositionId)).toEqual(successfulState);
   expect(store.backfillStatus(failedRun.runId)).toMatchObject({status:"failed",completedAt:"2026-08-28T14:00:21Z",positionOutcomes:{failed:1},positions:[expect.objectContaining({positionId:correctedPositionId,company:"Example Company",template:"custom",descriptionOutcome:"corrected",outcome:"failed",failureCode:"synthetic_failure"})]});
 
-  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,has_job_description,has_interview_prep,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-c','Example Company','Discovered user-owned role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,1,0,'2026-08-28','2026-08-28')`).run(positions[0]!.canonicalUrl);
+  database.query(`INSERT INTO gigs(id,company,title,stage,outcome,status_summary,last_activity,fit_rating,source_url,tags_json,revision,is_deleted,created_at,updated_at) VALUES('pipeline-gig-c','Example Company','Discovered user-owned role','identified','pending','Synthetic','2026-08-28','good',?,'[]',1,0,'2026-08-28','2026-08-28')`).run(positions[0]!.canonicalUrl);
   const successfulIds=successfulProjection as {descriptionId:string;relevanceId:string;matchId:string};
   const beforeUserIrrelevant=database.query(`SELECT revision FROM scout_position_states WHERE position_id=?`).get(correctedPositionId) as {revision:number};
   database.query(`INSERT INTO changes(id,occurred_at,actor,source,summary,status) VALUES('user-irrelevant-change','2026-08-28T14:00:22Z','Reviewer','web','Synthetic user irrelevance','committed')`).run();

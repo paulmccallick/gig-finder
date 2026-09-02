@@ -1,6 +1,5 @@
 import { GigFinderApplication } from "../core/application";
 import { AuditReader } from "./audit";
-import { LocalArtifactStore } from "./artifacts";
 import { openDatabase } from "./database";
 import { DataStore } from "./store";
 import {
@@ -36,7 +35,7 @@ export function openLocalApplication(paths:LocalApplicationPaths,options:LocalAp
     options.onProfileDocumentMaterializationFailure,
   );
   store.synchronizeProfileDocuments();
-  const application=new GigFinderApplication(store,new AuditReader(database),new LocalArtifactStore(paths.artifacts),options.defaultAgentModel??defaultAgentModelId);
+  const application=new GigFinderApplication(store,new AuditReader(database),options.defaultAgentModel??defaultAgentModelId);
   const scoutStore=new SqliteScoutRunStore(database,paths.scoutDescriptions,options.scoutScreening,undefined,options.scoutTemplates);
   return {
     application,

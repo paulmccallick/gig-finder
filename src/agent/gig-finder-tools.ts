@@ -826,35 +826,14 @@ export function createGigFinderTools(
       strict: true,
       description: "List complete current gig records in the candidate's pipeline. Use optional filters if desired. Results may be paginated; each gig ID can be used with relationship and document tools.",
       inputSchema: listGigsInputSchema,
-      execute: loggedExecution(logger, "list_gigs", async (input) => {
-        const result = reads.gigs.query(normalizeGigsInput(input));
-        return {
-          ...result,
-          items: await Promise.all(result.items.map(async record => ({
-            ...record,
-            legacyDocuments: (await reads.documents.list("gig", record.id))
-              .filter(document => document.storage === "artifact"),
-          }))),
-        };
-      }),
+      execute: loggedExecution(logger, "list_gigs", input =>
+        reads.gigs.query(normalizeGigsInput(input))),
     }),
     get_gig: tool({
       strict: true,
-      description: "Get the complete current structured record for one gig using its durable ID. The documents array contains managed-document IDs and friendly names; legacyDocuments contains registered artifact references. Use get_document to read either kind.",
+      description: "Get the complete current structured record for one gig using its durable ID. The documents array contains managed-document IDs and friendly names. Use get_document to read their content.",
       inputSchema: getInputSchema,
-      execute: loggedExecution(logger, "get_gig", async ({ id }) => {
-        const result = reads.gigs.read(id);
-        return result.status === "ok"
-          ? {
-              ...result,
-              record: {
-                ...result.record,
-                legacyDocuments: (await reads.documents.list("gig", id))
-                  .filter(document => document.storage === "artifact"),
-              },
-            }
-          : result;
-      }),
+      execute: loggedExecution(logger, "get_gig", ({ id }) => reads.gigs.read(id)),
     }),
     list_people: tool({
       strict: true,

@@ -1,4 +1,4 @@
-import type { ArtifactPort, Persistence } from "./ports";
+import type { Persistence } from "./ports";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ChangeContext, EntityRecord, GigData } from "./models";
@@ -66,14 +66,14 @@ function validateGig(gig: Gig) {
 }
 
 function gigFromData(r: GigData): Gig {
-  return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId,artifactDirectory:`artifacts/gigs/${r.id}`,stage:r.stage as Gig["stage"],outcome:r.outcome as Gig["outcome"],statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextAction:r.nextActionDescription?{description:r.nextActionDescription,due:r.nextActionDue}:null,fit:{rating:r.fitRating as Gig["fit"]["rating"],summary:r.fitSummary},payRange:r.payCurrency||r.payMinimum!==null||r.payMaximum!==null||r.payPeriod||r.payNotes?{currency:(r.payCurrency??"USD") as "USD",minimum:r.payMinimum,maximum:r.payMaximum,period:(r.payPeriod??"year") as "hour"|"year",notes:r.payNotes}:null,sourceUrl:r.sourceUrl,tags:JSON.parse(r.tagsJson),hasJobDescription:r.hasJobDescription,hasInterviewPrep:r.hasInterviewPrep,availability:r.availability,availabilityUpdatedAt:r.availabilityUpdatedAt,location:r.location,workArrangement:r.workArrangement,postedDate:r.postedDate,businessUnitTeam:r.businessUnitTeam,recruiterSource:r.recruiterSource,bonus:r.bonus,equity:r.equity,otherCompensation:r.otherCompensation};
+  return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId,stage:r.stage as Gig["stage"],outcome:r.outcome as Gig["outcome"],statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextAction:r.nextActionDescription?{description:r.nextActionDescription,due:r.nextActionDue}:null,fit:{rating:r.fitRating as Gig["fit"]["rating"],summary:r.fitSummary},payRange:r.payCurrency||r.payMinimum!==null||r.payMaximum!==null||r.payPeriod||r.payNotes?{currency:(r.payCurrency??"USD") as "USD",minimum:r.payMinimum,maximum:r.payMaximum,period:(r.payPeriod??"year") as "hour"|"year",notes:r.payNotes}:null,sourceUrl:r.sourceUrl,tags:JSON.parse(r.tagsJson),availability:r.availability,availabilityUpdatedAt:r.availabilityUpdatedAt,location:r.location,workArrangement:r.workArrangement,postedDate:r.postedDate,businessUnitTeam:r.businessUnitTeam,recruiterSource:r.recruiterSource,bonus:r.bonus,equity:r.equity,otherCompensation:r.otherCompensation};
 }
 function gigToData(r: GigSummary): GigData {
-  return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId??null,stage:r.stage,outcome:r.outcome,statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextActionDescription:r.nextAction?.description??null,nextActionDue:r.nextAction?.due??null,fitRating:r.fit.rating,fitSummary:r.fit.summary??null,payCurrency:r.payRange?.currency??null,payMinimum:r.payRange?.minimum??null,payMaximum:r.payRange?.maximum??null,payPeriod:r.payRange?.period??null,payNotes:r.payRange?.notes??null,sourceUrl:r.sourceUrl??null,location:r.location??null,workArrangement:r.workArrangement??null,postedDate:r.postedDate??null,businessUnitTeam:r.businessUnitTeam??null,recruiterSource:r.recruiterSource??null,bonus:r.bonus??null,equity:r.equity??null,otherCompensation:r.otherCompensation??null,tagsJson:JSON.stringify(r.tags??[]),hasJobDescription:r.hasJobDescription??false,hasInterviewPrep:r.hasInterviewPrep??false,availability:r.availability??"unknown",availabilityUpdatedAt:r.availabilityUpdatedAt??null};
+  return {id:r.id,company:r.company,title:r.title,externalJobId:r.externalJobId??null,stage:r.stage,outcome:r.outcome,statusSummary:r.statusSummary,lastActivity:r.lastActivity,nextActionDescription:r.nextAction?.description??null,nextActionDue:r.nextAction?.due??null,fitRating:r.fit.rating,fitSummary:r.fit.summary??null,payCurrency:r.payRange?.currency??null,payMinimum:r.payRange?.minimum??null,payMaximum:r.payRange?.maximum??null,payPeriod:r.payRange?.period??null,payNotes:r.payRange?.notes??null,sourceUrl:r.sourceUrl??null,location:r.location??null,workArrangement:r.workArrangement??null,postedDate:r.postedDate??null,businessUnitTeam:r.businessUnitTeam??null,recruiterSource:r.recruiterSource??null,bonus:r.bonus??null,equity:r.equity??null,otherCompensation:r.otherCompensation??null,tagsJson:JSON.stringify(r.tags??[]),availability:r.availability??"unknown",availabilityUpdatedAt:r.availabilityUpdatedAt??null};
 }
 
 export class GigDomainService {
-  constructor(private p:Persistence,private artifacts:ArtifactPort,private changes:ChangeExecutor,private documents:ManagedDocumentService){}
+  constructor(private p:Persistence,private changes:ChangeExecutor,private documents:ManagedDocumentService){}
   private record(r:EntityRecord<GigData>):GigRecord;
   private record(r:EntityRecord<GigData>){const interactions=this.p.interactions.list().filter(item=>item.gigId===r.id).sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id)).map(item=>({id:item.id,subject:item.subject,kind:item.kind as import("./interactions").InteractionKind,channel:item.channel as import("./interactions").InteractionChannel,status:item.status as import("./interactions").InteractionStatus,startsAt:item.startsAt}));return{...gigFromData(r),revision:r.revision,isDeleted:r.isDeleted,createdAt:r.createdAt,updatedAt:r.updatedAt,documents:this.documents.summaries("gig",r.id),interactions}}
   get(id:string){const r=this.p.gigs.get(id);return r?this.record(r):null}
@@ -97,7 +97,7 @@ export class GigDomainService {
   create(context:ChangeContext,gig:GigSummary,options:MutationOptions={}){const complete=gigFromData(gigToData(gig));validateGig(complete);if(!options.dryRun)this.p.change(context,u=>u.gigs.create(gigToData(complete)));return{...complete,documents:[]}}
   private prepareNew(id:string,input:GigInput){
     const parsed=gigInputSchema.parse(input);
-    const entity=gigEntitySchema.safeParse({id,...parsed,availability:"unknown",availabilityUpdatedAt:null,artifactDirectory:`artifacts/gigs/${id}`,hasJobDescription:false,hasInterviewPrep:false});
+    const entity=gigEntitySchema.safeParse({id,...parsed,availability:"unknown",availabilityUpdatedAt:null});
     if(!entity.success)throw new DomainValidationError(entity.error.issues.map(issue=>issue.message).join("; "));
     const complete=gigFromData(gigToData(entity.data));
     validateGig(complete);
@@ -257,6 +257,4 @@ export class GigDomainService {
     return this.changes.execute({...context,occurredAt},candidate,{},transaction=>this.record(transaction.gigs.update(id,raw.revision,{availability:requested,availabilityUpdatedAt:occurredAt})));
   }
   touch(context:ChangeContext,id:string,input:GigTouchInput,options:MutationOptions={}){return this.update(context,id,{lastActivity:input.date,stage:input.stage,statusSummary:input.summary,...(input.outcome!==undefined?{outcome:input.outcome}:{}),...(input.stage==="closed"?{nextAction:null}:input.nextAction!==undefined||input.due!==undefined?{nextAction:input.nextAction?{description:input.nextAction,due:input.due??null}:null}:{})},options).record}
-  async description(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasJobDescription?this.artifacts.jobDescription(id):null}
-  async prep(id:string){const gig=this.get(id);if(!gig)throw new Error(`Gig not found: ${id}`);return gig.hasInterviewPrep?this.artifacts.interviewPrep(id):[]}
 }
