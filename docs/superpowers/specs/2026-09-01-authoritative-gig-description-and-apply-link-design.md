@@ -157,19 +157,18 @@ Repeating the same retry reconciles any already-committed Gig or document
 change and then completes the remaining work. It does not create duplicate Gig
 revisions, documents, links, or document versions.
 
-A later successful Scout backfill changes the current observation or
-description identity, so a subsequent promotion retry represents a new
-authoritative posting revision.
+A later successful Scout observation or description changes the deterministic
+retry identity, so a subsequent promotion retry represents a new authoritative
+posting revision.
 
 Completed-position retry does not create a new user decision, change the Scout
 position state, or rewrite its completed promotion record. Scout persistence
 only reconstructs the current promotion input. Gig and document persistence is
 performed by the owning domain services.
 
-Position backfill remains responsible for reacquiring and reevaluating Scout
-position state. When a position lacks a complete current projection, the
-operator first repairs that state with backfill and then invokes promotion
-retry.
+When a position lacks a complete current projection, the operator first uses
+the existing Scout recovery workflow and then invokes promotion retry. This
+change does not alter backfill behavior or its managed-document projection.
 
 ## Service boundaries
 
@@ -246,8 +245,8 @@ and Gigs without an exact linked Scout position are outside the repair set.
   details read job descriptions from linked managed documents.
 - FRR-005 states that linked managed documents are the authoritative Gig
   job-description source.
-- FRR-006 describes position backfill as Scout-state repair and completed
-  promotion retry as reapplying the current posting to its linked Gig.
+- FRR-006 describes completed promotion retry as reapplying the current posting
+  to its linked Gig through the existing recovery endpoint.
 - The product overview describes registered Gig descriptions as managed
   documents.
 - Infrastructure documentation removes only references to the Gig filesystem

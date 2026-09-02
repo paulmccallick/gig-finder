@@ -4,7 +4,7 @@
 
 **Goal:** Make managed documents and the Gig's canonical source URL drive the Gig drawer, and let the existing promotion retry operation reapply a completed Scout position to its existing Gig.
 
-**Architecture:** The implementation first records the product contract, then moves the Gig read path to managed documents before deleting the legacy filesystem projection. Scout backfill becomes Scout-state-only, while `ScoutPositionService` reconstructs completed promotion work and sends the current `NormalizedPosition` through the same `GigDomainService` and `ManagedDocumentService` promotion operation used by Pursue.
+**Architecture:** The implementation first records the product contract, then moves the Gig read path to managed documents before deleting the legacy filesystem projection. `ScoutPositionService` reconstructs completed promotion work and sends the current `NormalizedPosition` through the same `GigDomainService` and `ManagedDocumentService` promotion operation used by Pursue. Existing backfill behavior and the public retry API remain unchanged.
 
 **Tech Stack:** Bun 1.3.14, TypeScript, React 19, SQLite, Drizzle Kit, Bun test, Playwright, dependency-cruiser.
 
@@ -19,7 +19,7 @@
 - Do not edit architecture documentation for this issue: the existing architecture docs describe the general runtime artifact root, which remains, and contain no Gig filesystem-projection contract to remove.
 - `GigDomainService` owns every Gig mutation; `ManagedDocumentService` owns every managed-document mutation.
 - Scout data adapters reconstruct Scout evidence but do not query or mutate Gig- or managed-document-owned tables.
-- Position backfill reacquires and reevaluates Scout state; it does not mutate a Gig or managed document.
+- Do not change position-backfill behavior, status, persistence, or managed-document projection.
 - Keep `POST /api/gig-scout/positions/:positionId/promotion/retry` and `ScoutPursueResult` as the public recovery contract.
 - Completed-position retry targets the existing linked Gig and never creates another Gig or user decision.
 - Leave existing legacy filesystem contents on disk during migration and deployment.
@@ -64,19 +64,13 @@ Retain the existing general filesystem-projection language for Candidate Profile
 
 - [ ] **Step 3: Update FRR-006 with completed promotion retry**
 
-Replace the promoted-position portion of `Reprocessing Outcomes` with:
+Add completed-position retry to `Promotion Outcomes and Recovery`:
 
 ```markdown
-- **Backfill and Promotion Retry**: Position backfill reacquires the official description and reevaluates current Scout state while preserving immutable history. It leaves a linked Gig and its managed documents unchanged. Once current Scout state is complete, the existing promotion retry operation can reapply a completed promoted position to the same linked Gig through the normal Gig and managed-document promotion flow.
+A completed promoted position may be retried against its existing linked Gig. Retry reconstructs the current normalized posting and description, preserves the original decision and promoted state, and reapplies the posting through the normal Gig and managed-document promotion flow.
 ```
 
-Extend `Promotion Outcomes and Recovery` with:
-
-```markdown
-A completed promoted position may be retried against its existing linked Gig. Retry reconstructs the current normalized posting and description, preserves the original decision and promoted state, and returns the existing promotion outcome contract.
-```
-
-Update the acceptance scenario that currently advances a promoted Gig's document during backfill. The replacement must assert that backfill changes only Scout state and a subsequent promotion retry updates the linked Gig/document.
+State explicitly that the existing retry endpoint and `ScoutPursueResult` remain unchanged. Do not revise the existing backfill contract.
 
 - [ ] **Step 4: Update the product overview**
 
@@ -87,11 +81,11 @@ Change the Gig entity description from “registered artifacts” to “versione
 Run:
 
 ```bash
-rg -n "promoted position is reprocessed|registered artifacts|Gig.*filesystem.*description" docs/product
+rg -n "registered artifacts|Gig.*filesystem.*description" docs/product
 git diff --check
 ```
 
-Expected: the obsolete promoted-backfill/document behavior and Gig artifact authority are absent; `git diff --check` prints nothing.
+Expected: obsolete Gig artifact authority is absent; existing backfill behavior is unchanged; `git diff --check` prints nothing.
 
 - [ ] **Step 6: Commit the product contract**
 
@@ -467,144 +461,7 @@ git commit -m "refactor: remove legacy Gig artifacts"
 
 ---
 
-### Task 4: Keep position backfill inside Scout
-
-**Files:**
-- Modify: `src/core/scout/engine/positions.ts`
-- Modify: `src/core/scout/engine/screening.ts`
-- Modify: `src/core/scout/engine/test/screening.test.ts`
-- Modify: `src/data/scout-run-store.ts`
-- Modify: `src/data/test/scout-run-store.test.ts`
-- Modify: `src/data/schema.ts`
-- Create: `src/data/migrations/0042_scout_backfill_state.sql`
-- Create: `src/data/migrations/meta/0042_snapshot.json`
-- Modify: `src/data/migrations/meta/_journal.json`
-- Modify: `src/data/test/scout-migration.test.ts`
-- Modify: `src/web/test/request-handler.test.ts`
-- Modify: `src/web/e2e/gig-scout.e2e.ts`
-- Modify: `src/web/app.ts`
-
-**Interfaces:**
-- Consumes: the existing Scout acquisition, relevance, and candidate-scoring stages.
-- Produces: `prepareDescriptionCompletion(...): { descriptionId: string }`, `completeDescription(processingId, descriptionId, now)`, and backfill status without Gig-document projection fields.
-
-- [ ] **Step 1: Write the failing processor test**
-
-Replace the promoted-document processor fixtures with a test asserting that successful acquisition completes Scout description work directly:
-
-```ts
-const repository = new FakeProcessingRepository();
-await new ScoutPositionProcessor(repository, model).process("processing-1");
-expect(repository.events).toEqual([
-  "descriptionInput",
-  "acquireDescription",
-  "prepareDescriptionCompletion",
-  "completeDescription",
-]);
-expect(repository.completedDescription).toEqual({
-  processingId: "processing-1",
-  descriptionId: "description-1",
-});
-```
-
-The constructor must not receive `ManagedDocumentService`.
-
-- [ ] **Step 2: Write the failing store/backfill test**
-
-In `scout-run-store.test.ts`, seed a promoted position with a linked managed document, run exact-position backfill acquisition to completion, and assert:
-
-```ts
-expect(application.documents.get(documentId)?.currentVersion).toBe(beforeVersion);
-expect(application.documents.get(documentId)?.content).toBe(beforeContent);
-expect(store.backfillStatus(runId)?.positions).toContainEqual(expect.objectContaining({
-  positionId,
-  descriptionOutcome: "corrected",
-}));
-```
-
-Assert the backfill response no longer contains `gigDocuments`.
-
-- [ ] **Step 3: Run the focused tests to verify RED**
-
-```bash
-bun test src/core/scout/engine/test/screening.test.ts src/data/test/scout-run-store.test.ts --test-name-pattern "backfill|description acquisition"
-```
-
-Expected: FAIL because the processor still coordinates managed-document projection.
-
-- [ ] **Step 4: Simplify the processing contract and processor**
-
-Remove `ScoutPromotedDescriptionWork` and `ScoutPromotedDescriptionOutcome`. Change the repository contract to:
-
-```ts
-prepareDescriptionCompletion(
-  processingId: string,
-  value: ScoutDescriptionResult,
-  now: string,
-): { descriptionId: string };
-
-completeDescription(
-  processingId: string,
-  descriptionId: string,
-  now: string,
-): void;
-```
-
-The acquire branch becomes:
-
-```ts
-const input = this.repository.descriptionInput(processingId);
-const result = await this.repository.acquireDescription(input);
-const now = this.now();
-const prepared = this.repository.prepareDescriptionCompletion(processingId, result, now);
-this.repository.completeDescription(processingId, prepared.descriptionId, now);
-return;
-```
-
-Remove managed-document imports, constructor injection, verification helpers, and projection-failure handling from `ScoutPositionProcessor`. Remove the document-service argument at its composition root in `src/web/app.ts`.
-
-- [ ] **Step 5: Simplify Scout persistence and status**
-
-Remove `promotedDescriptionWork`, `failDescriptionProjection`, every `document_projection_status` read/write, and the `gigDocuments` aggregate from `ScoutPositionBackfillStatus` and `backfillStatus()`.
-
-`prepareDescriptionCompletion` still persists exact acquisition provenance in `scout_description_acquisitions`; it returns only the prepared description ID. `completeDescription` advances Scout relevance work and marks acquisition complete.
-
-- [ ] **Step 6: Remove the obsolete projection column through 0042**
-
-Delete `documentProjectionStatus` and its CHECK from `scoutPositionProcessing` in `schema.ts`, then run:
-
-```bash
-bun run db:generate --name scout_backfill_state
-```
-
-The generated migration must rebuild `scout_position_processing` while preserving all rows, unique/index definitions, and foreign keys from `scout_description_acquisitions` and `scout_position_processing_outbox`. Add a true-upgrade regression with populated parent and child rows and assert `PRAGMA foreign_key_check` is empty.
-
-- [ ] **Step 7: Update API and E2E expectations**
-
-Remove `gigDocuments` from request-handler fixtures and from the position-backfill E2E response type. Change the E2E assertion so backfill updates the current Scout description/evaluations while the linked managed document remains at its prior version and content.
-
-- [ ] **Step 8: Run focused GREEN verification**
-
-```bash
-bun test src/core/scout/engine/test/screening.test.ts src/data/test/scout-run-store.test.ts src/data/test/scout-migration.test.ts src/web/test/request-handler.test.ts
-bun run db:check
-bun run typecheck
-bun run architecture
-```
-
-Expected: all commands pass.
-
-- [ ] **Step 9: Commit Scout-only backfill**
-
-Stage only Task 4 files, including 0042 SQL/snapshot/journal, then commit:
-
-```bash
-git commit -m "refactor: keep position backfill in Scout"
-```
-
----
-
-### Task 5: Reapply completed positions through promotion retry
+### Task 4: Reapply completed positions through promotion retry
 
 **Files:**
 - Modify: `src/core/scout/engine/positions.ts`
@@ -617,6 +474,7 @@ git commit -m "refactor: keep position backfill in Scout"
 **Interfaces:**
 - Consumes: `GigDomainService.resolvePosting()`, `GigDomainService.acceptPosting()`, `ManagedDocumentService`, and the existing promotion retry HTTP route.
 - Produces: a discriminated `ScoutPromotionWork` contract that represents either an unfinished attempt or a completed-position retry while carrying the entire current `NormalizedPosition`.
+- Leaves unchanged: `request-handler.ts`, the retry URL, request body, HTTP status mapping, and public `ScoutPursueResult` response.
 
 - [ ] **Step 1: Define the work contract in a failing service test**
 
@@ -776,7 +634,7 @@ git commit -m "feat: retry completed Scout promotions"
 
 ---
 
-### Task 6: Prove the complete repair flow
+### Task 5: Prove the complete repair flow
 
 **Files:**
 - Modify: `src/web/e2e/dev.ts`
@@ -785,7 +643,7 @@ git commit -m "feat: retry completed Scout promotions"
 - Modify: any focused test fixture still carrying removed Gig artifact fields
 
 **Interfaces:**
-- Consumes: Tasks 2–5 as one integrated feature.
+- Consumes: Tasks 2–4 as one integrated feature.
 - Produces: synthetic BECU- and Providence-equivalent regressions and final branch verification evidence.
 
 - [ ] **Step 1: Add the Providence-equivalent synthetic fixture**
@@ -803,13 +661,12 @@ Create a promoted synthetic position/Gig pair where:
 The test must:
 
 1. open the Gig and confirm the initial Apply URL is the synthetic broken search URL;
-2. run exact-position backfill with a corrected current Scout description;
-3. prove the Gig URL and managed document are unchanged after backfill;
-4. POST the existing `/promotion/retry` endpoint for the exact position;
-5. reopen the Gig and prove Apply now uses the canonical posting URL;
-6. prove the current managed description renders in the drawer and Open document loads the same exact version;
-7. prove the position remains promoted and linked to the same Gig; and
-8. repeat retry and prove Gig revision/document version counts do not increase again.
+2. verify the promoted position already has complete current Scout posting and description evidence;
+3. POST the existing `/promotion/retry` endpoint for the exact position;
+4. reopen the Gig and prove Apply now uses the canonical posting URL;
+5. prove the current managed description renders in the drawer and Open document loads the same exact version;
+6. prove the position remains promoted and linked to the same Gig; and
+7. repeat retry and prove Gig revision/document version counts do not increase again.
 
 Use API reads for identity/version assertions and browser assertions for the user-visible drawer and links.
 
@@ -863,14 +720,14 @@ If fixture cleanup touched additional tracked tests, stage those exact files exp
 
 ---
 
-### Task 7: Review, release, and repair production records
+### Task 6: Review, release, and repair production records
 
 **Files:**
 - Modify only when review finds a concrete defect.
 - Produce ignored evidence under `tmp/`; never track production metadata.
 
 **Interfaces:**
-- Consumes: a clean feature branch with all Task 6 gates passing.
+- Consumes: a clean feature branch with all Task 5 gates passing.
 - Produces: PR review evidence, immutable deployment, and verified exact-position production repair.
 
 - [ ] **Step 1: Reconcile branch and open/update the PR**
