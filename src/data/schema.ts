@@ -100,8 +100,6 @@ const gigFields = {
   equity: text("equity"),
   otherCompensation: text("other_compensation"),
   tagsJson: text("tags_json").notNull().default("[]"),
-  hasJobDescription: integer("has_job_description", { mode:"boolean" }).notNull().default(false),
-  hasInterviewPrep: integer("has_interview_prep", { mode:"boolean" }).notNull().default(false),
   availability: text("availability", { enum: ["unknown", "available", "unavailable"] }).notNull().default("unknown"),
   availabilityUpdatedAt: text("availability_updated_at"),
 };

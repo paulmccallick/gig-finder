@@ -21,8 +21,6 @@ describe("domain input contracts", () => {
     for (const patch of [
       {},
       { id: "other" },
-      { artifactDirectory: "private" },
-      { hasJobDescription: true },
       { unexpected: true },
       { stage: "unknown" },
       { nextAction: {} },

@@ -40,8 +40,6 @@ const gig: GigData = {
   equity: null,
   otherCompensation: null,
   tagsJson: "[]",
-  hasJobDescription: false,
-  hasInterviewPrep: false,
   availability: "unknown",
   availabilityUpdatedAt: null,
 };
@@ -304,7 +302,7 @@ describe("managed document CLI", () => {
     );
   });
 
-  test("help includes managed documents and artifact synchronization", async () => {
+  test("help includes managed document commands", async () => {
     const child = Bun.spawn([executable, "--help"], {
       stdout: "pipe",
       stderr: "pipe",
@@ -317,7 +315,6 @@ describe("managed document CLI", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("documents create");
     expect(stdout).toContain("documents versions");
-    expect(stdout).toContain("artifacts sync");
   });
 });
 

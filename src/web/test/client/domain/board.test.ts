@@ -7,7 +7,6 @@ const gig = (overrides: Partial<GigSummary> = {}): GigSummary => ({
   company: "Acme",
   title: "VP Engineering",
   externalJobId: null,
-  artifactDirectory: null,
   stage: "identified",
   outcome: "pending",
   statusSummary: "Promising platform role",

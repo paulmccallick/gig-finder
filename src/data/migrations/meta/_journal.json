@@ -288,6 +288,13 @@
       "when": 1788292149565,
       "tag": "0040_third_raza",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1788318327443,
+      "tag": "0041_authoritative_gig_documents",
+      "breakpoints": true
     }
   ]
 }
