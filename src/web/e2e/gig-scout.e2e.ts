@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import type { GigRecord } from "../../core/gigs";
+
+type VersionedGigRecord = GigRecord & { revision: number };
 
 async function closePopupWithBack(viewer: Page) {
   const closed = viewer.waitForEvent("close");
@@ -125,6 +128,235 @@ function identityGigMetadata() {
     }>;
   };
 }
+
+function completedRepairProjection(externalId: string) {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const row = database.query(`SELECT position.id positionId,state.state,state.linked_gig_id linkedGigId,observation.canonical_url canonicalUrl,description.id descriptionId,relevance.id relevanceEvaluationId,match.id candidateMatchEvaluationId,promotion.managed_document_id documentId,(SELECT count(*) FROM scout_position_promotions item WHERE item.position_id=position.id) promotionCount FROM scout_positions position JOIN scout_position_states state ON state.position_id=position.id JOIN scout_position_promotions promotion ON promotion.position_id=position.id AND promotion.status=\'completed\' JOIN scout_position_observations observation ON observation.id=(SELECT current.id FROM scout_position_observations current WHERE current.position_id=position.id ORDER BY current.observed_at DESC,current.id DESC LIMIT 1) JOIN scout_position_descriptions description ON description.id=(SELECT current.id FROM scout_position_descriptions current WHERE current.position_id=position.id ORDER BY current.created_at DESC,current.id DESC LIMIT 1) JOIN scout_relevance_evaluations relevance ON relevance.description_id=description.id JOIN scout_candidate_match_evaluations match ON match.relevance_evaluation_id=relevance.id JOIN scout_position_processing processing ON processing.position_id=position.id AND processing.stage=\'score_candidate_match\' AND processing.status=\'completed\' AND processing.observation_id=observation.id AND processing.relevance_evaluation_id=relevance.id AND processing.input_identity=match.input_identity WHERE position.external_id=? ORDER BY match.created_at DESC,match.id DESC LIMIT 1`).get(process.env.E2E_EXTERNAL_ID);',
+    'database.close();',
+    'console.log(JSON.stringify(row ?? null));',
+  ].join("\n");
+  return JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, E2E_EXTERNAL_ID: externalId },
+    encoding: "utf8",
+  })) as {
+    positionId: string;
+    state: string;
+    linkedGigId: string;
+    canonicalUrl: string;
+    descriptionId: string;
+    relevanceEvaluationId: string;
+    candidateMatchEvaluationId: string;
+    documentId: string;
+    promotionCount: number;
+  } | null;
+}
+
+function managedDocumentStorage(documentId: string) {
+  const script = [
+    'import { Database } from "bun:sqlite";',
+    'const database = new Database("tmp/e2e-context/data/gig-finder.sqlite", { readonly: true, strict: true });',
+    'const row = database.query(`SELECT document.title,document.description,document.current_version currentVersion,(SELECT count(*) FROM managed_document_versions version WHERE version.document_id=document.id) versionCount FROM managed_documents document WHERE document.id=?`).get(process.env.E2E_DOCUMENT_ID);',
+    'database.close();',
+    'console.log(JSON.stringify(row ?? null));',
+  ].join("\n");
+  return JSON.parse(execFileSync("bun", ["-e", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, E2E_DOCUMENT_ID: documentId },
+    encoding: "utf8",
+  })) as {
+    title: string;
+    description: string | null;
+    currentVersion: number;
+    versionCount: number;
+  } | null;
+}
+
+test("completed promotion retry repairs managed Gig description and canonical Apply link", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  page.on("console", message => {
+    if (message.type() === "error") pageErrors.push(message.text());
+  });
+
+  const changed = completedRepairProjection("SYN-149");
+  const unchanged = completedRepairProjection("SYN-150");
+  expect(changed).not.toBeNull();
+  expect(unchanged).not.toBeNull();
+  if (!changed || !unchanged) throw new Error("Completed repair fixtures are unavailable.");
+  expect(changed).toMatchObject({
+    state: "promoted",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-149",
+    promotionCount: 1,
+  });
+  expect(unchanged).toMatchObject({
+    state: "promoted",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-150",
+    promotionCount: 1,
+  });
+  for (const projection of [changed, unchanged]) {
+    expect(projection.descriptionId).toMatch(/^spdesc_/);
+    expect(projection.relevanceEvaluationId).toMatch(/^sre_/);
+    expect(projection.candidateMatchEvaluationId).toMatch(/^scme_/);
+  }
+  expect(storedDescriptionMetadata(changed.positionId).markdown)
+    .toContain("# Current synthetic care posting");
+  expect(storedDescriptionMetadata(unchanged.positionId).markdown)
+    .toContain("# Stable synthetic credit posting");
+
+  const gig = async (gigId: string) => {
+    const response = await page.request.get("/api/gigs");
+    expect(response.ok()).toBe(true);
+    const found = (await response.json() as VersionedGigRecord[])
+      .find(candidate => candidate.id === gigId);
+    expect(found).toBeDefined();
+    if (!found) throw new Error(`Gig ${gigId} is unavailable.`);
+    return found;
+  };
+  const changedBefore = await gig(changed.linkedGigId);
+  const unchangedBefore = await gig(unchanged.linkedGigId);
+  expect(changedBefore.sourceUrl)
+    .toBe("https://search.example.test/api/jobs?tenant=synthetic");
+  expect(unchangedBefore.sourceUrl)
+    .toBe("https://search.example.test/api/jobs?tenant=synthetic-stable");
+  expect(managedDocumentStorage(changed.documentId)).toEqual({
+    title: "My synthetic care role notes",
+    description: "Candidate-authored care metadata.",
+    currentVersion: 1,
+    versionCount: 1,
+  });
+  expect(managedDocumentStorage(unchanged.documentId)).toEqual({
+    title: "My synthetic credit role notes",
+    description: "Candidate-authored credit metadata.",
+    currentVersion: 1,
+    versionCount: 1,
+  });
+
+  await page.goto("/");
+  const closeAgent = page.getByRole("button", { name: "Close GigFinder" });
+  if (await closeAgent.isVisible()) await closeAgent.click();
+  await page.locator(".record-card", { hasText: "Synthetic Health Cooperative" }).click();
+  let drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("link", { name: /Apply/ })).toHaveAttribute(
+    "href",
+    "https://search.example.test/api/jobs?tenant=synthetic",
+  );
+  await expect(drawer.locator(".document-markdown h1"))
+    .toHaveText("Earlier synthetic care posting");
+  await page.keyboard.press("Escape");
+
+  for (const projection of [changed, unchanged]) {
+    const response = await page.request.post(
+      `/api/gig-scout/positions/${projection.positionId}/promotion/retry`,
+    );
+    expect(response.status()).toBe(202);
+    expect(await response.json()).toMatchObject({
+      status: "updated",
+      position: {
+        id: projection.positionId,
+        state: "promoted",
+      },
+    });
+  }
+
+  const changedAfter = await gig(changed.linkedGigId);
+  const unchangedAfter = await gig(unchanged.linkedGigId);
+  expect(changedAfter).toMatchObject({
+    id: changedBefore.id,
+    sourceUrl: "https://careers.example.test/jobs/SYN-149",
+    revision: changedBefore.revision + 1,
+  });
+  expect(unchangedAfter).toMatchObject({
+    id: unchangedBefore.id,
+    sourceUrl: "https://careers.example.test/jobs/SYN-150",
+    revision: unchangedBefore.revision + 1,
+  });
+  expect(changedAfter.documents.find(document => document.type === "job_description"))
+    .toMatchObject({ id: changed.documentId, currentVersion: 2 });
+  expect(unchangedAfter.documents.find(document => document.type === "job_description"))
+    .toMatchObject({ id: unchanged.documentId, currentVersion: 1 });
+  expect(completedRepairProjection("SYN-149")).toMatchObject({
+    state: "promoted",
+    linkedGigId: changed.linkedGigId,
+    documentId: changed.documentId,
+    promotionCount: 1,
+  });
+  expect(completedRepairProjection("SYN-150")).toMatchObject({
+    state: "promoted",
+    linkedGigId: unchanged.linkedGigId,
+    documentId: unchanged.documentId,
+    promotionCount: 1,
+  });
+  expect(managedDocumentStorage(changed.documentId)).toEqual({
+    title: "My synthetic care role notes",
+    description: "Candidate-authored care metadata.",
+    currentVersion: 2,
+    versionCount: 2,
+  });
+  expect(managedDocumentStorage(unchanged.documentId)).toEqual({
+    title: "My synthetic credit role notes",
+    description: "Candidate-authored credit metadata.",
+    currentVersion: 1,
+    versionCount: 1,
+  });
+
+  await page.reload();
+  if (await closeAgent.isVisible()) await closeAgent.click();
+  await page.locator(".record-card", { hasText: "Synthetic Health Cooperative" }).click();
+  drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("link", { name: /Apply/ })).toHaveAttribute(
+    "href",
+    "https://careers.example.test/jobs/SYN-149",
+  );
+  await expect(drawer.locator(".document-markdown h1"))
+    .toHaveText("Current synthetic care posting");
+  await expect(drawer.getByRole("link", { name: "Open document" })).toHaveAttribute(
+    "href",
+    new RegExp(`/documents/${changed.documentId}/versions/2$`),
+  );
+  const documentResponse = await page.request.get(
+    `/api/documents/${changed.documentId}/versions/2`,
+  );
+  expect(documentResponse.ok()).toBe(true);
+  expect(await documentResponse.json()).toMatchObject({
+    reference: changed.documentId,
+    version: 2,
+    currentVersion: 2,
+    content: expect.stringContaining("# Current synthetic care posting"),
+  });
+  const viewer = await page.context().newPage();
+  await viewer.goto(`/documents/${changed.documentId}/versions/2`);
+  await expect(viewer).toHaveURL(new RegExp(`/documents/${changed.documentId}/versions/2$`));
+  await expect(viewer.getByRole("heading", { name: "Current synthetic care posting" }))
+    .toBeVisible();
+  await viewer.close();
+
+  for (const projection of [changed, unchanged]) {
+    const response = await page.request.post(
+      `/api/gig-scout/positions/${projection.positionId}/promotion/retry`,
+    );
+    expect(response.status()).toBe(202);
+  }
+  expect(await gig(changed.linkedGigId)).toMatchObject({
+    revision: changedAfter.revision,
+    sourceUrl: "https://careers.example.test/jobs/SYN-149",
+  });
+  expect(await gig(unchanged.linkedGigId)).toMatchObject({
+    revision: unchangedAfter.revision,
+    sourceUrl: "https://careers.example.test/jobs/SYN-150",
+  });
+  expect(managedDocumentStorage(changed.documentId)).toMatchObject({
+    currentVersion: 2,
+    versionCount: 2,
+  });
+  expect(managedDocumentStorage(unchanged.documentId)).toMatchObject({
+    currentVersion: 1,
+    versionCount: 1,
+  });
+  expect(pageErrors).toEqual([]);
+});
 
 test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
   page,
@@ -859,7 +1091,6 @@ test("posting identity resolution keeps same-title requisitions separate and upd
 });
 
 test("reprocesses encoded descriptions through review and promoted document projection", async ({ page }) => {
-  test.slow();
   const enabled = await page.request.post("http://127.0.0.1:3004/fixtures/encoded");
   expect(enabled.status()).toBe(204);
   const started = await page.request.post("/api/gig-scout/runs", {
@@ -1034,7 +1265,7 @@ test("reprocesses encoded descriptions through review and promoted document proj
       ),
       gigDocuments: status.gigDocuments,
     };
-  }, { timeout: 60_000 }).toEqual({
+  }).toEqual({
     pending: 0,
     failed: 0,
     gigDocuments: expect.objectContaining({ updated: 1, failed: 0 }),

@@ -14,7 +14,9 @@ import {
   migrateDatabase,
   openDatabase,
   SqliteScoutCompanyImportStore,
+  SqliteScoutRunStore,
 } from "../../data";
+import { ScoutPositionProcessor, type ScoutScreeningModel } from "../../core/scout/engine/screening";
 import { createSmokeProviderState, smokeProviderHandler } from "../../../scripts/smoke-support/scripted-provider";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
@@ -130,6 +132,30 @@ const gigs: GigData[] = [
     tagsJson: "[]",
     availability: "available", availabilityUpdatedAt: "2026-08-21T12:00:00.000Z",
   },
+  {
+    id: "gig-completed-repair-changed", company: "Example Labs",
+    title: "Synthetic Health Cooperative Director", externalJobId: "SYN-149",
+    stage: "applied", outcome: "pending", statusSummary: "Promoted before canonical repair",
+    lastActivity: "2026-08-22", nextActionDescription: null, nextActionDue: null,
+    fitRating: "strong", fitSummary: null, payCurrency: null, payMinimum: null,
+    payMaximum: null, payPeriod: null, payNotes: null,
+    sourceUrl: "https://search.example.test/api/jobs?tenant=synthetic", location: "Remote",
+    workArrangement: "remote", postedDate: "2026-08-22", businessUnitTeam: null,
+    recruiterSource: null, bonus: null, equity: null, otherCompensation: null, tagsJson: "[]",
+    availability: "available", availabilityUpdatedAt: "2026-08-22T12:00:00.000Z",
+  },
+  {
+    id: "gig-completed-repair-unchanged", company: "Example Labs",
+    title: "Synthetic Credit Cooperative Director", externalJobId: "SYN-150",
+    stage: "applied", outcome: "pending", statusSummary: "Promoted before canonical repair",
+    lastActivity: "2026-08-22", nextActionDescription: null, nextActionDue: null,
+    fitRating: "strong", fitSummary: null, payCurrency: null, payMinimum: null,
+    payMaximum: null, payPeriod: null, payNotes: null,
+    sourceUrl: "https://search.example.test/api/jobs?tenant=synthetic-stable", location: "Remote",
+    workArrangement: "remote", postedDate: "2026-08-22", businessUnitTeam: null,
+    recruiterSource: null, bonus: null, equity: null, otherCompensation: null, tagsJson: "[]",
+    availability: "available", availabilityUpdatedAt: "2026-08-22T12:00:00.000Z",
+  },
 ];
 const person: PersonData = {
   id: "person-one", name: "Alex Example", company: "Example Labs", title: "VP Product",
@@ -194,6 +220,36 @@ const managedDescriptionDocument: ManagedDocumentData = {
   uploadProvenance: null,
 };
 const managedDescriptionContent = "# Synthetic managed description\n\nManaged Markdown is authoritative.";
+const repairDocuments = [
+  {
+    document: {
+      id: "doc_14900000-0000-4000-8000-000000000150",
+      links: [{ entityType: "gig" as const, entityId: "gig-completed-repair-changed" }],
+      documentType: "job_description" as const,
+      title: "My synthetic care role notes",
+      description: "Candidate-authored care metadata.",
+      mediaType: "text/markdown" as const,
+      sourceDescription: "Synthetic earlier official posting",
+      filePath: null,
+      uploadProvenance: null,
+    },
+    content: "# Earlier synthetic care posting\n\nEarlier official scope.",
+  },
+  {
+    document: {
+      id: "doc_15000000-0000-4000-8000-000000000150",
+      links: [{ entityType: "gig" as const, entityId: "gig-completed-repair-unchanged" }],
+      documentType: "job_description" as const,
+      title: "My synthetic credit role notes",
+      description: "Candidate-authored credit metadata.",
+      mediaType: "text/markdown" as const,
+      sourceDescription: "Synthetic current official posting",
+      filePath: null,
+      uploadProvenance: null,
+    },
+    content: "# Stable synthetic credit posting\n\nCurrent official scope.",
+  },
+];
 
 const database = openDatabase(databasePath);
 migrateDatabase(database);
@@ -217,6 +273,10 @@ store.change(change, transaction => {
     content: managedDescriptionContent,
     contentHash: createHash("sha256").update(managedDescriptionContent).digest("hex"),
   });
+  repairDocuments.forEach(item => transaction.documents.create({
+    ...item,
+    contentHash: createHash("sha256").update(item.content).digest("hex"),
+  }));
 });
 const scoutImport = importScoutCompany(
   {
@@ -256,6 +316,144 @@ const scoutImport = importScoutCompany(
 );
 if (scoutImport.rejected)
   throw new Error("Could not create the synthetic Scout company fixture.");
+
+const screening = {
+  profile: { summary: "Synthetic candidate" },
+  profileVersion: "synthetic-profile-v1",
+  profileArtifactId: "synthetic-profile-artifact",
+  profileHash: "synthetic-profile-hash",
+  model: "synthetic-model",
+  provider: "synthetic-provider",
+  modelConfiguration: "synthetic-configuration",
+};
+const scoutStore = new SqliteScoutRunStore(
+  database,
+  path.join(contextRoot, "artifacts", "gig-scout", "descriptions"),
+  screening,
+);
+scoutStore.startOrReuse(20, 5, "2026-08-22T12:00:01.000Z");
+const scoutJob = scoutStore.pendingJobs(1)[0]!;
+const repairPositions = [
+  {
+    company: scoutJob.companyName,
+    sourceKey: "official",
+    externalId: "SYN-149",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-149",
+    title: "Synthetic Health Cooperative Director",
+    location: "Remote",
+    workArrangement: "remote" as const,
+    description: "# Current synthetic care posting\n\nCurrent official scope.",
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "listing" as const,
+      descriptionUrl: "https://careers.example.test/jobs/SYN-149",
+    },
+  },
+  {
+    company: scoutJob.companyName,
+    sourceKey: "official",
+    externalId: "SYN-150",
+    canonicalUrl: "https://careers.example.test/jobs/SYN-150",
+    title: "Synthetic Credit Cooperative Director",
+    location: "Remote",
+    workArrangement: "remote" as const,
+    description: repairDocuments[1]!.content,
+    provenance: {
+      sourceKey: "official",
+      sourceUrl: "https://careers.example.test/jobs",
+      description: "listing" as const,
+      descriptionUrl: "https://careers.example.test/jobs/SYN-150",
+    },
+  },
+];
+scoutStore.completeCompanyResult(
+  scoutJob,
+  scoutStore.prepareCompanyResult(scoutJob, {
+    companyId: scoutJob.companyId,
+    configurationVersionId: scoutJob.configurationVersionId,
+    positions: repairPositions,
+    sources: [{
+      sourceKey: "official",
+      status: "succeeded_with_results",
+      positions: repairPositions,
+      attempts: [],
+    }],
+  }, "2026-08-22T12:00:02.000Z"),
+  "2026-08-22T12:00:02.000Z",
+);
+const screeningModel: ScoutScreeningModel = {
+  async screenRelevance() {
+    return {
+      value: {
+        decision: "passes_relevance",
+        reason: "Synthetic leadership role",
+        confidence: 0.99,
+        evidence: ["Leadership"],
+        ambiguities: [],
+      },
+      metrics: {
+        provider: screening.provider,
+        model: screening.model,
+        modelConfiguration: screening.modelConfiguration,
+        inputTokens: 1,
+        outputTokens: 1,
+        latencyMs: 1,
+      },
+    };
+  },
+  async scoreCandidateMatch() {
+    return {
+      value: { score: 9, scoreExplanation: "Synthetic candidate match" },
+      metrics: {
+        provider: screening.provider,
+        model: screening.model,
+        modelConfiguration: screening.modelConfiguration,
+        inputTokens: 1,
+        outputTokens: 1,
+        latencyMs: 1,
+      },
+    };
+  },
+};
+const processor = new ScoutPositionProcessor(
+  scoutStore,
+  screeningModel,
+  () => "2026-08-22T12:00:03.000Z",
+);
+while (scoutStore.pendingPositionJobs(20)[0]) {
+  await processor.process(scoutStore.pendingPositionJobs(20)[0]!.id);
+}
+for (const fixture of [
+  { externalId: "SYN-149", gigId: "gig-completed-repair-changed", documentId: repairDocuments[0]!.document.id },
+  { externalId: "SYN-150", gigId: "gig-completed-repair-unchanged", documentId: repairDocuments[1]!.document.id },
+]) {
+  const position = database.query(
+    "SELECT id FROM scout_positions WHERE external_id=?",
+  ).get(fixture.externalId) as { id: string };
+  const review = scoutStore.reviewPosting(position.id)!;
+  scoutStore.beginPursue({
+    positionId: position.id,
+    action: "pursue",
+    actor: "Synthetic Reviewer",
+    changeId: `synthetic-completed-${fixture.externalId}`,
+    expectedStateRevision: review.detail.stateRevision,
+    descriptionId: review.detail.descriptionId!,
+    relevanceEvaluationId: review.detail.relevanceEvaluationId!,
+    candidateMatchEvaluationId: review.detail.candidateMatchEvaluationId!,
+  }, {
+    kind: "use_existing",
+    gigId: fixture.gigId,
+    expectedGigRevision: 1,
+    reviewedFingerprint: createHash("sha256").update(fixture.externalId).digest("hex"),
+  }, "2026-08-22T12:00:04.000Z");
+  scoutStore.completePromotion(
+    position.id,
+    fixture.gigId,
+    fixture.documentId,
+    "2026-08-22T12:00:05.000Z",
+  );
+}
 database.close();
 
 let encodedFixturesEnabled = false;
