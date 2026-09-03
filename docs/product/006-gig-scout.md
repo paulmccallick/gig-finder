@@ -45,6 +45,9 @@
   - **Given** a trustworthy successful company result, **When** it is completed, **Then** Scout updates tracked Gig availability through the Gig domain.
   - **Given** a partial, failed, unsupported, or suspiciously empty company result, **When** it is completed, **Then** Scout does not update tracked Gig availability.
   - **Given** a Gig availability update, **When** Scout records it, **Then** it does not close the Gig or alter its pipeline stage or outcome.
+  - **Given** a non-closed Gig is unavailable, **When** the Gig board loads, **Then** it appears only in the chronological Unavailable view and retains its pipeline stage, filters, related records, and explicit availability timestamp.
+  - **Given** an unavailable Gig later becomes available through trustworthy Scout evidence, **When** the dashboard refreshes, **Then** the same Gig returns to Active in its retained pipeline stage.
+  - **Given** an unavailable Gig is explicitly closed with a non-pending outcome, **When** the dashboard refreshes, **Then** it appears in Archive rather than Unavailable.
   - **Given** a position awaiting review, **When** the user records a decision, **Then** only that row leaves the ledger, scroll position and active controls remain stable, and the list and counts refresh from authoritative state.
   - **Given** a position decision fails, **When** the server reports the failure, **Then** the row, drawer, optional note, and actionable error remain available.
   - **Given** Pursue finds no current Gig candidates, **When** the user chooses Pursue, **Then** Scout creates and links one Gig without another confirmation.
@@ -69,7 +72,7 @@
 
 ## 📈 Consequences & Impact
 
-- **UX/UI Impact**: Gig Scout provides one launch point, durable run status, and a paged review ledger. Review decisions use the standard record drawer; operational diagnostics remain accessible without dominating the ledger.
+- **UX/UI Impact**: Gig Scout provides one launch point, durable run status, a paged review ledger, and a dedicated chronological Unavailable view on the Gig board. Review decisions use the standard record drawer; operational diagnostics remain accessible without dominating the ledger.
 - **Data Model Changes**: Source attempts persist normalized filter inputs and title/location decisions. Position observations preserve display and structured authoritative locations with normalized work arrangements. Promotion state retains the exact reviewed posting resolution and completion or failure state so retries remain idempotent.
 - **Performance Targets**: Scans run outside request lifetime with bounded per-source work and host-safe concurrency; interactive progress reads remain responsive.
 

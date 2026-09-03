@@ -4,9 +4,11 @@ import {
   archiveGroup,
   archiveOutcomeOrder,
   compareGigs,
+  compareUnavailableGigs,
   filterGigs,
   fitLabels,
   formatPay,
+  formatUnavailableSince,
   isOverdue,
   outcomeLabels,
   stageLabels,
@@ -58,9 +60,10 @@ function Icon({ name }: { name: "search" | "close" | "arrow" }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24">{paths[name]}</svg>;
 }
 
-function GigCard({ gig, onSelect }: { gig: GigSummary; onSelect: (gigId: string) => void }) {
+function GigCard({ gig, unavailable = false, onSelect }: { gig: GigSummary; unavailable?: boolean; onSelect: (gigId: string) => void }) {
   const overdue = isOverdue(gig);
   const pay = formatPay(gig);
+  const unavailableSince = formatUnavailableSince(gig.availabilityUpdatedAt);
   return (
     <button className="record-card" onClick={() => onSelect(gig.id)} type="button">
       <span className="card-signal" data-fit={gig.fit.rating} />
@@ -70,6 +73,12 @@ function GigCard({ gig, onSelect }: { gig: GigSummary; onSelect: (gigId: string)
         <span className="fit-chip" data-fit={gig.fit.rating}>{fitLabels[gig.fit.rating]}</span>
         {pay && <span className="pay-chip">{pay}</span>}
       </span>
+      {unavailable && (
+        <span className="availability-line">
+          <span className="availability-stage">{stageLabels[gig.stage]}</span>
+          <span>{unavailableSince ? `Unavailable since ${unavailableSince}` : "Unavailable — date not recorded"}</span>
+        </span>
+      )}
       <span className={`card-footer ${overdue ? "is-overdue" : ""}`}>
         <span>{overdue ? "OVERDUE" : gig.nextAction?.due ?? "NO DEADLINE"}</span>
         <span>ACT {gig.lastActivity}</span>
@@ -141,7 +150,6 @@ function GigDrawer({ gig, onClose }: { gig: GigRecord; onClose: () => void }) {
         </header>
         <div className="drawer-body">
           <div className="drawer-badges">
-            <span className="stage-chip">{stageLabels[gig.stage]}</span>
             <span className="fit-chip" data-fit={gig.fit.rating}>{fitLabels[gig.fit.rating]}</span>
             {isOverdue(gig) && <span className="overdue-chip">Overdue</span>}
           </div>
@@ -157,6 +165,15 @@ function GigDrawer({ gig, onClose }: { gig: GigRecord; onClose: () => void }) {
             <p className="status-narrative">{gig.statusSummary}</p>
           </section>
           <dl className="detail-grid">
+            <DetailItem label="Pipeline stage">{stageLabels[gig.stage]}</DetailItem>
+            <DetailItem label="Availability">
+              {gig.availability === "unavailable" ? "Unavailable" : gig.availability === "available" ? "Available" : "Unknown"}
+            </DetailItem>
+            {gig.availability === "unavailable" && (
+              <DetailItem label="Unavailable since">
+                {formatUnavailableSince(gig.availabilityUpdatedAt) ?? "Date not recorded"}
+              </DetailItem>
+            )}
             <DetailItem label="Last activity">{gig.lastActivity}</DetailItem>
             <DetailItem label="Next action">{gig.nextAction?.description}</DetailItem>
             <DetailItem label="Action due">{gig.nextAction?.due}</DetailItem>
@@ -208,8 +225,9 @@ function GigBoard({ gigs, onNavigate }: { gigs: GigRecord[]; onNavigate: (value:
     setSelectedGig(gigs.find(gig => gig.id === selectedGig.id) ?? null);
   }, [gigs, selectedGig?.id]);
   const today = todayInPacific();
-  const activeCount = gigs.filter((gig) => gig.stage !== "closed").length;
-  const archiveCount = gigs.length - activeCount;
+  const activeCount = filterGigs(gigs, "active", emptyFilters, today).length;
+  const unavailableCount = filterGigs(gigs, "unavailable", emptyFilters, today).length;
+  const archiveCount = filterGigs(gigs, "archive", emptyFilters, today).length;
   const overdueCount = gigs.filter((gig) => isOverdue(gig, today)).length;
   const appliedCount = gigs.filter((gig) => gig.stage === "applied").length;
 
@@ -223,23 +241,32 @@ function GigBoard({ gigs, onNavigate }: { gigs: GigRecord[]; onNavigate: (value:
     [gigs, mode, today],
   );
 
-  const groups = (mode === "active"
+  const groups = mode === "active"
     ? activeStageOrder.map((key) => ({
         key,
         label: stageLabels[key],
         gigs: visibleGigs.filter((gig) => gig.stage === key).sort((a, b) => compareGigs(a, b, today)),
         totalGigs: modeGigs.filter((gig) => gig.stage === key).length,
       }))
-    : archiveOutcomeOrder.map((key) => ({
+    : mode === "archive"
+      ? archiveOutcomeOrder.map((key) => ({
         key,
         label: outcomeLabels[key],
         gigs: visibleGigs.filter((gig) => archiveGroup(gig) === key).sort((a, b) => compareGigs(a, b, today)),
         totalGigs: modeGigs.filter((gig) => archiveGroup(gig) === key).length,
-      }))).filter((group) => group.totalGigs > 0);
+      }))
+      : [];
+  const visibleGroups = groups.filter((group) => group.totalGigs > 0);
+
+  const selectGig = (gigId: string) => {
+    setSelectedGig(gigs.find(candidate => candidate.id === gigId) ?? null);
+  };
 
   const switchMode = (nextMode: BoardMode) => {
     setMode(nextMode);
-    setFilters((current) => ({ ...current, stage: "all", overdueOnly: false }));
+    if (nextMode === "archive") {
+      setFilters((current) => ({ ...current, stage: "all", overdueOnly: false }));
+    }
   };
 
   return (
@@ -256,13 +283,14 @@ function GigBoard({ gigs, onNavigate }: { gigs: GigRecord[]; onNavigate: (value:
       <section className="controls" aria-label="Board controls">
         <div className="view-tabs" role="tablist" aria-label="Gig view">
           <button role="tab" aria-selected={mode === "active"} onClick={() => switchMode("active")}>Active <span>{activeCount}</span></button>
+          <button role="tab" aria-selected={mode === "unavailable"} onClick={() => switchMode("unavailable")}>Unavailable <span>{unavailableCount}</span></button>
           <button role="tab" aria-selected={mode === "archive"} onClick={() => switchMode("archive")}>Archive <span>{archiveCount}</span></button>
         </div>
         <label className="search-control">
           <span className="sr-only">Search gigs</span><Icon name="search" />
           <input value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Search company, title, status…" />
         </label>
-        {mode === "active" && (
+        {mode !== "archive" && (
           <label className="select-control">Stage
             <select value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value as BoardFilters["stage"] })}>
               <option value="all">All stages</option>
@@ -276,21 +304,30 @@ function GigBoard({ gigs, onNavigate }: { gigs: GigRecord[]; onNavigate: (value:
             {fitRatings.map((fit) => <option value={fit} key={fit}>{fitLabels[fit]}</option>)}
           </select>
         </label>
-        {mode === "active" && <label className="check-control"><input type="checkbox" checked={filters.overdueOnly} onChange={(event) => setFilters({ ...filters, overdueOnly: event.target.checked })} /><span /> Overdue only</label>}
+        {mode !== "archive" && <label className="check-control"><input type="checkbox" checked={filters.overdueOnly} onChange={(event) => setFilters({ ...filters, overdueOnly: event.target.checked })} /><span /> Overdue only</label>}
         <button className="clear-button" onClick={() => setFilters(emptyFilters)} disabled={JSON.stringify(filters) === JSON.stringify(emptyFilters)}>Clear</button>
       </section>
 
-      <section className="kanban-board" aria-label={`${mode} gig board`}>
-        {groups.map((group, index) => (
-          <section className="kanban-column" key={group.key} style={{ "--column-index": index } as React.CSSProperties}>
-            <header><span className="column-number">{String(index + 1).padStart(2, "0")}</span><h3>{group.label}</h3><span className="column-count">{group.gigs.length}</span></header>
-            <div className="card-stack">
-              {group.gigs.map((gig) => <GigCard gig={gig} onSelect={(gigId) => setSelectedGig(gigs.find(candidate => candidate.id === gigId) ?? null)} key={gig.id} />)}
-              {group.gigs.length === 0 && <div className="column-empty"><span>NO MATCHES</span><p>{group.totalGigs} {group.totalGigs === 1 ? "gig" : "gigs"} hidden by filters</p></div>}
-            </div>
-          </section>
-        ))}
-      </section>
+      {mode === "unavailable" ? (
+        <section className="unavailable-list" aria-label="unavailable gig list">
+          {visibleGigs
+            .slice()
+            .sort(compareUnavailableGigs)
+            .map(gig => <GigCard gig={gig} unavailable onSelect={selectGig} key={gig.id} />)}
+        </section>
+      ) : (
+        <section className="kanban-board" aria-label={`${mode} gig board`}>
+          {visibleGroups.map((group, index) => (
+            <section className="kanban-column" key={group.key} style={{ "--column-index": index } as React.CSSProperties}>
+              <header><span className="column-number">{String(index + 1).padStart(2, "0")}</span><h3>{group.label}</h3><span className="column-count">{group.gigs.length}</span></header>
+              <div className="card-stack">
+                {group.gigs.map((gig) => <GigCard gig={gig} onSelect={selectGig} key={gig.id} />)}
+                {group.gigs.length === 0 && <div className="column-empty"><span>NO MATCHES</span><p>{group.totalGigs} {group.totalGigs === 1 ? "gig" : "gigs"} hidden by filters</p></div>}
+              </div>
+            </section>
+          ))}
+        </section>
+      )}
       {visibleGigs.length === 0 && <div className="filter-empty-notice">No gigs match these controls. <button onClick={() => setFilters(emptyFilters)}>Reset filters</button></div>}
       <footer className="app-footer"><span>READ-ONLY MODE</span><span>Source: SQLite</span><span>{gigs.length} total records</span></footer>
       {selectedGig && <GigDrawer gig={selectedGig} onClose={() => setSelectedGig(null)} />}

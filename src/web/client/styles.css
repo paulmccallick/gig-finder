@@ -96,6 +96,11 @@ h1, h2, h3, p { margin-top: 0; }
 .clear-button:disabled { opacity: .35; cursor: default; }
 
 .kanban-board { display: flex; gap: 14px; overflow-x: auto; align-items: flex-start; padding: 16px 0 30px; min-height: 410px; scrollbar-color: var(--line-bright) transparent; }
+.unavailable-list { display: grid; gap: 10px; width: min(100%, 760px); padding: 16px 0 30px; min-height: 410px; }
+.unavailable-list .record-card { min-height: 0; }
+.availability-line { margin-top: 10px; color: var(--red); font-size: 10px; }
+.availability-stage { color: var(--muted); }
+.availability-stage::after { content: " / "; color: var(--dim); }
 .kanban-column { flex: 1 0 282px; min-width: 282px; max-width: 380px; animation: column-arrival .42s ease-out both; animation-delay: calc(var(--column-index) * 55ms); }
 .kanban-column > header { height: 43px; border-top: 1px solid var(--line-bright); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 9px; }
 .column-number { color: var(--dim); font: 9px/1 "SFMono-Regular", Consolas, monospace; }
