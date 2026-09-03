@@ -145,6 +145,41 @@ test("unavailable view is chronological, filterable, and distinct from archive",
   await expect(fit).toBeVisible();
   await expect(overdueOnly).toBeVisible();
 
+  await page.getByRole("tab", { name: /Active/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(stage).toHaveValue("identified");
+  await expect(fit).toHaveValue("good");
+  await expect(overdueOnly).toBeChecked();
+  await expect(page.locator(".record-card")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(stage).toHaveValue("identified");
+  await expect(fit).toHaveValue("good");
+  await expect(overdueOnly).toBeChecked();
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+
+  await page.getByRole("tab", { name: /Archive/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(fit).toHaveValue("good");
+  await expect(stage).toHaveCount(0);
+  await expect(overdueOnly).toHaveCount(0);
+  await expect(page.locator(".record-card")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Active/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(fit).toHaveValue("good");
+  await expect(stage).toHaveValue("all");
+  await expect(overdueOnly).not.toBeChecked();
+  await expect(page.locator(".record-card")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(fit).toHaveValue("good");
+  await expect(stage).toHaveValue("all");
+  await expect(overdueOnly).not.toBeChecked();
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+
   await page.getByRole("button", { name: "Clear" }).click();
   await expect(unavailableList.locator(".record-card")).toHaveCount(2);
   await unavailableList.locator(".record-card").first().click();
@@ -193,14 +228,40 @@ test("mobile board remains usable", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Opportunity Control Room" })).toBeVisible();
   await expect(page.getByRole("tab")).toHaveCount(3);
   await page.getByRole("tab", { name: /Unavailable 2/ }).click();
-  await expect(page.getByPlaceholder("Search company, title, status…")).toBeVisible();
-  await expect(page.getByLabel("Stage")).toBeVisible();
-  await expect(page.getByLabel("Fit")).toBeVisible();
-  await expect(page.getByLabel("Overdue only")).toBeVisible();
-  await expect(page.locator(".unavailable-list .record-card").first()).toBeVisible();
-  await page.locator(".unavailable-list .record-card").first().click();
+  const mobileSearch = page.getByPlaceholder("Search company, title, status…");
+  const mobileStage = page.getByLabel("Stage");
+  const mobileFit = page.getByLabel("Fit");
+  const mobileOverdueOnly = page.getByLabel("Overdue only");
+  const mobileUnavailableList = page.locator(".unavailable-list");
+
+  await mobileSearch.fill("Unavailable Older");
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await mobileStage.selectOption("screening");
+  await expect(mobileUnavailableList.locator(".record-card")).toHaveCount(0);
+  await mobileStage.selectOption("identified");
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await mobileFit.selectOption("strong");
+  await expect(mobileUnavailableList.locator(".record-card")).toHaveCount(0);
+  await mobileFit.selectOption("good");
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await page.locator(".check-control", { hasText: "Overdue only" }).click();
+  await expect(mobileOverdueOnly).toBeChecked();
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+
+  await page.getByRole("tab", { name: /Active/ }).click();
+  await expect(page.locator(".record-card")).toHaveCount(0);
+  await page.getByRole("tab", { name: /Archive/ }).click();
+  await expect(mobileSearch).toHaveValue("Unavailable Older");
+  await expect(mobileFit).toHaveValue("good");
+  await expect(mobileStage).toHaveCount(0);
+  await expect(mobileOverdueOnly).toHaveCount(0);
+  await expect(page.locator(".record-card")).toHaveCount(0);
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await mobileUnavailableList.locator(".record-card").click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Clear" }).click();
   await page.getByRole("tab", { name: /Active/ }).click();
   expect(await page.locator(".record-card").count()).toBeGreaterThan(0);
   await page.locator(".record-card").first().click();
