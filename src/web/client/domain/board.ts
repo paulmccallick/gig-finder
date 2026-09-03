@@ -120,9 +120,18 @@ export function compareGigs(a: GigSummary, b: GigSummary, today = todayInPacific
 }
 
 export function compareUnavailableGigs(a: GigSummary, b: GigSummary): number {
-  const timestampDifference = (b.availabilityUpdatedAt ?? "")
-    .localeCompare(a.availabilityUpdatedAt ?? "");
-  return timestampDifference || compareGigs(a, b);
+  const aTimestamp = a.availabilityUpdatedAt ? Date.parse(a.availabilityUpdatedAt) : Number.NaN;
+  const bTimestamp = b.availabilityUpdatedAt ? Date.parse(b.availabilityUpdatedAt) : Number.NaN;
+  const aHasValidTimestamp = !Number.isNaN(aTimestamp);
+  const bHasValidTimestamp = !Number.isNaN(bTimestamp);
+
+  if (aHasValidTimestamp && bHasValidTimestamp && aTimestamp !== bTimestamp) {
+    return bTimestamp - aTimestamp;
+  }
+  if (aHasValidTimestamp !== bHasValidTimestamp) {
+    return aHasValidTimestamp ? -1 : 1;
+  }
+  return compareGigs(a, b);
 }
 
 export function formatUnavailableSince(value: string | null | undefined): string | null {

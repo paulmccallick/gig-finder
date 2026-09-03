@@ -202,6 +202,39 @@ test("unavailable view is chronological, filterable, and distinct from archive",
   expect(pageErrors).toEqual([]);
 });
 
+test("missing unavailable timestamp is rendered without an invented date", async ({ page }) => {
+  const originalResponse = await page.request.get("/api/gigs");
+  expect(originalResponse.ok()).toBe(true);
+  const originalGigs = await originalResponse.json() as Array<Record<string, unknown>>;
+  const unavailableTemplate = originalGigs.find(gig => gig.id === "gig-unavailable-newest");
+  expect(unavailableTemplate).toBeDefined();
+  const missingTimestampGig = {
+    ...unavailableTemplate,
+    id: "gig-unavailable-missing-timestamp",
+    company: "Unavailable Dateless Systems",
+    title: "Director of Missing Signals",
+    externalJobId: "UNAVAILABLE-DATELESS",
+    availabilityUpdatedAt: null,
+  };
+
+  await page.route(/\/api\/gigs$/, route => route.fulfill({
+    contentType: "application/json",
+    json: [...originalGigs, missingTimestampGig],
+  }));
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: /Unavailable 3/ }).click();
+  const card = page.locator(".record-card", { hasText: "Unavailable Dateless Systems" });
+  await expect(card).toContainText("Unavailable — date not recorded");
+  await expect(card).not.toContainText(/Unavailable since [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+
+  await card.click();
+  const unavailableSince = page.getByRole("dialog").locator(".detail-item", { hasText: "Unavailable since" });
+  await expect(unavailableSince.locator("dt")).toHaveText("Unavailable since");
+  await expect(unavailableSince.locator("dd")).toHaveText("Date not recorded");
+  await expect(unavailableSince.locator("dd")).not.toContainText(/[A-Z][a-z]{2} \d{1,2}, \d{4}/);
+});
+
 test("managed Gig description and canonical Apply link drive the drawer", async ({ page }) => {
   const documentId = "doc_14900000-0000-4000-8000-000000000149";
   await page.goto("/");

@@ -69,6 +69,55 @@ describe("board domain", () => {
     expect([older, missing, newest].sort(compareUnavailableGigs).map(item => item.id)).toEqual(["newest", "older", "missing"]);
   });
 
+  test("sorts unavailable instants with mixed fractional precision newest first", () => {
+    const later = gig({
+      id: "later",
+      availability: "unavailable",
+      availabilityUpdatedAt: "2026-07-15T16:00:00.500Z",
+    });
+    const earlier = gig({
+      id: "earlier",
+      availability: "unavailable",
+      availabilityUpdatedAt: "2026-07-15T16:00:00Z",
+    });
+
+    expect([earlier, later].sort(compareUnavailableGigs).map(item => item.id)).toEqual(["later", "earlier"]);
+  });
+
+  test("sorts invalid and missing unavailable timestamps after valid instants", () => {
+    const valid = gig({
+      id: "valid",
+      company: "Zulu",
+      availability: "unavailable",
+      availabilityUpdatedAt: "2026-07-15T16:00:00Z",
+    });
+    const invalid = gig({
+      id: "invalid",
+      company: "Alpha",
+      availability: "unavailable",
+      availabilityUpdatedAt: "not-an-instant",
+    });
+    const missing = gig({
+      id: "missing",
+      company: "Bravo",
+      availability: "unavailable",
+      availabilityUpdatedAt: null,
+    });
+    const undefinedTimestamp = gig({
+      id: "undefined",
+      company: "Charlie",
+      availability: "unavailable",
+      availabilityUpdatedAt: undefined,
+    });
+
+    expect([missing, invalid, valid, undefinedTimestamp].sort(compareUnavailableGigs).map(item => item.id)).toEqual([
+      "valid",
+      "invalid",
+      "missing",
+      "undefined",
+    ]);
+  });
+
   test("formats unavailable timestamps for Pacific presentation", () => {
     expect(formatUnavailableSince("2026-07-15T16:00:00.000Z")).toBe("Jul 15, 2026");
     expect(formatUnavailableSince(null)).toBeNull();
