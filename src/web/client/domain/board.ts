@@ -1,6 +1,6 @@
 import type { FitRating, GigSummary, Outcome, PipelineStage } from "../../../core/gigs";
 
-export type BoardMode = "active" | "archive";
+export type BoardMode = "active" | "unavailable" | "archive";
 
 export interface BoardFilters {
   search: string;
@@ -82,6 +82,14 @@ export function isOverdue(gig: GigSummary, today = todayInPacific()): boolean {
   return gig.stage !== "closed" && Boolean(gig.nextAction?.due && gig.nextAction.due < today);
 }
 
+function belongsToMode(gig: GigSummary, mode: BoardMode): boolean {
+  if (mode === "archive") return gig.stage === "closed";
+  if (gig.stage === "closed") return false;
+  return mode === "unavailable"
+    ? gig.availability === "unavailable"
+    : gig.availability !== "unavailable";
+}
+
 export function filterGigs(
   gigs: GigSummary[],
   mode: BoardMode,
@@ -90,7 +98,7 @@ export function filterGigs(
 ): GigSummary[] {
   const query = filters.search.trim().toLocaleLowerCase();
   return gigs.filter((gig) => {
-    if (mode === "active" ? gig.stage === "closed" : gig.stage !== "closed") return false;
+    if (!belongsToMode(gig, mode)) return false;
     if (filters.stage !== "all" && gig.stage !== filters.stage) return false;
     if (filters.fit !== "all" && gig.fit.rating !== filters.fit) return false;
     if (filters.overdueOnly && !isOverdue(gig, today)) return false;
@@ -109,6 +117,33 @@ export function compareGigs(a: GigSummary, b: GigSummary, today = todayInPacific
   if (aDue !== bDue) return aDue.localeCompare(bDue);
   if (a.lastActivity !== b.lastActivity) return b.lastActivity.localeCompare(a.lastActivity);
   return a.company.localeCompare(b.company);
+}
+
+export function compareUnavailableGigs(a: GigSummary, b: GigSummary): number {
+  const aTimestamp = a.availabilityUpdatedAt ? Date.parse(a.availabilityUpdatedAt) : Number.NaN;
+  const bTimestamp = b.availabilityUpdatedAt ? Date.parse(b.availabilityUpdatedAt) : Number.NaN;
+  const aHasValidTimestamp = !Number.isNaN(aTimestamp);
+  const bHasValidTimestamp = !Number.isNaN(bTimestamp);
+
+  if (aHasValidTimestamp && bHasValidTimestamp && aTimestamp !== bTimestamp) {
+    return bTimestamp - aTimestamp;
+  }
+  if (aHasValidTimestamp !== bHasValidTimestamp) {
+    return aHasValidTimestamp ? -1 : 1;
+  }
+  return compareGigs(a, b);
+}
+
+export function formatUnavailableSince(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(instant);
 }
 
 export function archiveGroup(gig: GigSummary): Outcome | "other" {

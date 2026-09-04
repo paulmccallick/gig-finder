@@ -80,6 +80,161 @@ test("active board, filters, gig drawer, and archive are functional", async ({ p
   expect(pageErrors).toEqual([]);
 });
 
+test("unavailable view is chronological, filterable, and distinct from archive", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  page.on("console", message => {
+    if (message.type() === "error") pageErrors.push(message.text());
+  });
+
+  const originalResponse = await page.request.get("/api/gigs");
+  expect(originalResponse.ok()).toBe(true);
+  const originalGigs = await originalResponse.json() as Array<Record<string, unknown>>;
+  expect(originalGigs.filter(gig =>
+    gig.id === "gig-unavailable-newest" || gig.id === "gig-unavailable-older"
+  )).toHaveLength(2);
+
+  let restoreAvailable = false;
+  await page.route(/\/api\/gigs$/, async route => {
+    const restoredGigs = originalGigs.map(gig => restoreAvailable && gig.id === "gig-unavailable-newest"
+      ? { ...gig, availability: "available" }
+      : { ...gig });
+    await route.fulfill({ contentType: "application/json", json: restoredGigs });
+  });
+
+  await page.goto("/");
+  const unavailableTab = page.getByRole("tab", { name: /Unavailable 2/ });
+  await expect(unavailableTab).toBeVisible();
+  await expect(page.locator(".record-card", { hasText: "Unavailable New Systems" })).toHaveCount(0);
+  await unavailableTab.click();
+
+  const unavailableList = page.locator(".unavailable-list");
+  await expect(unavailableList.locator(".record-card")).toHaveCount(2);
+  expect(await unavailableList.locator(".card-company").allTextContents()).toEqual([
+    "Unavailable New Systems",
+    "Unavailable Older Works",
+  ]);
+  await expect(page.locator(".record-card").first()).toContainText("Screening");
+  await expect(page.locator(".record-card").first()).toContainText("Unavailable since Aug 29, 2026");
+
+  const search = page.getByPlaceholder("Search company, title, status…");
+  const stage = page.getByLabel("Stage");
+  const fit = page.getByLabel("Fit");
+  const overdueOnly = page.getByLabel("Overdue only");
+  await expect(search).toBeVisible();
+  await expect(stage).toBeVisible();
+  await expect(fit).toBeVisible();
+  await expect(overdueOnly).toBeVisible();
+
+  await stage.selectOption("identified");
+  await expect(unavailableList.locator(".record-card")).toHaveCount(1);
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await search.fill("Unavailable New");
+  await expect(unavailableList.locator(".record-card")).toHaveCount(0);
+  await search.fill("Unavailable Older");
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await fit.selectOption("strong");
+  await expect(unavailableList.locator(".record-card")).toHaveCount(0);
+  await fit.selectOption("good");
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await page.locator(".check-control", { hasText: "Overdue only" }).click();
+  await expect(overdueOnly).toBeChecked();
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await expect(search).toBeVisible();
+  await expect(stage).toBeVisible();
+  await expect(fit).toBeVisible();
+  await expect(overdueOnly).toBeVisible();
+
+  await page.getByRole("tab", { name: /Active/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(stage).toHaveValue("identified");
+  await expect(fit).toHaveValue("good");
+  await expect(overdueOnly).toBeChecked();
+  await expect(page.locator(".record-card")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(stage).toHaveValue("identified");
+  await expect(fit).toHaveValue("good");
+  await expect(overdueOnly).toBeChecked();
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+
+  await page.getByRole("tab", { name: /Archive/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(fit).toHaveValue("good");
+  await expect(stage).toHaveCount(0);
+  await expect(overdueOnly).toHaveCount(0);
+  await expect(page.locator(".record-card")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Active/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(fit).toHaveValue("good");
+  await expect(stage).toHaveValue("all");
+  await expect(overdueOnly).not.toBeChecked();
+  await expect(page.locator(".record-card")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  await expect(search).toHaveValue("Unavailable Older");
+  await expect(fit).toHaveValue("good");
+  await expect(stage).toHaveValue("all");
+  await expect(overdueOnly).not.toBeChecked();
+  await expect(unavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(unavailableList.locator(".record-card")).toHaveCount(2);
+  await unavailableList.locator(".record-card").first().click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.locator(".detail-item", { hasText: "Availability" })).toContainText("Unavailable");
+  await expect(drawer.locator(".detail-item", { hasText: "Pipeline stage" })).toContainText("Screening");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("tab", { name: /Archive/ }).click();
+  await expect(page.locator(".record-card", { hasText: "Unavailable New Systems" })).toHaveCount(0);
+  await expect(page.locator(".record-card", { hasText: "Unavailable Older Works" })).toHaveCount(0);
+
+  restoreAvailable = true;
+  await page.reload();
+  await page.getByRole("tab", { name: /Unavailable 1/ }).click();
+  await expect(page.locator(".record-card", { hasText: "Unavailable New Systems" })).toHaveCount(0);
+  await page.getByRole("tab", { name: /Active/ }).click();
+  const screeningColumn = page.locator(".kanban-column", { hasText: "Screening" });
+  await expect(screeningColumn.locator(".record-card", { hasText: "Unavailable New Systems" })).toHaveCount(1);
+  expect(pageErrors).toEqual([]);
+});
+
+test("missing unavailable timestamp is rendered without an invented date", async ({ page }) => {
+  const originalResponse = await page.request.get("/api/gigs");
+  expect(originalResponse.ok()).toBe(true);
+  const originalGigs = await originalResponse.json() as Array<Record<string, unknown>>;
+  const unavailableTemplate = originalGigs.find(gig => gig.id === "gig-unavailable-newest");
+  expect(unavailableTemplate).toBeDefined();
+  const missingTimestampGig = {
+    ...unavailableTemplate,
+    id: "gig-unavailable-missing-timestamp",
+    company: "Unavailable Dateless Systems",
+    title: "Director of Missing Signals",
+    externalJobId: "UNAVAILABLE-DATELESS",
+    availabilityUpdatedAt: null,
+  };
+
+  await page.route(/\/api\/gigs$/, route => route.fulfill({
+    contentType: "application/json",
+    json: [...originalGigs, missingTimestampGig],
+  }));
+
+  await page.goto("/");
+  await page.getByRole("tab", { name: /Unavailable 3/ }).click();
+  const card = page.locator(".record-card", { hasText: "Unavailable Dateless Systems" });
+  await expect(card).toContainText("Unavailable — date not recorded");
+  await expect(card).not.toContainText(/Unavailable since [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+
+  await card.click();
+  const unavailableSince = page.getByRole("dialog").locator(".detail-item", { hasText: "Unavailable since" });
+  await expect(unavailableSince.locator("dt")).toHaveText("Unavailable since");
+  await expect(unavailableSince.locator("dd")).toHaveText("Date not recorded");
+  await expect(unavailableSince.locator("dd")).not.toContainText(/[A-Z][a-z]{2} \d{1,2}, \d{4}/);
+});
+
 test("managed Gig description and canonical Apply link drive the drawer", async ({ page }) => {
   const documentId = "doc_14900000-0000-4000-8000-000000000149";
   await page.goto("/");
@@ -104,6 +259,43 @@ test("mobile board remains usable", async ({ page }) => {
   await expect(agentPanel).toBeVisible();
   await agentPanel.getByRole("button", { name: "Close GigFinder" }).click();
   await expect(page.getByRole("heading", { name: "Opportunity Control Room" })).toBeVisible();
+  await expect(page.getByRole("tab")).toHaveCount(3);
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  const mobileSearch = page.getByPlaceholder("Search company, title, status…");
+  const mobileStage = page.getByLabel("Stage");
+  const mobileFit = page.getByLabel("Fit");
+  const mobileOverdueOnly = page.getByLabel("Overdue only");
+  const mobileUnavailableList = page.locator(".unavailable-list");
+
+  await mobileSearch.fill("Unavailable Older");
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await mobileStage.selectOption("screening");
+  await expect(mobileUnavailableList.locator(".record-card")).toHaveCount(0);
+  await mobileStage.selectOption("identified");
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await mobileFit.selectOption("strong");
+  await expect(mobileUnavailableList.locator(".record-card")).toHaveCount(0);
+  await mobileFit.selectOption("good");
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await page.locator(".check-control", { hasText: "Overdue only" }).click();
+  await expect(mobileOverdueOnly).toBeChecked();
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+
+  await page.getByRole("tab", { name: /Active/ }).click();
+  await expect(page.locator(".record-card")).toHaveCount(0);
+  await page.getByRole("tab", { name: /Archive/ }).click();
+  await expect(mobileSearch).toHaveValue("Unavailable Older");
+  await expect(mobileFit).toHaveValue("good");
+  await expect(mobileStage).toHaveCount(0);
+  await expect(mobileOverdueOnly).toHaveCount(0);
+  await expect(page.locator(".record-card")).toHaveCount(0);
+  await page.getByRole("tab", { name: /Unavailable 2/ }).click();
+  await expect(mobileUnavailableList.locator(".card-company")).toHaveText("Unavailable Older Works");
+  await mobileUnavailableList.locator(".record-card").click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Clear" }).click();
+  await page.getByRole("tab", { name: /Active/ }).click();
   expect(await page.locator(".record-card").count()).toBeGreaterThan(0);
   await page.locator(".record-card").first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
