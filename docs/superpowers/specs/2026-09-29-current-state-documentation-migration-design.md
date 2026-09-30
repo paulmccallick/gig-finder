@@ -1,7 +1,7 @@
 # Current-state documentation migration design
 
 **Issue:** #157
-**Status:** Revised design awaiting approval
+**Status:** Approved design
 **Date:** 2026-09-30
 
 ## Purpose
