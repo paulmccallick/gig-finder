@@ -35,13 +35,14 @@ bun run test:e2e
 
 ## Production
 
-Merges to `main` publish Docker images. Follow the
-[deployment runbook](docs/architecture/deployment-runbook.md) to bootstrap,
-deploy, verify, inspect, or recover the local production instance.
+Merges to `main` publish Docker images. Follow the external
+[deployment documentation](https://github.com/paulmccallick/gig-finder-spec/blob/main/operations/deployment.md)
+to bootstrap, deploy, verify, inspect, or recover the local production instance.
 
 ## Documentation
 
-- [Product overview](docs/product/overview.md)
-- [Architecture overview](docs/architecture/overview.md)
-- [Configuration](docs/architecture/configuration.md)
-- [Deployment runbook](docs/architecture/deployment-runbook.md)
+- [GigFinder documentation map](https://github.com/paulmccallick/gig-finder-spec/blob/main/MAP.md)
+- [Application overview](https://github.com/paulmccallick/gig-finder-spec/blob/main/APPLICATION.md)
+- [Architecture overview](https://github.com/paulmccallick/gig-finder-spec/blob/main/architecture/overview.md)
+- [Configuration](https://github.com/paulmccallick/gig-finder-spec/blob/main/operations/deployment.md#configure-runtime-inputs)
+- [Deployment](https://github.com/paulmccallick/gig-finder-spec/blob/main/operations/deployment.md)
