@@ -3,10 +3,17 @@
 Apply `$coding-guide` to implementation and review work.
 
 Current-state product, architecture, interface, and operations documentation
-lives in the [GigFinder specification repository](https://github.com/paulmccallick/gig-finder-spec).
-Read its [documentation map](https://github.com/paulmccallick/gig-finder-spec/blob/main/MAP.md)
-before changing behavior or contracts, then update the relevant specification
-documents with the code change.
+lives in the locally registered `spec` repository. Before changing behavior or
+contracts, resolve and read `spec::MAP.md`, then update the relevant
+specification documents with the code change:
+
+```bash
+spec_root="$(git config --global --path --get gigfinder.repo.spec)"
+"$spec_root/gf-ref" show spec::MAP.md
+```
+
+If the local `spec` checkout is not registered, report that prerequisite. Do
+not substitute a website or assume a sibling-directory layout.
 
 The backlog is the [GigFinder GitHub Project](https://github.com/users/paulmccallick/projects/5).
 

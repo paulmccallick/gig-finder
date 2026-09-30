@@ -35,14 +35,22 @@ bun run test:e2e
 
 ## Production
 
-Merges to `main` publish Docker images. Follow the external
-[deployment documentation](https://github.com/paulmccallick/gig-finder-spec/blob/main/operations/deployment.md)
-to bootstrap, deploy, verify, inspect, or recover the local production instance.
+Merges to `main` publish Docker images. Follow
+`spec::operations/deployment.md` to bootstrap, deploy, verify, inspect, or
+recover the local production instance.
 
 ## Documentation
 
-- [GigFinder documentation map](https://github.com/paulmccallick/gig-finder-spec/blob/main/MAP.md)
-- [Application overview](https://github.com/paulmccallick/gig-finder-spec/blob/main/APPLICATION.md)
-- [Architecture overview](https://github.com/paulmccallick/gig-finder-spec/blob/main/architecture/overview.md)
-- [Configuration](https://github.com/paulmccallick/gig-finder-spec/blob/main/operations/deployment.md#configure-runtime-inputs)
-- [Deployment](https://github.com/paulmccallick/gig-finder-spec/blob/main/operations/deployment.md)
+The documentation is in a separate local checkout. Register both repositories
+with that checkout's `gf-ref` command, then resolve references without network
+access:
+
+```bash
+spec_root="$(git config --global --path --get gigfinder.repo.spec)"
+"$spec_root/gf-ref" show spec::MAP.md
+```
+
+- Documentation map: `spec::MAP.md`
+- Application overview: `spec::APPLICATION.md`
+- Architecture overview: `spec::architecture/overview.md`
+- Configuration and deployment: `spec::operations/deployment.md`
