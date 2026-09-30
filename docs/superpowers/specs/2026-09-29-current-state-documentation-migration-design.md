@@ -1,149 +1,133 @@
 # Current-state documentation migration design
 
-**Issue:** #157  
-**Status:** Approved design  
-**Date:** 2026-09-29
+**Issue:** #157
+**Status:** Revised design awaiting approval
+**Date:** 2026-09-30
 
 ## Purpose
 
-Make the sibling `gig-finder-spec` repository the only current-state product
-and architecture documentation source for GigFinder. The application repository
-will retain only code, operational entrypoints, and links to the external
-specification. A reader must be able to start at the external specification's
-map, navigate all current behavior and architecture documentation, and trace
-claims to the current application implementation.
+Make `gig-finder-spec` the current-state product and architecture documentation
+repository without making agents depend on GitHub URLs or a particular local
+checkout layout. Preserve useful existing documentation and change only what is
+required to complete the migration.
 
 This migration does not change application behavior, deployment behavior, or
-the text, date, status, or decisions recorded in the existing ADRs.
+the recorded text and status of existing architecture decisions.
 
-## Scope and boundaries
+## Repository references
 
-### In scope
+Cross-repository references use a repository alias and a path from that
+repository's root:
 
-- Audit every file in `gig-finder/docs/product/` and
-  `gig-finder/docs/architecture/`, including the legacy PRD template and all
-  ADRs.
-- Audit the in-progress documentation in `gig-finder-spec` against current
-  application source and tests.
-- Classify every legacy document as **preserve**, **correct**, or **retire**;
-  record the classification and any unresolved code/spec disagreement in issue
-  #157 or its pull request rather than in a permanent spec appendix.
-- Integrate only verified current-state content into the existing external
-  spec structure: map, application overview, capabilities, workflows, domain,
-  interfaces, architecture, operations, requirements, and decisions.
-- Preserve imported ADR bodies and statuses. Only formatting and link repair
-  may change within an imported ADR.
-- Replace application-repository documentation entrypoints with external-spec
-  links, remove the obsolete local product/architecture corpus and template,
-  and remove Superpowers-specific workflow wording from the application
-  `AGENTS.md`.
-- Validate the spec repository with `bun validate-docs.ts`, then validate the
-  application repository's links and relevant project checks.
+```text
+app::src/core/services.ts#symbol=OpportunitiesService
+spec::architecture/opportunities.md
+```
 
-### Out of scope
+`app` identifies the `gig-finder` repository. `spec` identifies the
+`gig-finder-spec` repository. These identifiers do not encode a filesystem
+layout, host, owner, URL, or branch.
 
-- Implementing undocumented product features or changing runtime contracts to
-  match legacy prose.
-- Creating a permanent migration history or discrepancy appendix in the spec.
-- Rewriting ADR rationale, changing ADR status, or inventing performance,
-  availability, security, or support commitments that code does not establish.
-- Moving personal data, private logs, database contents, or other local state
-  into either repository.
+Ordinary relative Markdown links remain appropriate between files in the same
+repository. They must not cross the repository boundary.
 
-## Evidence and audit model
+## Local resolver
 
-Application code and its automated tests are the current-state authority.
-Legacy documentation is a discovery aid only. The integrator will use the
-external spec repository's documentation map and authoring rules to determine
-where verified material belongs.
+`gig-finder-spec` owns a small executable named `gf-ref`. It stores repository
+locations in the user's Git configuration:
 
-For each legacy document, the audit will record:
+```text
+gigfinder.repo.app
+gigfinder.repo.spec
+```
 
-| Classification | Meaning | Action |
-| --- | --- | --- |
-| Preserve | Its current-state claim is supported by source/tests and is needed in the spec. | Keep or incorporate the verified material in the appropriate external document. |
-| Correct | It contains useful material but has unsupported, stale, incomplete, or misplaced claims. | Update the external document to the code-supported statement; report the discrepancy. |
-| Retire | It is historical, duplicated, templated, unsupported, or superseded by verified external documentation. | Do not copy it; remove it with the legacy corpus. |
+The resolver supports four operations:
 
-Evidence must cite concrete application locations such as a core service,
-route, client adapter, schema, composition root, operation script, or test.
-When evidence conflicts or is insufficient, the external spec must state the
-confirmed limit or omit the claim; the discrepancy belongs in the issue/PR.
+- `gf-ref register <alias> <checkout>` records and validates a local checkout.
+- `gf-ref path <reference>` prints the resolved absolute local path.
+- `gf-ref show <reference>` reads the referenced local file.
+- `gf-ref check <reference>` verifies the repository, file, and optional
+  fragment without printing file content.
 
-## Repository design
+Resolution always uses the registered local checkout and its working tree.
+`gf-ref` does not construct URLs, access the network, clone repositories, fetch
+Git revisions, or fall back to a remote source. A missing registration, missing
+checkout, wrong repository identity, missing file, or unmatched fragment is an
+actionable error.
 
-### `gig-finder-spec`
+The optional `symbol` fragment identifies a named declaration or other stable
+source token within the file. Documentation should omit fragments when the file
+itself is the appropriate evidence boundary.
 
-The existing map remains the single discovery entrypoint. The integration
-updates only the documents that own the verified material:
+## Agent workflow
 
-- Capability documents describe candidate-facing behavior and rules.
-- Workflow and domain documents describe lifecycle and terminology.
-- Interface documents describe browser, HTTP, CLI, and agent boundaries.
-- Architecture and operations documents describe implementation, persistence,
-  deployment, observability, and recovery.
-- The decision index links each preserved imported ADR from the owning
-  architecture material.
+Agent instructions in both repositories direct agents to resolve cross-repo
+references from the local filesystem. From the application repository, an
+agent obtains the registered specification root and uses its `gf-ref`
+executable to open `spec::MAP.md`. From the specification repository, the same
+resolver opens application evidence through `app::...` references.
 
-Each current-state document must retain valid metadata, rendered related-links,
-and reachable navigation required by `validate-docs.ts`. Imported ADRs remain
-an explicit exception to the newer document format, retaining their original
-structure and status.
+If either checkout is not registered, the agent reports the missing local
+prerequisite. It does not substitute a website.
 
-### `gig-finder`
+## Migration scope
 
-The README becomes the application-repository documentation entrypoint and
-links readers to the external specification map and any necessary operational
-guidance there. `AGENTS.md` directs agents to the external documentation and
-does not require the removed Superpowers workflow. The local
-`docs/product/` and `docs/architecture/` trees, including the PRD template,
-are removed after their audit classifications are recorded.
+The migration starts from the pre-migration `gig-finder-spec` baseline. A file
+may change only for one of these reasons:
 
-No local document may retain a relative filesystem link into the sibling
-repository: those links work only in one checkout layout. Entrypoints must use
-stable repository URLs or repository-relative documentation links appropriate
-to where they render.
+1. Add or validate the local resolver.
+2. Replace a cross-repository URL or filesystem-relative reference with a
+   repository-qualified reference.
+3. Import one of the 17 existing ADRs without changing its decision text,
+   date, or status, and add the minimum navigation needed to find it.
+4. Correct a concrete statement that conflicts with current application source
+   or tests.
+5. Move unique, current, source-supported information needed before deleting
+   its legacy owner.
+6. Remove the legacy application document after its required information has
+   an external owner.
 
-## Existing work and integration rules
+Reformatting, prose normalization, stylistic rewriting, reorganizing already
+adequate documents, expanding explanations, and changing unrelated validation
+rules are out of scope. Every changed file must be attributable to at least one
+reason above. Mechanical reference conversion must not rewrite surrounding
+prose.
 
-Both repositories contain user-owned, uncommitted migration edits. They are
-in scope as in-progress work, but are not assumed correct merely because they
-exist. The integrator will preserve them, review their claims and links against
-code and the external validator, and make focused corrections in place. The
-Grooming spec and plan are the only commits created before Development; they
-must not accidentally stage the user-owned migration changes.
+## Validation
 
-The eventual implementation uses focused commits per repository: one for the
-external spec migration and one for the application-repository cleanup and
-entrypoints. The issue/PR includes the audit classification table, exact
-validation output, and unresolved discrepancies.
+The specification validator continues to validate its local document graph. It
+also recognizes repository-qualified references and checks them through the
+registered local checkouts. Validation fails for an unknown alias, missing
+registration, wrong repository, missing file, or unmatched fragment.
 
-## Error handling and validation
+Tests for `gf-ref` use temporary local Git repositories and synthetic files.
+They prove that resolution is independent of sibling placement and that no
+network fallback occurs. Existing specification validation remains green.
 
-- A broken external-spec link, missing required document section, invalid
-  metadata, or unreachable document is corrected before the spec validation
-  passes.
-- An unsupported legacy statement is removed or qualified by verified code
-  evidence; it is never made true through an unrelated code change.
-- A missing or ambiguous application behavior is reported as an unresolved
-  discrepancy rather than guessed.
-- Before deleting local documentation, the audit confirms that all material
-  classified Preserve or Correct has a validated external destination.
-- Final checks run on the exact proposed revisions: `bun validate-docs.ts` in
-  `gig-finder-spec`, followed by the applicable application checks (including
-  documentation link checks and `bun run check`/`bun run build` when the
-  application project configuration requires them).
+The application repository continues to run `bun run check` and `bun run
+build`. Its entrypoint scan rejects cross-repository GitHub URLs and
+filesystem-relative references in agent guidance.
 
 ## Acceptance criteria
 
-1. `gig-finder-spec` validates with `bun validate-docs.ts`.
-2. GigFinder contains no local current-state `docs/product` or
-   `docs/architecture` corpus, ADR directory, or obsolete PRD template.
-3. GigFinder's README and agent instructions route readers to
-   `gig-finder-spec` without sibling-checkout-relative links or
-   Superpowers-specific requirements.
-4. The external spec contains only code-verified current-state material,
-   reachable from its map, with imported ADRs preserved.
-5. The issue or pull request records classifications, evidence, validation,
-   and unresolved discrepancies.
-6. Each repository has a clean, validated baseline after its focused commit.
+1. An agent can open specification and application evidence from registered
+   local checkouts without accessing a URL.
+2. Checkout locations may be unrelated; moving a checkout requires changing
+   only user-local registration.
+3. Cross-repository references contain neither a hardcoded Git URL nor a
+   filesystem-relative path.
+4. Same-repository Markdown navigation remains ordinary and clickable.
+5. All 17 ADRs retain their original decision text, dates, and statuses.
+6. Every remaining migration change has an explicit functional or factual
+   reason; broad stylistic rewriting is removed from the pull request.
+7. The local legacy corpus is removed only after each retained fact has a
+   validated owner in `gig-finder-spec`.
+8. Both repositories pass their required validation at the exact proposed
+   revisions.
+
+## Release ordering
+
+The specification pull request is reviewed and merged before the application
+pull request that removes the local documentation. Exact-head verification is
+repeated after any commit. Neither pull request is merged without the normal
+release approval.
