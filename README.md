@@ -35,13 +35,22 @@ bun run test:e2e
 
 ## Production
 
-Merges to `main` publish Docker images. Follow the
-[deployment runbook](docs/architecture/deployment-runbook.md) to bootstrap,
-deploy, verify, inspect, or recover the local production instance.
+Merges to `main` publish Docker images. Follow
+`spec::operations/deployment.md` to bootstrap, deploy, verify, inspect, or
+recover the local production instance.
 
 ## Documentation
 
-- [Product overview](docs/product/overview.md)
-- [Architecture overview](docs/architecture/overview.md)
-- [Configuration](docs/architecture/configuration.md)
-- [Deployment runbook](docs/architecture/deployment-runbook.md)
+The documentation is in a separate local checkout. Register both repositories
+with that checkout's `gf-ref` command, then resolve references without network
+access:
+
+```bash
+spec_root="$(git config --global --path --get gigfinder.repo.spec)"
+"$spec_root/gf-ref" show spec::MAP.md
+```
+
+- Documentation map: `spec::MAP.md`
+- Application overview: `spec::APPLICATION.md`
+- Architecture overview: `spec::architecture/overview.md`
+- Configuration and deployment: `spec::operations/deployment.md`
