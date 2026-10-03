@@ -6,10 +6,11 @@ repo_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 image_name=${GIG_FINDER_IMAGE:-ghcr.io/paulmccallick/gig-finder}
 container_name=${GIG_FINDER_CONTAINER_NAME:-gig-finder}
 source_root=${GIG_FINDER_SOURCE_CONTEXT_ROOT:-"${repo_root}/context"}
-state_root=${GIG_FINDER_PRODUCTION_ROOT:-/var/lib/gig-finder}
-log_root=${GIG_FINDER_LOG_ROOT:-/var/log/gig-finder}
-backup_root=${GIG_FINDER_BACKUP_ROOT:-/var/backups/gig-finder}
-config_file=${GIG_FINDER_CONFIG:-/etc/gig-finder/config.json}
+support_root="${HOME:?HOME must be set}/Library/Application Support/GigFinder"
+state_root=${GIG_FINDER_PRODUCTION_ROOT:-"${support_root}/state"}
+log_root=${GIG_FINDER_LOG_ROOT:-"${HOME}/Library/Logs/GigFinder"}
+backup_root=${GIG_FINDER_BACKUP_ROOT:-"${support_root}/backups"}
+config_file=${GIG_FINDER_CONFIG:-"${support_root}/config.json"}
 codex_home=${GIG_FINDER_CODEX_HOME:-}
 sync_bin=${GIG_FINDER_SYNC_BIN:-"${repo_root}/bin/sync-production-inputs"}
 docker_bin=${DOCKER_BIN:-docker}

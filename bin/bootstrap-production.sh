@@ -4,9 +4,10 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 source_root=${1:-"${repo_root}/context"}
-state_root=${2:-${GIG_FINDER_PRODUCTION_ROOT:-/var/lib/gig-finder}}
-backup_root=${GIG_FINDER_BACKUP_ROOT:-/var/backups/gig-finder}
-config_file=${GIG_FINDER_CONFIG:-/etc/gig-finder/config.json}
+support_root="${HOME:?HOME must be set}/Library/Application Support/GigFinder"
+state_root=${2:-${GIG_FINDER_PRODUCTION_ROOT:-"${support_root}/state"}}
+backup_root=${GIG_FINDER_BACKUP_ROOT:-"${support_root}/backups"}
+config_file=${GIG_FINDER_CONFIG:-"${support_root}/config.json"}
 [ -d "${source_root}" ] || {
   echo "Source context root does not exist: ${source_root}" >&2
   exit 2
