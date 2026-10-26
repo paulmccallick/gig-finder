@@ -6,7 +6,7 @@ import {
   scoutRuntimePolicySchema,
   type ScoutRuntimePolicy,
 } from "../sourcing/contracts";
-import type { GigScoutClock, GigScoutHttpPort } from "../sourcing/ports";
+import type { GigScoutClock, GigScoutHttpPort, ScoutHttpContext } from "../sourcing/ports";
 import { scanSource } from "../sourcing/adapters";
 import type { TemplateResolver } from "../sourcing/adapters/templates/definitions";
 export async function scanCompany(
@@ -17,6 +17,7 @@ export async function scanCompany(
     signal?: AbortSignal;
     policy?: Partial<ScoutRuntimePolicy>;
     templates?: TemplateResolver;
+    context?: ScoutHttpContext;
   },
 ): Promise<CompanyScanResult> {
   const input = companyScanRequestSchema.parse(request);
@@ -37,6 +38,12 @@ export async function scanCompany(
           },
         },
         dependencies.signal,
+        {
+          ...dependencies.context,
+          companyId: input.companyId,
+          companyName: input.companyName,
+          configurationVersionId: input.configurationVersionId,
+        },
       );
       sources.push({
         ...outcome,

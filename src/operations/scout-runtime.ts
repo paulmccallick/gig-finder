@@ -108,7 +108,14 @@ export class ScoutRuntime {
               sources: payload.sources,
               searchProfile: payload.searchProfile,
             },
-            { http, templates: scoutTemplateCatalog },
+            {
+              http,
+              templates: scoutTemplateCatalog,
+              context: {
+                runId: payload.runId,
+                runCompanyId: payload.runCompanyId,
+              },
+            },
           );
           this.runs.commitCompanyResult(
             payload,

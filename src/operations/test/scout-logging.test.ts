@@ -33,6 +33,7 @@ test("private request and response context is logged while authentication materi
 
   await http.request({
     url: "https://careers.example.test/jobs?filter=engineering",
+    context: { runId: "run-1", companyId: "company-1", page: 2, stage: "listing" },
     method: "POST",
     headers: { authorization: "Bearer secret", "x-filter": "engineering" },
     body: JSON.stringify({ filter: "engineering" }),
@@ -48,6 +49,7 @@ test("private request and response context is logged while authentication materi
   expect(JSON.stringify(events)).toContain("private job description");
   const completed = events[1]!;
   expect(completed.requestId).toEqual(expect.any(String));
+  expect(completed.context).toEqual({ runId: "run-1", companyId: "company-1", page: 2, stage: "listing" });
   expect(completed.responseStatus).toBe(200);
   expect(completed.responseContentType).toBeNull();
   expect(completed.responseBodyBytes).toBe(23);

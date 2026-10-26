@@ -1,5 +1,20 @@
+export interface ScoutHttpContext {
+  runId?: string;
+  runCompanyId?: string;
+  companyId?: string;
+  companyName?: string;
+  configurationVersionId?: string;
+  sourceKey?: string;
+  adapter?: string;
+  template?: string;
+  page?: number;
+  term?: string;
+  stage?: string;
+}
+
 export interface HttpRequest {
   url: string;
+  context?: ScoutHttpContext;
   method: "GET" | "POST";
   headers?: Record<string, string>;
   body?: string;

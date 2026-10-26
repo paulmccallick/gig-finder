@@ -124,6 +124,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
       {
         event: "scout.http.request_started",
         requestId,
+        context: sanitizedLogData(request.context ?? {}),
         method: request.method,
         url: sanitizedLogText(request.url),
         headers: sanitizedHeaders(request.headers),
@@ -141,6 +142,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         {
           event: "scout.http.request_completed",
           requestId,
+          context: sanitizedLogData(request.context ?? {}),
           method: request.method,
           url: sanitizedLogText(request.url),
           durationMs: Math.round(performance.now() - startedAt),
@@ -161,6 +163,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         {
           event: "scout.http.request_failed",
           requestId,
+          context: sanitizedLogData(request.context ?? {}),
           method: request.method,
           url: sanitizedLogText(request.url),
           durationMs: Math.round(performance.now() - startedAt),
