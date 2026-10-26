@@ -15,6 +15,7 @@ import {
 } from "../data";
 import { registerAiSdkDevTools } from "../observability/devtools";
 import { createApplicationLogger } from "../observability/logger";
+import { createSqliteTelemetry } from "../data/sqlite-telemetry";
 import { createAgentApi } from "./agent-handler";
 import { ConversationService } from "../core/conversation-service";
 import { GigFinderConversationRuntime } from "../agent/ai-sdk-conversation-runtime";
@@ -189,6 +190,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
     scoutDefaults: configuration.scout,
     scoutTemplates: scoutTemplateCatalog,
     scoutScreening:{profile:candidateProfile,profileVersion:candidateProfile.version,profileArtifactId:`candidate-profile:${profileHash}`,profileHash,model:screeningModel,provider:"openai-codex",modelConfiguration:screeningModelConfiguration},
+    repositoryTelemetry: createSqliteTelemetry(logging.logger),
     onProfileDocumentMaterializationFailure: (error, document) => logging.logger.error({
       event: "profile_document.materialization_failed",
       documentId: document.id,
