@@ -235,8 +235,9 @@ export class DataStore {
       return action(new ChangeTransaction(this.database, { ...context, occurredAt }, changeId));
     });
     const value = withDatabaseOperation(
-      `change.${context.source}.${context.summary}`,
+      "database.change",
       execute,
+      { source: context.source },
     );
     this.repairPendingProfileDocuments();
     return { changeId, value };
