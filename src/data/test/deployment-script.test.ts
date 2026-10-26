@@ -198,7 +198,10 @@ describe("local production deployment", () => {
       "--mount type=bind,source=" + result.artifactRoot + ",target=/var/lib/gig-finder/artifacts",
     );
     expect(result.log).not.toContain("maintenance.js artifacts");
-    expect(result.log).toContain("-v " + result.logRoot + ":/var/log/gig-finder");
+    expect(result.log).toContain("--log-driver local");
+    expect(result.log).toContain("--log-opt max-size=20m");
+    expect(result.log).toContain("--log-opt max-file=5");
+    expect(result.log).not.toContain("/var/log/gig-finder");
     expect(result.log).toContain("-v " + result.backupRoot + ":/var/backups/gig-finder");
     expect(result.log).toContain(
       "-v " + result.canonicalConfigFile + ":/etc/gig-finder/config.json:ro",

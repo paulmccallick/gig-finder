@@ -8,7 +8,6 @@ container_name=${GIG_FINDER_CONTAINER_NAME:-gig-finder}
 source_root=${GIG_FINDER_SOURCE_CONTEXT_ROOT:-"${repo_root}/context"}
 support_root="${HOME:?HOME must be set}/Library/Application Support/GigFinder"
 state_root=${GIG_FINDER_PRODUCTION_ROOT:-"${support_root}/state"}
-log_root=${GIG_FINDER_LOG_ROOT:-"${HOME}/Library/Logs/GigFinder"}
 backup_root=${GIG_FINDER_BACKUP_ROOT:-"${support_root}/backups"}
 config_file=${GIG_FINDER_CONFIG:-"${support_root}/config.json"}
 codex_home=${GIG_FINDER_CODEX_HOME:-}
@@ -30,10 +29,6 @@ case "${state_root}" in
   /*) ;;
   *) fail "GIG_FINDER_PRODUCTION_ROOT must be an absolute path" ;;
 esac
-case "${log_root}" in
-  /*) ;;
-  *) fail "GIG_FINDER_LOG_ROOT must be an absolute path" ;;
-esac
 case "${backup_root}" in
   /*) ;;
   *) fail "GIG_FINDER_BACKUP_ROOT must be an absolute path" ;;
@@ -49,14 +44,12 @@ esac
 [ -d "${source_root}" ] || fail "source context does not exist: ${source_root}"
 [ -d "${state_root}" ] || fail "production state root does not exist: ${state_root}"
 [ -d "${state_root}/data" ] || fail "production data root does not exist: ${state_root}/data"
-[ -d "${log_root}" ] || fail "production log root does not exist: ${log_root}"
 [ -d "${backup_root}" ] || fail "production backup root does not exist: ${backup_root}"
 [ -d "$(dirname -- "${config_file}")" ] || fail "production configuration root does not exist"
 [ -d "${codex_home}" ] || fail "Codex credential directory does not exist: ${codex_home}"
 source_root=$(CDPATH= cd -- "${source_root}" && pwd -P)
 state_root=$(CDPATH= cd -- "${state_root}" && pwd -P)
 artifact_root="${state_root}/artifacts"
-log_root=$(CDPATH= cd -- "${log_root}" && pwd -P)
 backup_root=$(CDPATH= cd -- "${backup_root}" && pwd -P)
 config_root=$(CDPATH= cd -- "$(dirname -- "${config_file}")" && pwd -P)
 config_file="${config_root}/$(basename "${config_file}")"
@@ -79,7 +72,6 @@ require_disjoint_from_artifacts() {
 }
 
 require_disjoint_from_artifacts "${source_root}" "source context root"
-require_disjoint_from_artifacts "${log_root}" "production log root"
 require_disjoint_from_artifacts "${backup_root}" "production backup root"
 require_disjoint_from_artifacts "${config_file}" "production configuration file"
 require_disjoint_from_artifacts "${codex_home}" "Codex credential directory"
@@ -111,10 +103,8 @@ maintenance() {
   "${docker_bin}" run --rm \
     -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
     -e GIG_FINDER_CONFIG=/etc/gig-finder/config.json \
-    -e LOG_DIRECTORY=/var/log/gig-finder \
     -e GIG_FINDER_BACKUP_ROOT=/var/backups/gig-finder \
     -v "${state_root}/data:/var/lib/gig-finder/data" \
-    -v "${log_root}:/var/log/gig-finder" \
     -v "${backup_root}:/var/backups/gig-finder" \
     -v "${config_file}:/etc/gig-finder/config.json:ro" \
     "${image}" bun dist/server/maintenance.js "$@"
@@ -204,15 +194,16 @@ rollback() {
 if ! new_container_id=$("${docker_bin}" run --detach \
   --name "${container_name}" \
   --restart unless-stopped \
+  --log-driver local \
+  --log-opt max-size=20m \
+  --log-opt max-file=5 \
   -p 127.0.0.1:3001:3001 \
   -e GIG_FINDER_CONTEXT_ROOT=/var/lib/gig-finder \
   -e GIG_FINDER_CONFIG=/etc/gig-finder/config.json \
-  -e LOG_DIRECTORY=/var/log/gig-finder \
   -e GIG_FINDER_BACKUP_ROOT=/var/backups/gig-finder \
   -e CODEX_HOME=/run/codex \
   -v "${state_root}:/var/lib/gig-finder" \
   --mount "type=bind,source=${artifact_root},target=/var/lib/gig-finder/artifacts" \
-  -v "${log_root}:/var/log/gig-finder" \
   -v "${backup_root}:/var/backups/gig-finder" \
   -v "${config_file}:/etc/gig-finder/config.json:ro" \
   -v "${codex_home}:/run/codex:ro" \

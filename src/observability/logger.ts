@@ -1,7 +1,4 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
 import pino, { type Logger } from "pino";
-import { createStream } from "rotating-file-stream";
 
 export interface ApplicationLoggerOptions {
   directory: string;
@@ -18,16 +15,6 @@ export interface ApplicationLogging {
 export function createApplicationLogger(
   options: ApplicationLoggerOptions,
 ): ApplicationLogging {
-  const directory = path.resolve(options.directory);
-  const activeLogFile = path.join(directory, "server.log");
-  mkdirSync(directory, { recursive: true });
-  const logStream = createStream("server.log", {
-    path: directory,
-    size: "10M",
-    maxFiles: 5,
-    history: "rotation-history.txt",
-    teeToStdout: true,
-  });
   const logger = pino({
     level: options.level,
     base: {
@@ -45,12 +32,12 @@ export function createApplicationLogger(
       ],
       censor: "[REDACTED]",
     },
-  }, logStream);
+  });
 
   return {
     logger,
     requestLogger: requestId => logger.child({ requestId }),
-    activeLogFile,
+    activeLogFile: "stdout",
     level: options.level,
   };
 }
