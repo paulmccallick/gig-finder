@@ -54,7 +54,7 @@ function fromRow<T extends DataRecord>(row: Record<string, unknown>, config: Rep
   return result as unknown as EntityRecord<T>;
 }
 
-export class ReadRepository<T extends DataRecord> {
+class ReadRepository<T extends DataRecord> {
   constructor(protected readonly database: Database, protected readonly config: RepositoryConfig<T>) {}
   get(recordId: string, options: { includeDeleted?: boolean } = {}): EntityRecord<T> | null {
     const row = this.database.query(`SELECT * FROM ${quote(this.config.table)} WHERE id = ?${options.includeDeleted ? "" : " AND is_deleted = 0"}`).get(recordId) as Record<string, unknown> | null;
@@ -188,13 +188,13 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly gigs: MutationRepository<GigData>; readonly people:MutationRepository<PersonData>;readonly gigPeople:MutationRepository<GigPersonData>; readonly tasks: MutationRepository<TaskData>; readonly interactions: MutationRepository<InteractionData>; readonly interactionParticipants: MutationRepository<InteractionParticipantData>; readonly documents: SqliteDocumentWriteRepository;
+  readonly gigs: AuditedRepository<GigData>; readonly people:AuditedRepository<PersonData>;readonly gigPeople: AuditedRepository<GigPersonData>; readonly tasks: AuditedRepository<TaskData>; readonly interactions: AuditedRepository<InteractionData>; readonly interactionParticipants: AuditedRepository<InteractionParticipantData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
-    this.gigs = new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.gigPeople=new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
-    this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.interactions = new MutationRepository(database, configs.interactions, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.interactionParticipants = new MutationRepository(database, configs.interactionParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.gigs = new AuditedRepository(new ReadRepository(database, configs.gigs), new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
+    this.people=new AuditedRepository(new ReadRepository(database,configs.people),new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId));this.gigPeople=new AuditedRepository(new ReadRepository(database,configs.gigPeople),new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId));
+    this.tasks = new AuditedRepository(new ReadRepository(database, configs.tasks), new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
+    this.interactions = new AuditedRepository(new ReadRepository(database, configs.interactions), new MutationRepository(database, configs.interactions, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
+    this.interactionParticipants = new AuditedRepository(new ReadRepository(database, configs.interactionParticipants), new MutationRepository(database, configs.interactionParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
     this.documents = new SqliteDocumentWriteRepository(
       database,
       context,
@@ -206,8 +206,22 @@ export class ChangeTransaction {
   }
 }
 
+export class AuditedRepository<T extends DataRecord> {
+  constructor(private readonly reader: ReadRepository<T>, private readonly writer?: MutationRepository<T>) {}
+  get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.reader.get(recordId, options); }
+  list(options: { includeDeleted?: boolean } = {}) { return this.reader.list(options); }
+  private mutate() { if (!this.writer) throw new Error("mutation_repository_required"); return this.writer; }
+  create(input: T, options: { reversible?: boolean } = {}) { return this.mutate().create(input, options); }
+  update(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.mutate().update(recordId, expectedRevision, patch); }
+  touch(recordId: string, expectedRevision: number) { return this.mutate().touch(recordId, expectedRevision); }
+  revert(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>) { return this.mutate().revert(recordId, expectedRevision, snapshot); }
+  delete(recordId: string, expectedRevision: number) { return this.mutate().delete(recordId, expectedRevision); }
+  restoreSnapshot(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>) { return this.mutate().restoreSnapshot(recordId, expectedRevision, snapshot); }
+  restore(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.mutate().restore(recordId, expectedRevision, patch); }
+}
+
 export class DataStore {
-  readonly gigs: ReadRepository<GigData>;readonly people:ReadRepository<PersonData>;readonly gigPeople:ReadRepository<GigPersonData>; readonly tasks: ReadRepository<TaskData>; readonly interactions: ReadRepository<InteractionData>; readonly interactionParticipants: ReadRepository<InteractionParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
+  readonly gigs: AuditedRepository<GigData>;readonly people:AuditedRepository<PersonData>;readonly gigPeople:AuditedRepository<GigPersonData>; readonly tasks: AuditedRepository<TaskData>; readonly interactions: AuditedRepository<InteractionData>; readonly interactionParticipants: AuditedRepository<InteractionParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
   constructor(
     private readonly database: Database,
     private readonly profileDocuments?: ProfileDocumentMaterializer,
@@ -215,7 +229,7 @@ export class DataStore {
       error: unknown,
       document: ManagedDocumentRecord,
     ) => void = () => undefined,
-  ) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.interactions = new ReadRepository(database, configs.interactions); this.interactionParticipants = new ReadRepository(database, configs.interactionParticipants); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
+  ) { this.gigs = new AuditedRepository(new ReadRepository(database, configs.gigs));this.people=new AuditedRepository(new ReadRepository(database,configs.people));this.gigPeople=new AuditedRepository(new ReadRepository(database,configs.gigPeople)); this.tasks = new AuditedRepository(new ReadRepository(database, configs.tasks)); this.interactions = new AuditedRepository(new ReadRepository(database, configs.interactions)); this.interactionParticipants = new AuditedRepository(new ReadRepository(database, configs.interactionParticipants)); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
   synchronizeProfileDocuments(): void {
     if (!this.profileDocuments) return;
     for (const document of this.documents.list("profile", candidateProfileId)) {
@@ -320,8 +334,8 @@ export class DataStore {
 
   private restoreRecords<T extends DataRecord>(
     snapshots: HistorySnapshot<T>[],
-    reader: ReadRepository<T>,
-    writer: MutationRepository<T>,
+    reader: AuditedRepository<T>,
+    writer: AuditedRepository<T>,
     entity: string,
   ): RevertedRecord[] {
     return snapshots.map(({ operation, record: snapshot }) => {
