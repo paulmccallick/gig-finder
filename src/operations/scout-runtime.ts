@@ -102,7 +102,7 @@ export class ScoutRuntime {
         );
         try {
           const result = await withDatabaseOperation(
-            `scout.company.${payload.companyId}`,
+            "scout.company_scan",
             () => scanCompany(
               {
                 companyId: payload.companyId,
@@ -120,14 +120,16 @@ export class ScoutRuntime {
                 },
               },
             ),
+            { companyId: payload.companyId, runId: payload.runId },
           );
           withDatabaseOperation(
-            `scout.company_commit.${payload.companyId}`,
+            "scout.company_commit",
             () => this.runs.commitCompanyResult(
               payload,
               result,
               new Date().toISOString(),
             ),
+            { companyId: payload.companyId, runId: payload.runId },
           );
           safeScoutLog(
             logger,

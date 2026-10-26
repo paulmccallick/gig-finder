@@ -6,11 +6,20 @@ export interface SqliteTelemetryLogger {
   error(fields: Record<string, unknown>, message?: string): void;
 }
 
-const operationContext = new AsyncLocalStorage<string>();
-const defaultOperation = "database.application";
+interface DatabaseOperationContext {
+  operation: string;
+  attributes?: Record<string, unknown>;
+}
 
-export function withDatabaseOperation<T>(operation: string, action: () => T): T {
-  return operationContext.run(operation, action);
+const operationContext = new AsyncLocalStorage<DatabaseOperationContext>();
+const defaultOperation: DatabaseOperationContext = { operation: "database.application" };
+
+export function withDatabaseOperation<T>(
+  operation: string,
+  action: () => T,
+  attributes?: Record<string, unknown>,
+): T {
+  return operationContext.run({ operation, attributes }, action);
 }
 
 const statementShape = (sql: string) =>
@@ -34,7 +43,8 @@ export function instrumentDatabase(database: Database, logger?: SqliteTelemetryL
           const durationMs = Math.round(performance.now() - startedAt);
           const fields: Record<string, unknown> = {
             event: "database.query",
-            operation: context,
+            operation: context.operation,
+            ...context.attributes,
             phase: property,
             sqlOperation: operationFor(sql),
             statementHash: Bun.hash(statementShape(sql)).toString(16),
@@ -48,7 +58,8 @@ export function instrumentDatabase(database: Database, logger?: SqliteTelemetryL
         } catch (error) {
           logger.error({
             event: "database.query_failed",
-            operation: context,
+            operation: context.operation,
+            ...context.attributes,
             phase: property,
             sqlOperation: operationFor(sql),
             statementHash: Bun.hash(statementShape(sql)).toString(16),
