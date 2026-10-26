@@ -8,6 +8,7 @@ export class GigRepository implements Repository<GigData> {
   constructor(persistence: Repository<GigData>) { this.persistence = new RepositoryFacade(persistence); }
   get(id: string, options?: { includeDeleted?: boolean }) { return this.persistence.get(id, options); }
   list(options?: { includeDeleted?: boolean }) { return this.persistence.list(options); }
+  operation(name: Parameters<Repository<GigData>["operation"]>[0]) { return this.persistence.operation(name); }
   create(input: GigData, options?: { reversible?: boolean }) { return this.persistence.create(input, options); }
   update(id: string, expectedRevision: number, patch: Partial<Omit<GigData, "id">>) { return this.persistence.update(id, expectedRevision, patch); }
   touch(id: string, expectedRevision: number) { return this.persistence.touch(id, expectedRevision); }

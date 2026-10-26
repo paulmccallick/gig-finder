@@ -7,6 +7,7 @@ export class InteractionParticipantRepository implements Repository<InteractionP
   constructor(persistence: Repository<InteractionParticipantData>) { this.persistence = new RepositoryFacade(persistence); }
   get(id: string, options?: { includeDeleted?: boolean }) { return this.persistence.get(id, options); }
   list(options?: { includeDeleted?: boolean }) { return this.persistence.list(options); }
+  operation(name: Parameters<Repository<InteractionParticipantData>["operation"]>[0]) { return this.persistence.operation(name); }
   create(input: InteractionParticipantData, options?: { reversible?: boolean }) { return this.persistence.create(input, options); }
   update(id: string, expectedRevision: number, patch: Partial<Omit<InteractionParticipantData, "id">>) { return this.persistence.update(id, expectedRevision, patch); }
   touch(id: string, expectedRevision: number) { return this.persistence.touch(id, expectedRevision); }
