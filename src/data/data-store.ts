@@ -1,42 +1,24 @@
 import type { Database } from "bun:sqlite";
 import { MutationError } from "../core/errors";
-import { AuditedRepository, MutationRepository, ReadRepository, fromRow, now, id, quote, type DataRecord, type HistoryOperation, type HistorySnapshot, type RepositoryConfig } from "./persistence/audited-repository";
-import type { ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, RevertedRecord, TaskData } from "../core/models";
-import {
-  SqliteDocumentReadRepository,
-  SqliteDocumentWriteRepository,
-} from "./document-store";
-import { SqliteApplicationSettingsRepository } from "./settings-store";
+import { AuditedRepository, fromRow, now, id, quote, type DataRecord, type HistoryOperation, type HistorySnapshot, type RepositoryConfig } from "./persistence/audited-repository";
+import { ChangeTransaction } from "./change-transaction";
+import { ReadRepository } from "./persistence/audited-repository";
 import { GigRepository, gigRepositoryConfig } from "./repositories/gig-repository";
 import { PersonRepository, personRepositoryConfig } from "./repositories/person-repository";
 import { GigPersonRepository, gigPersonRepositoryConfig } from "./repositories/gig-person-repository";
 import { TaskRepository, taskRepositoryConfig } from "./repositories/task-repository";
 import { InteractionRepository, interactionRepositoryConfig } from "./repositories/interaction-repository";
 import { InteractionParticipantRepository, interactionParticipantRepositoryConfig } from "./repositories/interaction-participant-repository";
+import type { ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, RevertedRecord, TaskData } from "../core/models";
+import {
+  SqliteDocumentReadRepository,
+  SqliteDocumentWriteRepository,
+} from "./document-store";
+import { SqliteApplicationSettingsRepository } from "./settings-store";
 import type { AuditedRepositoryPort } from "./repositories/audited-port";
 import type { ProfileDocumentMaterializer } from "./profile-document-files";
 import { candidateProfileId } from "../core/documents";
 import type { ManagedDocumentRecord } from "../core/documents";
-
-export class ChangeTransaction {
-  readonly gigs: GigRepository; readonly people: PersonRepository; readonly gigPeople: GigPersonRepository; readonly tasks: TaskRepository; readonly interactions: InteractionRepository; readonly interactionParticipants: InteractionParticipantRepository; readonly documents: SqliteDocumentWriteRepository;
-  constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
-    this.gigs = new GigRepository(new AuditedRepository(new ReadRepository<GigData>(database, gigRepositoryConfig), new MutationRepository<GigData>(database, gigRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
-    this.people = new PersonRepository(new AuditedRepository(new ReadRepository<PersonData>(database, personRepositoryConfig), new MutationRepository<PersonData>(database, personRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
-    this.gigPeople = new GigPersonRepository(new AuditedRepository(new ReadRepository<GigPersonData>(database, gigPersonRepositoryConfig), new MutationRepository<GigPersonData>(database, gigPersonRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
-    this.tasks = new TaskRepository(new AuditedRepository(new ReadRepository<TaskData>(database, taskRepositoryConfig), new MutationRepository<TaskData>(database, taskRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
-    this.interactions = new InteractionRepository(new AuditedRepository(new ReadRepository<InteractionData>(database, interactionRepositoryConfig), new MutationRepository<InteractionData>(database, interactionRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
-    this.interactionParticipants = new InteractionParticipantRepository(new AuditedRepository(new ReadRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig), new MutationRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
-    this.documents = new SqliteDocumentWriteRepository(
-      database,
-      context,
-      changeId,
-    );
-  }
-  recordCreationFingerprint(entityType:string,entityId:string,payloadHash:string):void{
-    this.database.query("INSERT INTO creation_idempotency (change_id, entity_type, entity_id, payload_hash) VALUES (?, ?, ?, ?)").run(this.changeId,entityType,entityId,payloadHash);
-  }
-}
 
 export class DataStore {
   readonly gigs: AuditedRepositoryPort<GigData>;readonly people:AuditedRepositoryPort<PersonData>;readonly gigPeople:AuditedRepositoryPort<GigPersonData>; readonly tasks: AuditedRepositoryPort<TaskData>; readonly interactions: AuditedRepositoryPort<InteractionData>; readonly interactionParticipants: AuditedRepositoryPort<InteractionParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
