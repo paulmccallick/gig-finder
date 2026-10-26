@@ -1,6 +1,6 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "../errors";
-import type { ChangeContext, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, TaskData } from "../../core/models";
+import type { ChangeContext, EntityRecord } from "../../core/models";
 import type { RepositoryOperations } from "../repositories/audited-port";
 
 export type Scalar = string | number | boolean | null;

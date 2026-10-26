@@ -9,10 +9,9 @@ import { GigPersonRepository, gigPersonRepositoryConfig } from "./repositories/g
 import { TaskRepository, taskRepositoryConfig } from "./repositories/task-repository";
 import { InteractionRepository, interactionRepositoryConfig } from "./repositories/interaction-repository";
 import { InteractionParticipantRepository, interactionParticipantRepositoryConfig } from "./repositories/interaction-participant-repository";
-import type { ChangeContext, ChangeResult, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, RevertedRecord, TaskData } from "../core/models";
+import type { ChangeContext, ChangeResult, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, RevertedRecord, TaskData } from "../core/models";
 import {
   SqliteDocumentReadRepository,
-  SqliteDocumentWriteRepository,
 } from "./document-store";
 import { SqliteApplicationSettingsRepository } from "./settings-store";
 import type { AuditedRepositoryPort } from "./repositories/audited-port";
