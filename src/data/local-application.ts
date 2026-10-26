@@ -15,6 +15,7 @@ import { ScoutPositionService } from "../core/scout/engine/scout-position-servic
 import { SqliteScoutCompanyImportStore } from "./scout-company-import-store";
 import type { ScoutScreeningInputs } from "./scout-run-store";
 import type { TemplateResolver } from "../core/scout/sourcing/adapters/templates/definitions";
+import type { SqliteTelemetryLogger } from "./sqlite-telemetry";
 
 export interface LocalApplicationPaths { database: string; artifacts: string; profileDocuments?: string; scoutDescriptions?:string }
 export interface LocalApplicationOptions {
@@ -26,9 +27,10 @@ export interface LocalApplicationOptions {
   scoutDefaults?: { batchSize:number; concurrency:number };
   scoutScreening?:ScoutScreeningInputs;
   scoutTemplates?:TemplateResolver;
+  logger?: SqliteTelemetryLogger;
 }
 export function openLocalApplication(paths:LocalApplicationPaths,options:LocalApplicationOptions={}){
-  const database=openDatabase(paths.database,{create:false});
+  const database=openDatabase(paths.database,{create:false, logger: options.logger});
   const store=new DataStore(
     database,
     paths.profileDocuments?new LocalProfileDocumentFiles(paths.profileDocuments):undefined,

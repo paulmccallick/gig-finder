@@ -186,6 +186,7 @@ export async function createWebApplication(configuration: WebConfiguration) {
     scoutDescriptions: configuration.context.scoutDescriptions,
   }, {
     defaultAgentModel: configuration.defaultAgentModel,
+    logger: logging.logger,
     scoutDefaults: configuration.scout,
     scoutTemplates: scoutTemplateCatalog,
     scoutScreening:{profile:candidateProfile,profileVersion:candidateProfile.version,profileArtifactId:`candidate-profile:${profileHash}`,profileHash,model:screeningModel,provider:"openai-codex",modelConfiguration:screeningModelConfiguration},
