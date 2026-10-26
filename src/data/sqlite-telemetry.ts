@@ -7,6 +7,7 @@ export interface SqliteTelemetryLogger {
 }
 
 const operationContext = new AsyncLocalStorage<string>();
+const defaultOperation = "database.application";
 
 export function withDatabaseOperation<T>(operation: string, action: () => T): T {
   return operationContext.run(operation, action);
@@ -27,7 +28,7 @@ export function instrumentDatabase(database: Database, logger?: SqliteTelemetryL
       return (...parameters: unknown[]) => {
         const execute = value as (...args: unknown[]) => unknown;
         const startedAt = performance.now();
-        const context = operationContext.getStore() ?? "database.unscoped";
+        const context = operationContext.getStore() ?? defaultOperation;
         try {
           const result = execute.apply(target, parameters);
           const durationMs = Math.round(performance.now() - startedAt);

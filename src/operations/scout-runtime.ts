@@ -17,6 +17,7 @@ import {
   sanitizedLogText,
   type ScoutLogger,
 } from "./scout-logging";
+import { withDatabaseOperation } from "../data/sqlite-telemetry";
 
 export class ScoutRuntime {
   private readonly queue: Queue<ScoutCompanyJob>;
@@ -100,27 +101,33 @@ export class ScoutRuntime {
           "Scout queue job handling started",
         );
         try {
-          const result = await scanCompany(
-            {
-              companyId: payload.companyId,
-              companyName: payload.companyName,
-              configurationVersionId: payload.configurationVersionId,
-              sources: payload.sources,
-              searchProfile: payload.searchProfile,
-            },
-            {
-              http,
-              templates: scoutTemplateCatalog,
-              context: {
-                runId: payload.runId,
-                runCompanyId: payload.runCompanyId,
+          const result = await withDatabaseOperation(
+            `scout.company.${payload.companyId}`,
+            () => scanCompany(
+              {
+                companyId: payload.companyId,
+                companyName: payload.companyName,
+                configurationVersionId: payload.configurationVersionId,
+                sources: payload.sources,
+                searchProfile: payload.searchProfile,
               },
-            },
+              {
+                http,
+                templates: scoutTemplateCatalog,
+                context: {
+                  runId: payload.runId,
+                  runCompanyId: payload.runCompanyId,
+                },
+              },
+            ),
           );
-          this.runs.commitCompanyResult(
-            payload,
-            result,
-            new Date().toISOString(),
+          withDatabaseOperation(
+            `scout.company_commit.${payload.companyId}`,
+            () => this.runs.commitCompanyResult(
+              payload,
+              result,
+              new Date().toISOString(),
+            ),
           );
           safeScoutLog(
             logger,
