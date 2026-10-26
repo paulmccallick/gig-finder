@@ -7,7 +7,7 @@ export type RepositoryConfig<T> = {
   columns: { [K in keyof T]: string };
 };
 
-export interface AuditedRepositoryPort<T extends { id: string }> {
+export interface Repository<T extends { id: string }> {
   get(id: string, options?: { includeDeleted?: boolean }): EntityRecord<T> | null;
   list(options?: { includeDeleted?: boolean }): EntityRecord<T>[];
   create(input: T, options?: { reversible?: boolean }): EntityRecord<T>;
@@ -19,4 +19,5 @@ export interface AuditedRepositoryPort<T extends { id: string }> {
   restore(id: string, expectedRevision: number, patch: Partial<Omit<T, "id">>): EntityRecord<T>;
 }
 
+export type AuditedRepositoryPort<T extends { id: string }> = Repository<T>;
 export type RepositoryContext = Pick<ChangeContext, "actor"> & ChangeContext;

@@ -1,20 +1,17 @@
 import type { GigPersonData } from "../../core/models";
 import { RepositoryFacade } from "./repository-facade";
-import type { AuditedRepositoryPort, RepositoryConfig } from "./audited-port";
+import type { Repository, RepositoryConfig } from "./audited-port";
 export const gigPersonRepositoryConfig: RepositoryConfig<GigPersonData> = { entity:"gig-person", table:"gig_people", historyTable:"gig_people_history", columns:{ id:"id", gigId:"gig_id", personId:"person_id", relationship:"relationship", notes:"notes" } };
-export class GigPersonRepository {
-  private readonly facade: RepositoryFacade<GigPersonData>;
-  declare readonly get: RepositoryFacade<GigPersonData>["get"];
-  declare readonly list: RepositoryFacade<GigPersonData>["list"];
-  declare readonly create: RepositoryFacade<GigPersonData>["create"];
-  declare readonly update: RepositoryFacade<GigPersonData>["update"];
-  declare readonly touch: RepositoryFacade<GigPersonData>["touch"];
-  declare readonly revert: RepositoryFacade<GigPersonData>["revert"];
-  declare readonly delete: RepositoryFacade<GigPersonData>["delete"];
-  declare readonly restoreSnapshot: RepositoryFacade<GigPersonData>["restoreSnapshot"];
-  declare readonly restore: RepositoryFacade<GigPersonData>["restore"];
-  constructor(persistence: AuditedRepositoryPort<GigPersonData>) {
-    this.facade = new RepositoryFacade(persistence);
-    Object.assign(this, this.facade);
-  }
+export class GigPersonRepository implements Repository<GigPersonData> {
+  private readonly persistence: RepositoryFacade<GigPersonData>;
+  constructor(persistence: Repository<GigPersonData>) { this.persistence = new RepositoryFacade(persistence); }
+  get(id: string, options?: { includeDeleted?: boolean }) { return this.persistence.get(id, options); }
+  list(options?: { includeDeleted?: boolean }) { return this.persistence.list(options); }
+  create(input: GigPersonData, options?: { reversible?: boolean }) { return this.persistence.create(input, options); }
+  update(id: string, expectedRevision: number, patch: Partial<Omit<GigPersonData, "id">>) { return this.persistence.update(id, expectedRevision, patch); }
+  touch(id: string, expectedRevision: number) { return this.persistence.touch(id, expectedRevision); }
+  revert(id: string, expectedRevision: number, snapshot: Parameters<Repository<GigPersonData>["revert"]>[2]) { return this.persistence.revert(id, expectedRevision, snapshot); }
+  delete(id: string, expectedRevision: number) { return this.persistence.delete(id, expectedRevision); }
+  restoreSnapshot(id: string, expectedRevision: number, snapshot: Parameters<Repository<GigPersonData>["restoreSnapshot"]>[2]) { return this.persistence.restoreSnapshot(id, expectedRevision, snapshot); }
+  restore(id: string, expectedRevision: number, patch: Partial<Omit<GigPersonData, "id">>) { return this.persistence.restore(id, expectedRevision, patch); }
 }

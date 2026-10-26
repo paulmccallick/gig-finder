@@ -1,8 +1,8 @@
 import type { EntityRecord } from "../../core/models";
-import type { AuditedRepositoryPort } from "./audited-port";
+import type { Repository } from "./audited-port";
 
-export class RepositoryFacade<T extends { id: string }> implements AuditedRepositoryPort<T> {
-  constructor(private readonly persistence: AuditedRepositoryPort<T>) {}
+export class RepositoryFacade<T extends { id: string }> implements Repository<T> {
+  constructor(private readonly persistence: Repository<T>) {}
 
   readonly get = (id: string, options?: { includeDeleted?: boolean }) => this.persistence.get(id, options);
   readonly list = (options?: { includeDeleted?: boolean }) => this.persistence.list(options);

@@ -1,20 +1,17 @@
 import type { InteractionData } from "../../core/models";
 import { RepositoryFacade } from "./repository-facade";
-import type { AuditedRepositoryPort, RepositoryConfig } from "./audited-port";
+import type { Repository, RepositoryConfig } from "./audited-port";
 export const interactionRepositoryConfig: RepositoryConfig<InteractionData> = { entity:"interaction", table:"interactions", historyTable:"interaction_history", columns:{ id:"id", subject:"subject", kind:"kind", channel:"channel", direction:"direction", status:"status", startsAt:"starts_at", endsAt:"ends_at", timezone:"timezone", location:"location", summary:"summary", notes:"notes", gigId:"gig_id", supersedesInteractionId:"supersedes_interaction_id", originChangeId:"origin_change_id", structuredDataJson:"structured_data_json" } };
-export class InteractionRepository {
-  private readonly facade: RepositoryFacade<InteractionData>;
-  declare readonly get: RepositoryFacade<InteractionData>["get"];
-  declare readonly list: RepositoryFacade<InteractionData>["list"];
-  declare readonly create: RepositoryFacade<InteractionData>["create"];
-  declare readonly update: RepositoryFacade<InteractionData>["update"];
-  declare readonly touch: RepositoryFacade<InteractionData>["touch"];
-  declare readonly revert: RepositoryFacade<InteractionData>["revert"];
-  declare readonly delete: RepositoryFacade<InteractionData>["delete"];
-  declare readonly restoreSnapshot: RepositoryFacade<InteractionData>["restoreSnapshot"];
-  declare readonly restore: RepositoryFacade<InteractionData>["restore"];
-  constructor(persistence: AuditedRepositoryPort<InteractionData>) {
-    this.facade = new RepositoryFacade(persistence);
-    Object.assign(this, this.facade);
-  }
+export class InteractionRepository implements Repository<InteractionData> {
+  private readonly persistence: RepositoryFacade<InteractionData>;
+  constructor(persistence: Repository<InteractionData>) { this.persistence = new RepositoryFacade(persistence); }
+  get(id: string, options?: { includeDeleted?: boolean }) { return this.persistence.get(id, options); }
+  list(options?: { includeDeleted?: boolean }) { return this.persistence.list(options); }
+  create(input: InteractionData, options?: { reversible?: boolean }) { return this.persistence.create(input, options); }
+  update(id: string, expectedRevision: number, patch: Partial<Omit<InteractionData, "id">>) { return this.persistence.update(id, expectedRevision, patch); }
+  touch(id: string, expectedRevision: number) { return this.persistence.touch(id, expectedRevision); }
+  revert(id: string, expectedRevision: number, snapshot: Parameters<Repository<InteractionData>["revert"]>[2]) { return this.persistence.revert(id, expectedRevision, snapshot); }
+  delete(id: string, expectedRevision: number) { return this.persistence.delete(id, expectedRevision); }
+  restoreSnapshot(id: string, expectedRevision: number, snapshot: Parameters<Repository<InteractionData>["restoreSnapshot"]>[2]) { return this.persistence.restoreSnapshot(id, expectedRevision, snapshot); }
+  restore(id: string, expectedRevision: number, patch: Partial<Omit<InteractionData, "id">>) { return this.persistence.restore(id, expectedRevision, patch); }
 }
