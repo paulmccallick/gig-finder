@@ -57,6 +57,38 @@ test("private request and response context is logged while authentication materi
   );
   expect(JSON.stringify(events)).not.toContain("Bearer secret");
   expect(JSON.stringify(events)).not.toContain("private-session");
+  expect((completed as { fullResponse?: unknown }).fullResponse).toBeUndefined();
+});
+
+test("full response logging is opt-in and still sanitizes response content", async () => {
+  const events: Array<Record<string, unknown>> = [];
+  const http = new LoggingScoutHttpPort(
+    {
+      async request() {
+        return {
+          status: 200,
+          url: "https://careers.example.test/jobs",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jobs: ["private role"], access_token: "secret" }),
+        };
+      },
+    },
+    { info(fields) { events.push(fields); }, error(fields) { events.push(fields); } },
+    { logFullResponses: true },
+  );
+
+  await http.request({
+    url: "https://careers.example.test/jobs",
+    method: "GET",
+    timeoutMs: 100,
+    maxResponseBytes: 1000,
+  });
+
+  const completed = events[1]!;
+  expect((completed as { fullResponse: { value: string } }).fullResponse.value).toContain(
+    '"jobs":["private role"]',
+  );
+  expect(JSON.stringify(completed)).not.toContain("secret");
 });
 
 test("large log values are bounded and explicitly marked", () => {

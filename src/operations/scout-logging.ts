@@ -103,10 +103,17 @@ export function safeScoutLog(
 }
 
 export class LoggingScoutHttpPort implements GigScoutHttpPort {
+  private readonly logFullResponses: boolean;
+
   constructor(
     private readonly delegate: GigScoutHttpPort,
     private readonly logger?: ScoutLogger,
-  ) {}
+    options: { logFullResponses?: boolean } = {},
+  ) {
+    this.logFullResponses =
+      options.logFullResponses ??
+      process.env.GIG_FINDER_SCOUT_LOG_FULL_RESPONSES === "true";
+  }
 
   async request(request: HttpRequest): Promise<HttpResponse> {
     const startedAt = performance.now();
@@ -139,6 +146,9 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
           durationMs: Math.round(performance.now() - startedAt),
           headers: sanitizedHeaders(response.headers),
           body: boundedLogValue(response.body),
+          ...(this.logFullResponses
+            ? { fullResponse: boundedLogValue(response.body, response.body.length) }
+            : {}),
           ...responseDiagnostics(response),
         },
         "Scout source request completed",
