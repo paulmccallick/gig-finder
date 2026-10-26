@@ -12,4 +12,4 @@ export * from "./local-application";
 export * from "./settings-store";
 export * from "./scout-company-import-store";
 export * from "./scout-run-store";
-export * from "./store";
+export * from "./data-store";

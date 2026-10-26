@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { openDatabase, migrateDatabase } from "../database";
 import { SqliteScoutCompanyImportStore } from "../scout-company-import-store";
 import { SqliteScoutRunStore } from "../scout-run-store";
-import {DataStore} from "../store";
+import {DataStore} from "../data-store";
 import {AuditReader} from "../audit";
 import {GigFinderApplication} from "../../core/application";
 import { importScoutCompany } from "../../core/scout/engine/company-import";
