@@ -7,6 +7,13 @@ import {
   SqliteDocumentWriteRepository,
 } from "./document-store";
 import { SqliteApplicationSettingsRepository } from "./settings-store";
+import { GigRepository, gigRepositoryConfig } from "./repositories/gig-repository";
+import { PersonRepository, personRepositoryConfig } from "./repositories/person-repository";
+import { GigPersonRepository, gigPersonRepositoryConfig } from "./repositories/gig-person-repository";
+import { TaskRepository, taskRepositoryConfig } from "./repositories/task-repository";
+import { InteractionRepository, interactionRepositoryConfig } from "./repositories/interaction-repository";
+import { InteractionParticipantRepository, interactionParticipantRepositoryConfig } from "./repositories/interaction-participant-repository";
+import type { AuditedRepositoryPort } from "./repositories/audited-port";
 import type { ProfileDocumentMaterializer } from "./profile-document-files";
 import { candidateProfileId } from "../core/documents";
 import type { ManagedDocumentRecord } from "../core/documents";
@@ -22,22 +29,6 @@ type ColumnMap<T> = { [K in keyof T]: string };
 interface RepositoryConfig<T extends DataRecord> { entity: string; table: string; historyTable: string; columns: ColumnMap<T>;booleans?:Array<keyof T> }
 
 const baseColumns = { revision: "revision", isDeleted: "is_deleted", createdAt: "created_at", updatedAt: "updated_at" } as const;
-const gigColumns: ColumnMap<GigData> = { id:"id",company:"company",title:"title",externalJobId:"external_job_id",stage:"stage",outcome:"outcome",statusSummary:"status_summary",lastActivity:"last_activity",nextActionDescription:"next_action_description",nextActionDue:"next_action_due",fitRating:"fit_rating",fitSummary:"fit_summary",payCurrency:"pay_currency",payMinimum:"pay_minimum",payMaximum:"pay_maximum",payPeriod:"pay_period",payNotes:"pay_notes",sourceUrl:"source_url",location:"location",workArrangement:"work_arrangement",postedDate:"posted_date",businessUnitTeam:"business_unit_team",recruiterSource:"recruiter_source",bonus:"bonus",equity:"equity",otherCompensation:"other_compensation",tagsJson:"tags_json",availability:"availability",availabilityUpdatedAt:"availability_updated_at" };
-const personColumns:ColumnMap<PersonData>={id:"id",name:"name",company:"company",title:"title",linkedInProfileUrl:"linkedin_profile_url",connectedOn:"connected_on",relationshipType:"relationship_type",relationshipStrength:"relationship_strength",introducedBy:"introduced_by",relationshipNotes:"relationship_notes",priority:"priority",status:"status",whyInteresting:"why_interesting",notesJson:"notes_json",tagsJson:"tags_json"};
-const gigPersonColumns:ColumnMap<GigPersonData>={id:"id",gigId:"gig_id",personId:"person_id",relationship:"relationship",notes:"notes"};
-const taskColumns: ColumnMap<TaskData> = { id:"id",title:"title",type:"type",status:"status",priority:"priority",dueDate:"due_date",relatedEntityType:"related_entity_type",relatedEntityId:"related_entity_id",relatedEntityLabel:"related_entity_label",notes:"notes",completedAt:"completed_at" };
-const interactionColumns: ColumnMap<InteractionData> = { id:"id",subject:"subject",kind:"kind",channel:"channel",direction:"direction",status:"status",startsAt:"starts_at",endsAt:"ends_at",timezone:"timezone",location:"location",summary:"summary",notes:"notes",gigId:"gig_id",supersedesInteractionId:"supersedes_interaction_id",originChangeId:"origin_change_id",structuredDataJson:"structured_data_json" };
-const interactionParticipantColumns: ColumnMap<InteractionParticipantData> = { id:"id",interactionId:"interaction_id",personId:"person_id" };
-
-const configs = {
-  gigs: { entity:"gig", table:"gigs", historyTable:"gig_history", columns: gigColumns } satisfies RepositoryConfig<GigData>,
-  people:{entity:"person",table:"people",historyTable:"person_history",columns:personColumns} satisfies RepositoryConfig<PersonData>,
-  gigPeople:{entity:"gig-person",table:"gig_people",historyTable:"gig_people_history",columns:gigPersonColumns} satisfies RepositoryConfig<GigPersonData>,
-  tasks: { entity:"task", table:"tasks", historyTable:"task_history", columns: taskColumns } satisfies RepositoryConfig<TaskData>,
-  interactions: { entity:"interaction", table:"interactions", historyTable:"interaction_history", columns: interactionColumns } satisfies RepositoryConfig<InteractionData>,
-  interactionParticipants: { entity:"interaction-participant", table:"interaction_participants", historyTable:"interaction_participant_history", columns: interactionParticipantColumns } satisfies RepositoryConfig<InteractionParticipantData>,
-};
-
 const quote = (identifier: string) => `"${identifier}"`;
 const placeholders = (count: number) => Array.from({ length: count }, () => "?").join(", ");
 const now = (context: ChangeContext) => context.occurredAt ?? new Date().toISOString();
@@ -188,13 +179,14 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 }
 
 export class ChangeTransaction {
-  readonly gigs: AuditedRepository<GigData>; readonly people:AuditedRepository<PersonData>;readonly gigPeople: AuditedRepository<GigPersonData>; readonly tasks: AuditedRepository<TaskData>; readonly interactions: AuditedRepository<InteractionData>; readonly interactionParticipants: AuditedRepository<InteractionParticipantData>; readonly documents: SqliteDocumentWriteRepository;
+  readonly gigs: GigRepository; readonly people: PersonRepository; readonly gigPeople: GigPersonRepository; readonly tasks: TaskRepository; readonly interactions: InteractionRepository; readonly interactionParticipants: InteractionParticipantRepository; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
-    this.gigs = new AuditedRepository(new ReadRepository(database, configs.gigs), new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
-    this.people=new AuditedRepository(new ReadRepository(database,configs.people),new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId));this.gigPeople=new AuditedRepository(new ReadRepository(database,configs.gigPeople),new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId));
-    this.tasks = new AuditedRepository(new ReadRepository(database, configs.tasks), new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
-    this.interactions = new AuditedRepository(new ReadRepository(database, configs.interactions), new MutationRepository(database, configs.interactions, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
-    this.interactionParticipants = new AuditedRepository(new ReadRepository(database, configs.interactionParticipants), new MutationRepository(database, configs.interactionParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId));
+    this.gigs = new GigRepository(new AuditedRepository(new ReadRepository<GigData>(database, gigRepositoryConfig), new MutationRepository<GigData>(database, gigRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
+    this.people = new PersonRepository(new AuditedRepository(new ReadRepository<PersonData>(database, personRepositoryConfig), new MutationRepository<PersonData>(database, personRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
+    this.gigPeople = new GigPersonRepository(new AuditedRepository(new ReadRepository<GigPersonData>(database, gigPersonRepositoryConfig), new MutationRepository<GigPersonData>(database, gigPersonRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
+    this.tasks = new TaskRepository(new AuditedRepository(new ReadRepository<TaskData>(database, taskRepositoryConfig), new MutationRepository<TaskData>(database, taskRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
+    this.interactions = new InteractionRepository(new AuditedRepository(new ReadRepository<InteractionData>(database, interactionRepositoryConfig), new MutationRepository<InteractionData>(database, interactionRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
+    this.interactionParticipants = new InteractionParticipantRepository(new AuditedRepository(new ReadRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig), new MutationRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId)));
     this.documents = new SqliteDocumentWriteRepository(
       database,
       context,
@@ -221,7 +213,7 @@ export class AuditedRepository<T extends DataRecord> {
 }
 
 export class DataStore {
-  readonly gigs: AuditedRepository<GigData>;readonly people:AuditedRepository<PersonData>;readonly gigPeople:AuditedRepository<GigPersonData>; readonly tasks: AuditedRepository<TaskData>; readonly interactions: AuditedRepository<InteractionData>; readonly interactionParticipants: AuditedRepository<InteractionParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
+  readonly gigs: AuditedRepositoryPort<GigData>;readonly people:AuditedRepositoryPort<PersonData>;readonly gigPeople:AuditedRepositoryPort<GigPersonData>; readonly tasks: AuditedRepositoryPort<TaskData>; readonly interactions: AuditedRepositoryPort<InteractionData>; readonly interactionParticipants: AuditedRepositoryPort<InteractionParticipantData>; readonly documents: SqliteDocumentReadRepository;readonly settings:SqliteApplicationSettingsRepository;
   constructor(
     private readonly database: Database,
     private readonly profileDocuments?: ProfileDocumentMaterializer,
@@ -229,7 +221,7 @@ export class DataStore {
       error: unknown,
       document: ManagedDocumentRecord,
     ) => void = () => undefined,
-  ) { this.gigs = new AuditedRepository(new ReadRepository(database, configs.gigs));this.people=new AuditedRepository(new ReadRepository(database,configs.people));this.gigPeople=new AuditedRepository(new ReadRepository(database,configs.gigPeople)); this.tasks = new AuditedRepository(new ReadRepository(database, configs.tasks)); this.interactions = new AuditedRepository(new ReadRepository(database, configs.interactions)); this.interactionParticipants = new AuditedRepository(new ReadRepository(database, configs.interactionParticipants)); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
+  ) { this.gigs = new GigRepository(new AuditedRepository(new ReadRepository<GigData>(database, gigRepositoryConfig)));this.people = new PersonRepository(new AuditedRepository(new ReadRepository<PersonData>(database, personRepositoryConfig)));this.gigPeople = new GigPersonRepository(new AuditedRepository(new ReadRepository<GigPersonData>(database, gigPersonRepositoryConfig))); this.tasks = new TaskRepository(new AuditedRepository(new ReadRepository<TaskData>(database, taskRepositoryConfig))); this.interactions = new InteractionRepository(new AuditedRepository(new ReadRepository<InteractionData>(database, interactionRepositoryConfig))); this.interactionParticipants = new InteractionParticipantRepository(new AuditedRepository(new ReadRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig))); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
   synchronizeProfileDocuments(): void {
     if (!this.profileDocuments) return;
     for (const document of this.documents.list("profile", candidateProfileId)) {
@@ -280,12 +272,12 @@ export class DataStore {
     }
 
     const snapshots = {
-      gigs: this.historyRecords(targetChangeId, configs.gigs),
-      people: this.historyRecords(targetChangeId, configs.people),
-      gigPeople: this.historyRecords(targetChangeId, configs.gigPeople),
-      tasks: this.historyRecords(targetChangeId, configs.tasks),
-      interactions: this.historyRecords(targetChangeId, configs.interactions),
-      interactionParticipants: this.historyRecords(targetChangeId, configs.interactionParticipants),
+      gigs: this.historyRecords<GigData>(targetChangeId, gigRepositoryConfig),
+      people: this.historyRecords<PersonData>(targetChangeId, personRepositoryConfig),
+      gigPeople: this.historyRecords<GigPersonData>(targetChangeId, gigPersonRepositoryConfig),
+      tasks: this.historyRecords<TaskData>(targetChangeId, taskRepositoryConfig),
+      interactions: this.historyRecords<InteractionData>(targetChangeId, interactionRepositoryConfig),
+      interactionParticipants: this.historyRecords<InteractionParticipantData>(targetChangeId, interactionParticipantRepositoryConfig),
     };
     for(const snapshot of snapshots.interactions){
       if(snapshot.operation!=="create")continue;
@@ -334,8 +326,8 @@ export class DataStore {
 
   private restoreRecords<T extends DataRecord>(
     snapshots: HistorySnapshot<T>[],
-    reader: AuditedRepository<T>,
-    writer: AuditedRepository<T>,
+    reader: AuditedRepositoryPort<T>,
+    writer: AuditedRepositoryPort<T>,
     entity: string,
   ): RevertedRecord[] {
     return snapshots.map(({ operation, record: snapshot }) => {
