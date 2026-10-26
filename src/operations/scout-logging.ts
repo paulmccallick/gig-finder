@@ -103,10 +103,17 @@ export function safeScoutLog(
 }
 
 export class LoggingScoutHttpPort implements GigScoutHttpPort {
+  private readonly logFullResponses: boolean;
+
   constructor(
     private readonly delegate: GigScoutHttpPort,
     private readonly logger?: ScoutLogger,
-  ) {}
+    options: { logFullResponses?: boolean } = {},
+  ) {
+    this.logFullResponses =
+      options.logFullResponses ??
+      process.env.GIG_FINDER_SCOUT_LOG_FULL_RESPONSES === "true";
+  }
 
   async request(request: HttpRequest): Promise<HttpResponse> {
     const startedAt = performance.now();
@@ -117,6 +124,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
       {
         event: "scout.http.request_started",
         requestId,
+        context: sanitizedLogData(request.context ?? {}),
         method: request.method,
         url: sanitizedLogText(request.url),
         headers: sanitizedHeaders(request.headers),
@@ -134,16 +142,20 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         {
           event: "scout.http.request_completed",
           requestId,
+          context: sanitizedLogData(request.context ?? {}),
           method: request.method,
           url: sanitizedLogText(request.url),
           durationMs: Math.round(performance.now() - startedAt),
           headers: sanitizedHeaders(response.headers),
           body: boundedLogValue(response.body),
+          ...(this.logFullResponses
+            ? { fullResponse: boundedLogValue(response.body, response.body.length) }
+            : {}),
           ...responseDiagnostics(response),
         },
         "Scout source request completed",
       );
-      return response;
+      return { ...response, requestId };
     } catch (error) {
       safeScoutLog(
         this.logger,
@@ -151,6 +163,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         {
           event: "scout.http.request_failed",
           requestId,
+          context: sanitizedLogData(request.context ?? {}),
           method: request.method,
           url: sanitizedLogText(request.url),
           durationMs: Math.round(performance.now() - startedAt),

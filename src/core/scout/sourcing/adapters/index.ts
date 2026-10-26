@@ -6,7 +6,7 @@ import type {
   ScoutRuntimePolicy,
   ScoutSearchProfile,
 } from "../contracts";
-import type { GigScoutClock, GigScoutHttpPort } from "../ports";
+import type { GigScoutClock, GigScoutHttpPort, HttpResponse, ScoutHttpContext } from "../ports";
 import { validatePositions } from "../diagnostics";
 import { sourceAdapter } from "./registry";
 import type { TemplateResolver } from "./templates/definitions";
@@ -27,6 +27,7 @@ export async function scanSource(
   clock: GigScoutClock,
   templates: TemplateResolver,
   signal?: AbortSignal,
+  context?: ScoutHttpContext,
 ): Promise<SourceScanResult> {
   const positions: Array<Omit<NormalizedPosition, "company">> = [];
   const attempts: SourceAttempt[] = [];
@@ -36,6 +37,7 @@ export async function scanSource(
   }> = [];
   let surfaceVerified = false;
   let terminalError: unknown;
+  let lastResponse: HttpResponse | undefined;
   let nextHtmlPageUrl: string | null = null;
   const sourceStartedAt = clock.now().getTime();
   const adapter = sourceAdapter(source, templates);
@@ -82,6 +84,7 @@ export async function scanSource(
       let pageComplete = false;
       for (let retry = 0; retry <= policy.retries && !pageComplete; retry++) {
         const startedAt = clock.now().toISOString();
+        lastResponse = undefined;
         try {
           signal?.throwIfAborted();
           const plan = adapter.request(
@@ -93,6 +96,7 @@ export async function scanSource(
           );
           let response = await http.request({
             ...plan,
+            context: { ...context, sourceKey: source.key, page, term, stage: "listing" },
             headers: {
               accept:
                 source.type === "html" ||
@@ -108,6 +112,7 @@ export async function scanSource(
             maxResponseBytes: policy.maxListingBytes,
             signal,
           });
+          lastResponse = response;
           if (response.status < 200 || response.status >= 300)
             throw new Error(`http_${response.status}`);
           let requestCount = 1,
@@ -122,11 +127,13 @@ export async function scanSource(
           if (listing) {
             response = await http.request({
               ...listing,
+              context: { ...context, sourceKey: source.key, page, term, stage: "followup_listing" },
               headers: { accept: "application/json", ...listing.headers },
               timeoutMs: 15_000,
               maxResponseBytes: policy.maxListingBytes,
               signal,
             });
+            lastResponse = response;
             requestCount++;
             if (response.status < 200 || response.status >= 300)
               throw new Error(`http_${response.status}`);
@@ -149,6 +156,7 @@ export async function scanSource(
             try {
               const detailResponse = await http.request({
                 ...enrichment,
+                context: { ...context, sourceKey: source.key, page, term, stage: "location_enrichment" },
                 headers: { accept: "application/json", ...enrichment.headers },
                 timeoutMs: 15_000,
                 maxResponseBytes: policy.maxDetailBytes,
@@ -298,7 +306,10 @@ export async function scanSource(
                 error instanceof DOMException && error.name === "AbortError"
                   ? "request_timeout"
                   : "source_attempt_failed",
-              message: bounded(error, "Source attempt failed."),
+              message: bounded(
+                `${error instanceof Error ? error.message : "Source attempt failed."}${lastResponse?.requestId ? ` [httpRequestId=${lastResponse.requestId}]` : ""}`,
+                "Source attempt failed.",
+              ),
             },
             diagnostics: [],
           });
