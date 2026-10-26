@@ -1,6 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "../errors";
 import type { ChangeContext, EntityRecord, GigData, GigPersonData, InteractionData, InteractionParticipantData, PersonData, TaskData } from "../../core/models";
+import type { RepositoryOperations } from "../repositories/audited-port";
 
 export type Scalar = string | number | boolean | null;
 export type DataRecord = { id: string };
@@ -10,7 +11,7 @@ export interface HistorySnapshot<T extends DataRecord> {
   record: EntityRecord<T>;
 }
 export type ColumnMap<T> = { [K in keyof T]: string };
-export interface RepositoryConfig<T extends DataRecord> { entity: string; table: string; historyTable: string; columns: ColumnMap<T>;booleans?:Array<keyof T> }
+export interface RepositoryConfig<T extends DataRecord> { entity: string; table: string; historyTable: string; columns: ColumnMap<T>; operations: RepositoryOperations; booleans?:Array<keyof T> }
 
 const baseColumns = { revision: "revision", isDeleted: "is_deleted", createdAt: "created_at", updatedAt: "updated_at" } as const;
 export const quote = (identifier: string) => `"${identifier}"`;
@@ -35,6 +36,7 @@ export class ReadRepository<T extends DataRecord> {
     const row = this.database.query(`SELECT * FROM ${quote(this.config.table)} WHERE id = ?${options.includeDeleted ? "" : " AND is_deleted = 0"}`).get(recordId) as Record<string, unknown> | null;
     return row ? fromRow(row, this.config) : null;
   }
+  operation(name: keyof RepositoryOperations): string { return this.config.operations[name]; }
   list(options: { includeDeleted?: boolean } = {}): EntityRecord<T>[] {
     const rows = this.database.query(`SELECT * FROM ${quote(this.config.table)}${options.includeDeleted ? "" : " WHERE is_deleted = 0"} ORDER BY id`).all() as Record<string, unknown>[];
     return rows.map((row) => fromRow(row, this.config));
@@ -46,6 +48,7 @@ export class MutationRepository<T extends DataRecord> {
   constructor(private readonly database: Database, private readonly config: RepositoryConfig<T>, private readonly context: Required<Pick<ChangeContext,"actor">> & ChangeContext, private readonly changeId: string) { this.reader = new ReadRepository(database, config); }
   get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.reader.get(recordId, options); }
   list(options: { includeDeleted?: boolean } = {}) { return this.reader.list(options); }
+  operation(name: keyof RepositoryOperations): string { return this.reader.operation(name); }
   create(input: T, options: { reversible?: boolean } = {}): EntityRecord<T> {
     if (this.get(input.id, { includeDeleted: true })) throw new Error(`${this.config.entity} already exists: ${input.id}`);
     const timestamp = now(this.context);
@@ -169,6 +172,7 @@ export class AuditedRepository<T extends DataRecord> {
   constructor(private readonly reader: ReadRepository<T>, private readonly writer?: MutationRepository<T>) {}
   get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.reader.get(recordId, options); }
   list(options: { includeDeleted?: boolean } = {}) { return this.reader.list(options); }
+  operation(name: keyof RepositoryOperations): string { return this.reader.operation(name); }
   private mutate() { if (!this.writer) throw new Error("mutation_repository_required"); return this.writer; }
   create(input: T, options: { reversible?: boolean } = {}) { return this.mutate().create(input, options); }
   update(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.mutate().update(recordId, expectedRevision, patch); }
