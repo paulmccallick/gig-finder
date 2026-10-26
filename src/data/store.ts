@@ -10,6 +10,7 @@ import { SqliteApplicationSettingsRepository } from "./settings-store";
 import type { ProfileDocumentMaterializer } from "./profile-document-files";
 import { candidateProfileId } from "../core/documents";
 import type { ManagedDocumentRecord } from "../core/documents";
+import { withDatabaseOperation } from "./sqlite-telemetry";
 
 type Scalar = string | number | boolean | null;
 type DataRecord = { id: string };
@@ -233,7 +234,10 @@ export class DataStore {
       this.database.query("INSERT INTO changes (id, occurred_at, actor, source, summary, parent_change_id, status) VALUES (?, ?, ?, ?, ?, ?, 'committed')").run(changeId, occurredAt, context.actor, context.source, context.summary, context.parentChangeId ?? null);
       return action(new ChangeTransaction(this.database, { ...context, occurredAt }, changeId));
     });
-    const value = execute();
+    const value = withDatabaseOperation(
+      `change.${context.source}.${context.summary}`,
+      execute,
+    );
     this.repairPendingProfileDocuments();
     return { changeId, value };
   }

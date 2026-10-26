@@ -3,15 +3,16 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import path from "node:path";
 import type { LegacyMeetingParticipant } from "./meeting-migration";
+import { instrumentDatabase, type SqliteTelemetryLogger } from "./sqlite-telemetry";
 import { completeInteractionMigrationReport, prepareInteractionMigration, type InteractionMigrationReport } from "./interaction-migration";
 
 export const migrationsFolder = path.resolve(import.meta.dir, "migrations");
 
-export function openDatabase(filename: string, options: { create?: boolean } = {}): Database {
+export function openDatabase(filename: string, options: { create?: boolean; logger?: SqliteTelemetryLogger } = {}): Database {
   const database = new Database(filename, { create: options.create ?? true, strict: true });
   database.exec("PRAGMA foreign_keys = ON");
   database.exec("PRAGMA busy_timeout = 5000");
-  return database;
+  return instrumentDatabase(database, options.logger);
 }
 
 export interface DatabaseMigrationOptions {
