@@ -42,7 +42,8 @@ test("instrumented databases preserve audited repository writes and reads", () =
   store.change({ actor: "test", source: "test", summary: "create person" }, tx => tx.people.create(person));
   store.change({ actor: "test", source: "test", summary: "update person" }, tx => tx.people.update("person", 1, { title: "Director" }));
   expect(store.people.get("person")).toMatchObject({ name: "Synthetic Person", title: "Director", revision: 2 });
-  expect(events.some(event => event.operation === "database.change")).toBe(true);
+  expect(events.some(event => event.operation === "people.create")).toBe(true);
+  expect(events.some(event => event.operation === "people.update")).toBe(true);
   database.close();
 });
 

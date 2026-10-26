@@ -45,6 +45,20 @@ const now = (context: ChangeContext) => context.occurredAt ?? new Date().toISOSt
 const id = (prefix:string)=>`${prefix}_${crypto.randomUUID()}`;
 const toBinding = (value: Scalar): SQLQueryBindings => typeof value === "boolean" ? Number(value) : value;
 
+function instrumentRepository<T extends object>(repository: T, table: string): T {
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => withDatabaseOperation(
+        `${table}.${String(property)}`,
+        () => value.apply(target, args),
+        { table },
+      );
+    },
+  });
+}
+
 function fromRow<T extends DataRecord>(row: Record<string, unknown>, config: RepositoryConfig<T>): EntityRecord<T> {
   const result: Record<string, unknown> = {};
   for (const [property, column] of Object.entries(config.columns)) result[property] = config.booleans?.includes(property as keyof T)?Boolean(row[column]):row[column];
@@ -191,11 +205,11 @@ class MutationRepository<T extends DataRecord> extends ReadRepository<T> {
 export class ChangeTransaction {
   readonly gigs: MutationRepository<GigData>; readonly people:MutationRepository<PersonData>;readonly gigPeople:MutationRepository<GigPersonData>; readonly tasks: MutationRepository<TaskData>; readonly interactions: MutationRepository<InteractionData>; readonly interactionParticipants: MutationRepository<InteractionParticipantData>; readonly documents: SqliteDocumentWriteRepository;
   constructor(private readonly database: Database, private readonly context: ChangeContext, readonly changeId: string) {
-    this.gigs = new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.people=new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);this.gigPeople=new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId);
-    this.tasks = new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.interactions = new MutationRepository(database, configs.interactions, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
-    this.interactionParticipants = new MutationRepository(database, configs.interactionParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId);
+    this.gigs = instrumentRepository(new MutationRepository(database, configs.gigs, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId), configs.gigs.table);
+    this.people=instrumentRepository(new MutationRepository(database,configs.people,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId), configs.people.table);this.gigPeople=instrumentRepository(new MutationRepository(database,configs.gigPeople,context as Required<Pick<ChangeContext,"actor">>&ChangeContext,changeId), configs.gigPeople.table);
+    this.tasks = instrumentRepository(new MutationRepository(database, configs.tasks, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId), configs.tasks.table);
+    this.interactions = instrumentRepository(new MutationRepository(database, configs.interactions, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId), configs.interactions.table);
+    this.interactionParticipants = instrumentRepository(new MutationRepository(database, configs.interactionParticipants, context as Required<Pick<ChangeContext,"actor">> & ChangeContext, changeId), configs.interactionParticipants.table);
     this.documents = new SqliteDocumentWriteRepository(
       database,
       context,
@@ -216,7 +230,7 @@ export class DataStore {
       error: unknown,
       document: ManagedDocumentRecord,
     ) => void = () => undefined,
-  ) { this.gigs = new ReadRepository(database, configs.gigs);this.people=new ReadRepository(database,configs.people);this.gigPeople=new ReadRepository(database,configs.gigPeople); this.tasks = new ReadRepository(database, configs.tasks); this.interactions = new ReadRepository(database, configs.interactions); this.interactionParticipants = new ReadRepository(database, configs.interactionParticipants); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
+  ) { this.gigs = instrumentRepository(new ReadRepository(database, configs.gigs), configs.gigs.table);this.people=instrumentRepository(new ReadRepository(database,configs.people), configs.people.table);this.gigPeople=instrumentRepository(new ReadRepository(database,configs.gigPeople), configs.gigPeople.table); this.tasks = instrumentRepository(new ReadRepository(database, configs.tasks), configs.tasks.table); this.interactions = instrumentRepository(new ReadRepository(database, configs.interactions), configs.interactions.table); this.interactionParticipants = instrumentRepository(new ReadRepository(database, configs.interactionParticipants), configs.interactionParticipants.table); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
   synchronizeProfileDocuments(): void {
     if (!this.profileDocuments) return;
     for (const document of this.documents.list("profile", candidateProfileId)) {
