@@ -37,7 +37,7 @@ export async function scanSource(
   }> = [];
   let surfaceVerified = false;
   let terminalError: unknown;
-  let lastResponse: HttpResponse | null = null;
+  let lastResponse: HttpResponse | undefined;
   let nextHtmlPageUrl: string | null = null;
   const sourceStartedAt = clock.now().getTime();
   const adapter = sourceAdapter(source, templates);
@@ -84,7 +84,7 @@ export async function scanSource(
       let pageComplete = false;
       for (let retry = 0; retry <= policy.retries && !pageComplete; retry++) {
         const startedAt = clock.now().toISOString();
-        lastResponse = null;
+        lastResponse = undefined;
         try {
           signal?.throwIfAborted();
           const plan = adapter.request(
