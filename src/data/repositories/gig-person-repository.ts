@@ -1,7 +1,7 @@
 import type { GigPersonData } from "../../core/models";
 import { RepositoryFacade } from "./repository-facade";
 import type { Repository, RepositoryConfig } from "./audited-port";
-export const gigPersonRepositoryConfig: RepositoryConfig<GigPersonData> = { entity:"gig-person", table:"gig_people", historyTable:"gig_people_history", columns:{ id:"id", gigId:"gig_id", personId:"person_id", relationship:"relationship", notes:"notes" } };
+export const gigPersonRepositoryConfig: RepositoryConfig<GigPersonData> = { entity:"gig-person", operations:{get:"gig-person.read",list:"gig-person.list",create:"gig-person.create",update:"gig-person.update",touch:"gig-person.touch",revert:"gig-person.revert",delete:"gig-person.delete",restoreSnapshot:"gig-person.restore_snapshot",restore:"gig-person.restore"}, table:"gig_people", historyTable:"gig_people_history", columns:{ id:"id", gigId:"gig_id", personId:"person_id", relationship:"relationship", notes:"notes" } };
 export class GigPersonRepository implements Repository<GigPersonData> {
   private readonly persistence: RepositoryFacade<GigPersonData>;
   constructor(persistence: Repository<GigPersonData>) { this.persistence = new RepositoryFacade(persistence); }

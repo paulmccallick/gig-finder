@@ -1,7 +1,7 @@
 import type { PersonData } from "../../core/models";
 import { RepositoryFacade } from "./repository-facade";
 import type { Repository, RepositoryConfig } from "./audited-port";
-export const personRepositoryConfig: RepositoryConfig<PersonData> = { entity:"person", table:"people", historyTable:"person_history", columns:{ id:"id", name:"name", company:"company", title:"title", linkedInProfileUrl:"linkedin_profile_url", connectedOn:"connected_on", relationshipType:"relationship_type", relationshipStrength:"relationship_strength", introducedBy:"introduced_by", relationshipNotes:"relationship_notes", priority:"priority", status:"status", whyInteresting:"why_interesting", notesJson:"notes_json", tagsJson:"tags_json" } };
+export const personRepositoryConfig: RepositoryConfig<PersonData> = { entity:"person", operations:{get:"person.read",list:"person.list",create:"person.create",update:"person.update",touch:"person.touch",revert:"person.revert",delete:"person.delete",restoreSnapshot:"person.restore_snapshot",restore:"person.restore"}, table:"people", historyTable:"person_history", columns:{ id:"id", name:"name", company:"company", title:"title", linkedInProfileUrl:"linkedin_profile_url", connectedOn:"connected_on", relationshipType:"relationship_type", relationshipStrength:"relationship_strength", introducedBy:"introduced_by", relationshipNotes:"relationship_notes", priority:"priority", status:"status", whyInteresting:"why_interesting", notesJson:"notes_json", tagsJson:"tags_json" } };
 export class PersonRepository implements Repository<PersonData> {
   private readonly persistence: RepositoryFacade<PersonData>;
   constructor(persistence: Repository<PersonData>) { this.persistence = new RepositoryFacade(persistence); }

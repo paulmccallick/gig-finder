@@ -1,7 +1,7 @@
 import type { TaskData } from "../../core/models";
 import { RepositoryFacade } from "./repository-facade";
 import type { Repository, RepositoryConfig } from "./audited-port";
-export const taskRepositoryConfig: RepositoryConfig<TaskData> = { entity:"task", table:"tasks", historyTable:"task_history", columns:{ id:"id", title:"title", type:"type", status:"status", priority:"priority", dueDate:"due_date", relatedEntityType:"related_entity_type", relatedEntityId:"related_entity_id", relatedEntityLabel:"related_entity_label", notes:"notes", completedAt:"completed_at" } };
+export const taskRepositoryConfig: RepositoryConfig<TaskData> = { entity:"task", operations:{get:"task.read",list:"task.list",create:"task.create",update:"task.update",touch:"task.touch",revert:"task.revert",delete:"task.delete",restoreSnapshot:"task.restore_snapshot",restore:"task.restore"}, table:"tasks", historyTable:"task_history", columns:{ id:"id", title:"title", type:"type", status:"status", priority:"priority", dueDate:"due_date", relatedEntityType:"related_entity_type", relatedEntityId:"related_entity_id", relatedEntityLabel:"related_entity_label", notes:"notes", completedAt:"completed_at" } };
 export class TaskRepository implements Repository<TaskData> {
   private readonly persistence: RepositoryFacade<TaskData>;
   constructor(persistence: Repository<TaskData>) { this.persistence = new RepositoryFacade(persistence); }

@@ -1,10 +1,23 @@
 import type { ChangeContext, EntityRecord } from "../../core/models";
 
+export type RepositoryOperations = {
+  get: string;
+  list: string;
+  create: string;
+  update: string;
+  touch: string;
+  revert: string;
+  delete: string;
+  restoreSnapshot: string;
+  restore: string;
+};
+
 export type RepositoryConfig<T> = {
   entity: string;
   table: string;
   historyTable: string;
   columns: { [K in keyof T]: string };
+  operations: RepositoryOperations;
 };
 
 export interface Repository<T extends { id: string }> {

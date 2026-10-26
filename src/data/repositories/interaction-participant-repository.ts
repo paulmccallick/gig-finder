@@ -1,7 +1,7 @@
 import type { InteractionParticipantData } from "../../core/models";
 import { RepositoryFacade } from "./repository-facade";
 import type { Repository, RepositoryConfig } from "./audited-port";
-export const interactionParticipantRepositoryConfig: RepositoryConfig<InteractionParticipantData> = { entity:"interaction-participant", table:"interaction_participants", historyTable:"interaction_participant_history", columns:{ id:"id", interactionId:"interaction_id", personId:"person_id" } };
+export const interactionParticipantRepositoryConfig: RepositoryConfig<InteractionParticipantData> = { entity:"interaction-participant", operations:{get:"interaction-participant.read",list:"interaction-participant.list",create:"interaction-participant.create",update:"interaction-participant.update",touch:"interaction-participant.touch",revert:"interaction-participant.revert",delete:"interaction-participant.delete",restoreSnapshot:"interaction-participant.restore_snapshot",restore:"interaction-participant.restore"}, table:"interaction_participants", historyTable:"interaction_participant_history", columns:{ id:"id", interactionId:"interaction_id", personId:"person_id" } };
 export class InteractionParticipantRepository implements Repository<InteractionParticipantData> {
   private readonly persistence: RepositoryFacade<InteractionParticipantData>;
   constructor(persistence: Repository<InteractionParticipantData>) { this.persistence = new RepositoryFacade(persistence); }
