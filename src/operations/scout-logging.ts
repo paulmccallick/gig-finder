@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import type {
   GigScoutHttpPort,
   HttpRequest,
@@ -72,6 +73,22 @@ export function sanitizedHeaders(headers: Record<string, string> = {}) {
   );
 }
 
+function responseDiagnostics(response: HttpResponse) {
+  const contentType = response.headers["content-type"] ?? null;
+  const declaredLength = response.headers["content-length"] ?? null;
+  const bodyPrefix = boundedLogValue(response.body.slice(0, 512), 512);
+  return {
+    status: response.status,
+    responseStatus: response.status,
+    responseUrl: sanitizedLogText(response.url),
+    responseContentType: contentType,
+    responseDeclaredLength: declaredLength,
+    responseBodyBytes: Buffer.byteLength(response.body),
+    responseBodySha256: createHash("sha256").update(response.body).digest("hex"),
+    responseBodyPrefix: bodyPrefix,
+  };
+}
+
 export function safeScoutLog(
   logger: ScoutLogger | undefined,
   level: "info" | "error",
@@ -93,11 +110,13 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
 
   async request(request: HttpRequest): Promise<HttpResponse> {
     const startedAt = performance.now();
+    const requestId = randomUUID();
     safeScoutLog(
       this.logger,
       "info",
       {
         event: "scout.http.request_started",
+        requestId,
         method: request.method,
         url: sanitizedLogText(request.url),
         headers: sanitizedHeaders(request.headers),
@@ -114,13 +133,13 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         "info",
         {
           event: "scout.http.request_completed",
+          requestId,
           method: request.method,
           url: sanitizedLogText(request.url),
-          responseUrl: sanitizedLogText(response.url),
-          status: response.status,
           durationMs: Math.round(performance.now() - startedAt),
           headers: sanitizedHeaders(response.headers),
           body: boundedLogValue(response.body),
+          ...responseDiagnostics(response),
         },
         "Scout source request completed",
       );
@@ -131,6 +150,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         "error",
         {
           event: "scout.http.request_failed",
+          requestId,
           method: request.method,
           url: sanitizedLogText(request.url),
           durationMs: Math.round(performance.now() - startedAt),

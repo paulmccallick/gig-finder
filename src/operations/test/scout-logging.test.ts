@@ -46,6 +46,15 @@ test("private request and response context is logged while authentication materi
   ]);
   expect(JSON.stringify(events)).toContain("engineering");
   expect(JSON.stringify(events)).toContain("private job description");
+  const completed = events[1]!;
+  expect(completed.requestId).toEqual(expect.any(String));
+  expect(completed.responseStatus).toBe(200);
+  expect(completed.responseContentType).toBeNull();
+  expect(completed.responseBodyBytes).toBe(23);
+  expect(completed.responseBodySha256).toEqual(expect.any(String));
+  expect((completed.responseBodyPrefix as { value: string }).value).toBe(
+    "private job description",
+  );
   expect(JSON.stringify(events)).not.toContain("Bearer secret");
   expect(JSON.stringify(events)).not.toContain("private-session");
 });
