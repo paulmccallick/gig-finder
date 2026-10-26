@@ -30,6 +30,6 @@ test("labels queries inside audited changes with the change operation", () => {
   });
   database.exec("CREATE TABLE changes (id TEXT PRIMARY KEY)");
   database.query("INSERT INTO changes (id) VALUES (?)").run("change-1");
-  expect(events[0]?.operation).toBe("database.unscoped");
+  expect(events[0]?.operation).toBe("database.application");
   database.close();
 });
