@@ -3,7 +3,7 @@
 Apply `$coding-guide` to implementation and review work.
 
 Current-state product, architecture, interface, and operations documentation
-lives in the locally registered `spec` repository. Before changing behavior or
+lives in the locally registered `spec` repository. For any runtime, production, database, deployment, or troubleshooting task, read the relevant spec operations docs first. Before changing behavior or
 contracts, resolve and read `spec::MAP.md`, then update the relevant
 specification documents with the code change:
 
