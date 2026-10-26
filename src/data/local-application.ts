@@ -1,7 +1,7 @@
 import { GigFinderApplication } from "../core/application";
 import { AuditReader } from "./audit";
 import { openDatabase } from "./database";
-import { DataStore } from "./store";
+import { DataStore } from "./data-store";
 import {
   defaultAgentModelId,
   type AgentModelId,
