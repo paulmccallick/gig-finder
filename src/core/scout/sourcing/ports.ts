@@ -24,6 +24,7 @@ export interface HttpRequest {
   signal?: AbortSignal;
 }
 export interface HttpResponse {
+  requestId?: string;
   status: number;
   url: string;
   headers: Record<string, string>;

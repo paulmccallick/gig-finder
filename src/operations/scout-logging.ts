@@ -155,7 +155,7 @@ export class LoggingScoutHttpPort implements GigScoutHttpPort {
         },
         "Scout source request completed",
       );
-      return response;
+      return { ...response, requestId };
     } catch (error) {
       safeScoutLog(
         this.logger,
