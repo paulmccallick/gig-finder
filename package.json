@@ -53,7 +53,6 @@
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "rotating-file-stream": "^3.2.9",
     "turndown": "7.2.4",
     "zod": "4.4.3"
   },
