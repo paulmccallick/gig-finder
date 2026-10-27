@@ -5,6 +5,7 @@ import type {
   DocumentWriteRepository,
   Persistence,
   ReadRepository,
+  ReadRepositoryListOptions,
   UnitOfWork,
 } from "../ports";
 import type {
@@ -34,7 +35,7 @@ const metadata = {
 class Repo<T extends { id: string }> implements ReadRepository<T> {
   rows = new Map<string, EntityRecord<T>>();
   get(id: string) { return this.rows.get(id) ?? null; }
-  list() { return [...this.rows.values()].filter(record => !record.isDeleted); }
+  list(options: ReadRepositoryListOptions<T> = {}) { return [...this.rows.values()].filter(record => options.includeDeleted || !record.isDeleted).filter(record => options.ids === undefined || options.ids.includes(record.id)).filter(record => Object.entries(options.filters ?? {}).every(([key, value]) => record[key as keyof T] === value)); }
   create(record: T) {
     const value = { ...record, ...metadata };
     this.rows.set(record.id, value);

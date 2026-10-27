@@ -2,14 +2,14 @@ import { describe,expect,test } from "bun:test";
 import { GigFinderApplication } from "../application";
 import { ChangeExecutor } from "../changes";
 import { DomainValidationError,MutationError,OptimisticConcurrencyError } from "../errors";
-import type { AuditPort,DocumentWriteRepository,Persistence,ReadRepository,UnitOfWork } from "../ports";
+import type { AuditPort,DocumentWriteRepository,Persistence,ReadRepository,ReadRepositoryListOptions,UnitOfWork } from "../ports";
 import type { ChangeContext,EntityRecord,GigData,GigPersonData,InteractionData,InteractionParticipantData,PersonData,TaskData } from "../models";
 import { documentDisplayName,type DocumentLinkEntityType,type ManagedDocumentData,type ManagedDocumentRecord,type ManagedDocumentSourceProvenance,type ManagedDocumentVersionData } from "../documents";
 import { gigInputSchema,type GigSummary } from "../gigs";
 import type { NormalizedPosition } from "../scout/sourcing/contracts";
 
 const metadata={revision:1,isDeleted:false,createdAt:"2026-07-22T12:00:00-07:00",updatedAt:"2026-07-22T12:00:00-07:00"};
-class Repo<T extends{id:string}> implements ReadRepository<T>{rows=new Map<string,EntityRecord<T>>();get(id:string){return this.rows.get(id)??null}list(){return[...this.rows.values()]}create(record:T){const value={...record,...metadata};this.rows.set(record.id,value);return value}update(id:string,revision:number,patch:Partial<Omit<T,"id">>){const current=this.get(id)!;const value={...current,...patch,revision:revision+1,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(id,value);return value}touch(id:string,revision:number){return this.update(id,revision,{})}delete(id:string){return this.rows.get(id)!}restore(id:string){return this.rows.get(id)!}}
+class Repo<T extends{id:string}> implements ReadRepository<T>{rows=new Map<string,EntityRecord<T>>();get(id:string){return this.rows.get(id)??null}list(options:ReadRepositoryListOptions<T>={}){return[...this.rows.values()].filter(record=>options.ids===undefined||options.ids.includes(record.id)).filter(record=>Object.entries(options.filters??{}).every(([key,value])=>record[key as keyof T]===value))}create(record:T){const value={...record,...metadata};this.rows.set(record.id,value);return value}update(id:string,revision:number,patch:Partial<Omit<T,"id">>){const current=this.get(id)!;const value={...current,...patch,revision:revision+1,updatedAt:"2026-07-23T12:00:00-07:00"};this.rows.set(id,value);return value}touch(id:string,revision:number){return this.update(id,revision,{})}delete(id:string){return this.rows.get(id)!}restore(id:string){return this.rows.get(id)!}}
 const gigs=new Repo<GigData>(),people=new Repo<PersonData>(),gigPeople=new Repo<GigPersonData>(),tasks=new Repo<TaskData>(),interactions=new Repo<InteractionData>(),interactionParticipants=new Repo<InteractionParticipantData>();
 const personData=(identity:Pick<PersonData,"id"|"name"|"company"|"title"|"linkedInProfileUrl"|"connectedOn">):PersonData=>({...identity,relationshipType:"professional_contact",relationshipStrength:"unknown",introducedBy:null,relationshipNotes:null,priority:"unranked",status:"not_contacted",whyInteresting:null,notesJson:"[]",tagsJson:"[]"});
 class DocumentRepo implements DocumentWriteRepository {
