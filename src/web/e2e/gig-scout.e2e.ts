@@ -4,6 +4,14 @@ import type { GigRecord } from "../../core/gigs";
 
 type VersionedGigRecord = GigRecord & { revision: number };
 
+async function waitForRunCompletion(page: Page, runId: string) {
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/gig-scout/runs");
+    const runs = await response.json() as Array<{ id: string; status: string }>;
+    return runs.find((run) => run.id === runId)?.status;
+  }).toBe("completed");
+}
+
 async function closePopupWithBack(viewer: Page) {
   const closed = viewer.waitForEvent("close");
   await viewer.getByRole("button", { name: "Back" }).dispatchEvent("click")
@@ -403,10 +411,7 @@ test("starts, leaves, and reopens a persisted empty Gig Scout run", async ({
       locations: ["Nowhere"],
     },
   });
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
-    return (await response.json() as { status: string }).status;
-  }).toBe("completed");
+  await waitForRunCompletion(page, run.id);
   await expect(page.getByLabel("Run search profile")).toContainText(
     "nonmatching specialty",
   );
@@ -440,12 +445,9 @@ test("discovers and processes positions from a full Scout run", async ({
   await page.getByRole("button", { name: "Start full scan" }).click();
 
   const { run } = await (await runResponse).json() as { run: { id: string } };
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
-    return (await response.json() as { status: string }).status;
-  }).toBe("completed");
-  await page.getByText("Company diagnostics").click();
-  await expect(page.getByText("2/2 accepted")).toBeVisible();
+  await waitForRunCompletion(page, run.id);
+  await expect(page.getByRole("columnheader", { name: "Provenance" })).toHaveCount(0);
+  await expect(page.getByText("Company diagnostics")).toHaveCount(0);
 
   await expect
     .poll(async () => {
@@ -1041,10 +1043,7 @@ test("posting identity resolution keeps same-title requisitions separate and upd
   });
   expect(started.status()).toBe(202);
   const { run } = await started.json() as { run: { id: string } };
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
-    return (await response.json() as { status: string }).status;
-  }).toBe("completed");
+  await waitForRunCompletion(page, run.id);
   await expect.poll(async () => {
     const response = await page.request.get(
       "/api/gig-scout/positions?state=needs_user_review&text=Identity%20Platforms",
@@ -1112,10 +1111,7 @@ test("reprocesses encoded descriptions through review and promoted document proj
   expect(started.status()).toBe(202);
   const { run } = await started.json() as { run: { id: string } };
 
-  await expect.poll(async () => {
-    const response = await page.request.get(`/api/gig-scout/runs/${run.id}`);
-    return (await response.json() as { status: string }).status;
-  }).toBe("completed");
+  await waitForRunCompletion(page, run.id);
 
   const runPositionsResponse = await page.request.get(
     `/api/gig-scout/runs/${run.id}/positions?limit=20`,

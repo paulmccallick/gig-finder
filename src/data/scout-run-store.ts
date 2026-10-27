@@ -12,7 +12,6 @@ import type {
   ScoutCompanyJob,
   PreparedScoutCompanyResult,
   ScoutPositionPage,
-  ScoutRunDetail,
   ScoutRunStore,
   ScoutRunSummary,
 } from "../core/scout/engine/runs";
@@ -129,56 +128,9 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
         .all() as Record<string, unknown>[]
     ).map(summary);
   }
-  get(runId: string): ScoutRunDetail | null {
-    const run = this.db
-      .query(`SELECT * FROM scout_runs WHERE id=?`)
-      .get(runId) as Record<string, unknown> | null;
-    if (!run) return null;
-    const companies = this.db
-      .query(
-        `SELECT id,company_id companyId,status,failure_code failureCode,failure_message failureMessage FROM scout_run_companies WHERE run_id=? ORDER BY company_id`,
-      )
-      .all(runId) as Array<
-      Omit<ScoutRunDetail["companies"][number], "sources">
-    >;
-    return {
-      ...summary(run),
-      companies: companies.map((company) => {
-        const sources = this.db
-          .query(
-            `SELECT rs.id,s.source_key sourceKey,rs.status,rs.candidate_count candidateCount,rs.accepted_count acceptedCount,rs.rejected_count rejectedCount FROM scout_run_sources rs JOIN scout_company_configuration_sources s ON s.id=rs.configuration_source_id WHERE rs.run_company_id=? ORDER BY s.source_key`,
-          )
-          .all(company.id) as Array<
-          Omit<
-            ScoutRunDetail["companies"][number]["sources"][number],
-            "attempts"
-          >
-        >;
-        return {
-          ...company,
-          sources: sources.map((source) => ({
-            ...source,
-            attempts: (this.db
-              .query(
-                `SELECT id,attempt_number attemptNumber,stage,source_reported_total sourceReportedTotal,records_received recordsReceived,records_parsed recordsParsed,records_evaluable recordsEvaluable,records_evaluated recordsEvaluated,pages_requested pagesRequested,pages_validated pagesValidated,unique_identities uniqueIdentities,validation_status validationStatus,failure_code failureCode,failure_message failureMessage FROM scout_source_attempts WHERE run_source_id=? ORDER BY attempt_number`,
-              )
-              .all(source.id) as Array<
-              Omit<
-                ScoutRunDetail["companies"][number]["sources"][number]["attempts"][number],
-                "diagnostics"
-              >
-            >).map((attempt) => ({
-              ...attempt,
-              diagnostics: this.db
-                .query(
-                  `SELECT code,category,count,message FROM scout_attempt_diagnostics WHERE source_attempt_id=? ORDER BY id`,
-                )
-                .all(attempt.id) as ScoutRunDetail["companies"][number]["sources"][number]["attempts"][number]["diagnostics"],
-            })),
-          })),
-        };
-      }),
-    };
+  get(runId: string): ScoutRunSummary | null {
+    const run = this.db.query(`SELECT * FROM scout_runs WHERE id=?`).get(runId) as Record<string, unknown> | null;
+    return run ? summary(run) : null;
   }
   pendingJobs(limit: number) {
     return this.jobs(
@@ -842,7 +794,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     );
     const items = this.db
       .query(
-        `SELECT o.id,o.title,rc.company_name company,o.canonical_url canonicalUrl,o.location,o.observed_at observedAt,rs.status sourceStatus,o.description_artifact_id descriptionArtifactId,o.provenance_json provenance${from} ORDER BY lower(rc.company_name),lower(o.title),o.id LIMIT ? OFFSET ?`,
+        `SELECT o.id,o.title,rc.company_name company,o.canonical_url canonicalUrl,o.location,o.observed_at observedAt,o.description_artifact_id descriptionArtifactId${from} ORDER BY lower(rc.company_name),lower(o.title),o.id LIMIT ? OFFSET ?`,
       )
       .all(...params, input.limit, input.offset) as Array<
       Record<string, unknown>
@@ -850,8 +802,7 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     return {
       items: items.map((item) => ({
         ...item,
-        provenance: JSON.parse(String(item.provenance)),
-      })) as ScoutPositionPage["items"],
+        })) as ScoutPositionPage["items"],
       offset: input.offset,
       limit: input.limit,
       total,
