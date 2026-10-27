@@ -1,11 +1,11 @@
 import type { EntityRecord } from "../../core/models";
-import type { Repository, RepositoryOperations } from "./audited-port";
+import type { Repository, RepositoryListOptions, RepositoryOperations } from "./audited-port";
 
 export class RepositoryFacade<T extends { id: string }> implements Repository<T> {
   constructor(private readonly persistence: Repository<T>) {}
 
   readonly get = (id: string, options?: { includeDeleted?: boolean }) => this.persistence.get(id, options);
-  readonly list = (options?: { includeDeleted?: boolean }) => this.persistence.list(options);
+  readonly list = (options?: RepositoryListOptions<T>) => this.persistence.list(options);
   readonly operation = (name: keyof RepositoryOperations) => this.persistence.operation(name);
   readonly create = (input: T, options?: { reversible?: boolean }) => this.persistence.create(input, options);
   readonly update = (id: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) => this.persistence.update(id, expectedRevision, patch);

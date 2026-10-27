@@ -1,5 +1,14 @@
 import type { ChangeContext, EntityRecord } from "../../core/models";
 
+export type RepositoryListOptions<T> = {
+  includeDeleted?: boolean;
+  filters?: Partial<T>;
+  anyOf?: Partial<{ [K in keyof T]: readonly T[K][] }>;
+  ranges?: Partial<{ [K in keyof T]: { from?: T[K]; through?: T[K] } }>;
+  search?: { fields: readonly (keyof T)[]; query: string };
+  ids?: readonly string[];
+};
+
 export type RepositoryOperations = {
   get: string;
   list: string;
@@ -22,7 +31,7 @@ export type RepositoryConfig<T> = {
 
 export interface Repository<T extends { id: string }> {
   get(id: string, options?: { includeDeleted?: boolean }): EntityRecord<T> | null;
-  list(options?: { includeDeleted?: boolean }): EntityRecord<T>[];
+  list(options?: RepositoryListOptions<T>): EntityRecord<T>[];
   operation(name: keyof RepositoryOperations): string;
   create(input: T, options?: { reversible?: boolean }): EntityRecord<T>;
   update(id: string, expectedRevision: number, patch: Partial<Omit<T, "id">>): EntityRecord<T>;

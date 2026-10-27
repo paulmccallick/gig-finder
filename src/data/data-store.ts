@@ -90,7 +90,7 @@ export class DataStore {
     };
     for(const snapshot of snapshots.interactions){
       if(snapshot.operation!=="create")continue;
-      const dependent=this.interactions.list().find(item=>item.supersedesInteractionId===snapshot.record.id);
+      const dependent=this.interactions.list({filters:{supersedesInteractionId:snapshot.record.id}})[0];
       if(dependent)throw new MutationError("not_revertible",`Cannot revert interaction ${snapshot.record.id} because active Interaction ${dependent.id} supersedes it.`);
     }
     for(const snapshot of snapshots.interactions){const target=snapshot.record.supersedesInteractionId;if(target&&!this.interactions.get(target))throw new MutationError("not_revertible",`Cannot revert interaction ${snapshot.record.id} because superseded Interaction ${target} is not active.`)}
