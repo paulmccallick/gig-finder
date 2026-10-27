@@ -49,6 +49,39 @@ export class ReadRepository<T extends DataRecord> {
         bindings.push(toBinding(value as Scalar));
       }
     }
+    for (const [property, values] of Object.entries(options.anyOf ?? {})) {
+      if (values === undefined) continue;
+      const column = this.config.columns[property as keyof T];
+      if (!column) throw new Error(`Unknown ${this.config.entity} filter: ${property}`);
+      if (!values?.length) return [];
+      conditions.push(`${quote(column)} IN (${placeholders(values.length)})`);
+      bindings.push(...values.map((value: unknown) => toBinding(value as Scalar)));
+    }
+    for (const [property, range] of Object.entries(options.ranges ?? {})) {
+      if (range === undefined) continue;
+      const column = this.config.columns[property as keyof T];
+      if (!column) throw new Error(`Unknown ${this.config.entity} range: ${property}`);
+      if (range?.from !== undefined) {
+        conditions.push(`julianday(${quote(column)}) >= julianday(?)`);
+        bindings.push(toBinding(range.from as Scalar));
+      }
+      if (range?.through !== undefined) {
+        conditions.push(`julianday(${quote(column)}) <= julianday(?)`);
+        bindings.push(toBinding(range.through as Scalar));
+      }
+    }
+    if (options.search?.query.trim()) {
+      const query = `%${options.search.query.trim().toLocaleLowerCase()}%`;
+      const fields = options.search.fields.map(property => {
+        const column = this.config.columns[property];
+        if (!column) throw new Error(`Unknown ${this.config.entity} search field: ${String(property)}`);
+        return `LOWER(COALESCE(${quote(column)}, '')) LIKE ?`;
+      });
+      if (fields.length) {
+        conditions.push(`(${fields.join(" OR ")})`);
+        bindings.push(...fields.map(() => query));
+      }
+    }
     if (options.ids) {
       if (options.ids.length === 0) return [];
       conditions.push(`id IN (${placeholders(options.ids.length)})`);

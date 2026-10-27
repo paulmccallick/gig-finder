@@ -3,6 +3,9 @@ import type { ChangeContext, EntityRecord } from "../../core/models";
 export type RepositoryListOptions<T> = {
   includeDeleted?: boolean;
   filters?: Partial<T>;
+  anyOf?: Partial<{ [K in keyof T]: readonly T[K][] }>;
+  ranges?: Partial<{ [K in keyof T]: { from?: T[K]; through?: T[K] } }>;
+  search?: { fields: readonly (keyof T)[]; query: string };
   ids?: readonly string[];
 };
 
