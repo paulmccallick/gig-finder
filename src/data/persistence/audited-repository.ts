@@ -1,7 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "../errors";
 import type { ChangeContext, EntityRecord } from "../../core/models";
-import type { RepositoryOperations, RepositoryTelemetry } from "../repositories/audited-port";
+import type { RepositoryListOptions, RepositoryOperations, RepositoryTelemetry } from "../repositories/audited-port";
 
 export type Scalar = string | number | boolean | null;
 export type DataRecord = { id: string };
@@ -37,8 +37,25 @@ export class ReadRepository<T extends DataRecord> {
     return row ? fromRow(row, this.config) : null;
   }
   operation(name: keyof RepositoryOperations): string { return this.config.operations[name]; }
-  list(options: { includeDeleted?: boolean } = {}): EntityRecord<T>[] {
-    const rows = this.database.query(`SELECT * FROM ${quote(this.config.table)}${options.includeDeleted ? "" : " WHERE is_deleted = 0"} ORDER BY id`).all() as Record<string, unknown>[];
+  list(options: RepositoryListOptions<T> = {}): EntityRecord<T>[] {
+    const conditions = options.includeDeleted ? [] : ["is_deleted = 0"];
+    const bindings: SQLQueryBindings[] = [];
+    for (const [property, value] of Object.entries(options.filters ?? {})) {
+      const column = this.config.columns[property as keyof T];
+      if (!column) throw new Error(`Unknown ${this.config.entity} filter: ${property}`);
+      if (value === null) conditions.push(`${quote(column)} IS NULL`);
+      else {
+        conditions.push(`${quote(column)} = ?`);
+        bindings.push(toBinding(value as Scalar));
+      }
+    }
+    if (options.ids) {
+      if (options.ids.length === 0) return [];
+      conditions.push(`id IN (${placeholders(options.ids.length)})`);
+      bindings.push(...options.ids);
+    }
+    const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+    const rows = this.database.query(`SELECT * FROM ${quote(this.config.table)}${where} ORDER BY id`).all(...bindings) as Record<string, unknown>[];
     return rows.map((row) => fromRow(row, this.config));
   }
 }
@@ -47,7 +64,7 @@ export class MutationRepository<T extends DataRecord> {
   private readonly reader: ReadRepository<T>;
   constructor(private readonly database: Database, private readonly config: RepositoryConfig<T>, private readonly context: Required<Pick<ChangeContext,"actor">> & ChangeContext, private readonly changeId: string) { this.reader = new ReadRepository(database, config); }
   get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.reader.get(recordId, options); }
-  list(options: { includeDeleted?: boolean } = {}) { return this.reader.list(options); }
+  list(options: RepositoryListOptions<T> = {}) { return this.reader.list(options); }
   operation(name: keyof RepositoryOperations): string { return this.reader.operation(name); }
   create(input: T, options: { reversible?: boolean } = {}): EntityRecord<T> {
     if (this.get(input.id, { includeDeleted: true })) throw new Error(`${this.config.entity} already exists: ${input.id}`);
@@ -171,7 +188,7 @@ export class MutationRepository<T extends DataRecord> {
 export class AuditedRepository<T extends DataRecord> {
   constructor(private readonly reader: ReadRepository<T>, private readonly writer?: MutationRepository<T>, private readonly telemetry?: RepositoryTelemetry) {}
   get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.measure("get", "read", () => this.reader.get(recordId, options)); }
-  list(options: { includeDeleted?: boolean } = {}) { return this.measure("list", "read", () => this.reader.list(options)); }
+  list(options: RepositoryListOptions<T> = {}) { return this.measure("list", "read", () => this.reader.list(options)); }
   operation(name: keyof RepositoryOperations): string { return this.reader.operation(name); }
   private mutate() { if (!this.writer) throw new Error("mutation_repository_required"); return this.writer; }
   create(input: T, options: { reversible?: boolean } = {}) { return this.measure("create", "write", () => this.mutate().create(input, options)); }

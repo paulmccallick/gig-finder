@@ -44,9 +44,10 @@ export class PeopleService {
 
   private record(record: EntityRecord<PersonData>): PersonRecord {
     const documents = this.documents.summaries("person", record.id);
-    const participantIds=new Set(this.persistence.interactionParticipants.list().filter(item=>item.personId===record.id).map(item=>item.interactionId));
-    const latest=this.persistence.interactions.list().filter(item=>participantIds.has(item.id)&&item.status==="completed").sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id))[0];
-    const interactions=this.persistence.interactions.list().filter(item=>participantIds.has(item.id)).sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id)).map(item=>({id:item.id,subject:item.subject,kind:item.kind as import("./interactions").InteractionKind,channel:item.channel as import("./interactions").InteractionChannel,status:item.status as import("./interactions").InteractionStatus,startsAt:item.startsAt}));
+    const participantIds=new Set(this.persistence.interactionParticipants.list({filters:{personId:record.id}}).map(item=>item.interactionId));
+    const interactionRecords=this.persistence.interactions.list({ids:[...participantIds]});
+    const latest=interactionRecords.filter(item=>item.status==="completed").sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id))[0];
+    const interactions=interactionRecords.sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt)||a.id.localeCompare(b.id)).map(item=>({id:item.id,subject:item.subject,kind:item.kind as import("./interactions").InteractionKind,channel:item.channel as import("./interactions").InteractionChannel,status:item.status as import("./interactions").InteractionStatus,startsAt:item.startsAt}));
     return personFromData(record,documents,latest?{date:interactionCalendarDate(latest.startsAt,latest.timezone),method:latest.channel,summary:latest.summary??latest.notes??latest.subject}:undefined,interactions);
   }
 

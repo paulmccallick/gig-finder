@@ -8,7 +8,8 @@ import type {
   ManagedDocumentVersionData,
 } from "./documents";
 
-export interface ReadRepository<T extends {id:string}>{get(id:string,options?:{includeDeleted?:boolean}):EntityRecord<T>|null;list(options?:{includeDeleted?:boolean}):EntityRecord<T>[]}
+export type ReadRepositoryListOptions<T> = { includeDeleted?: boolean; filters?: Partial<T>; ids?: readonly string[] };
+export interface ReadRepository<T extends {id:string}>{get(id:string,options?:{includeDeleted?:boolean}):EntityRecord<T>|null;list(options?:ReadRepositoryListOptions<T>):EntityRecord<T>[]}
 export interface WriteRepository<T extends {id:string}> extends ReadRepository<T>{create(record:T):EntityRecord<T>;update(id:string,revision:number,patch:Partial<Omit<T,"id">>):EntityRecord<T>;touch(id:string,revision:number):EntityRecord<T>;delete(id:string,revision:number):EntityRecord<T>;restore(id:string,revision:number,patch:Partial<Omit<T,"id">>):EntityRecord<T>}
 export interface ReversibleCreateRepository<T extends {id:string}> extends WriteRepository<T>{create(record:T,options?:{reversible?:boolean}):EntityRecord<T>}
 export interface DocumentReadRepository {
