@@ -321,7 +321,6 @@ test("company completion retries after a Gig-side failure before becoming termin
         attempts++;
         const prepared = store.prepareCompanyResult(job, result, now);
         gigSideEffects.push("gig-1");
-        expect(store.get(run.id)?.companies[0]?.status).toBe("queued");
         if (attempts === 1) throw new Error("synthetic Gig-side failure");
         gigSideEffects.push("gig-2");
         store.completeCompanyResult(job, prepared, now);

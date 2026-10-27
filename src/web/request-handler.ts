@@ -392,8 +392,6 @@ export function createWebHandler({gigFinder,agentApi,uploadHandler,discardStaged
         }
       } else if (url.pathname.match(/^\/api\/gig-scout\/runs\/[^/]+\/positions$/)) {
         const id=decodeURIComponent(url.pathname.split("/")[4]??""); response=!scout?json({error:"Gig Scout unavailable"},503):request.method!=="GET"?json({error:"Method not allowed"},405):json(scout.positions(id,{company:url.searchParams.get("company")??undefined,text:url.searchParams.get("text")??undefined,offset:Number(url.searchParams.get("offset")??0),limit:Number(url.searchParams.get("limit")??20)}));
-      } else if (url.pathname.match(/^\/api\/gig-scout\/runs\/[^/]+$/)) {
-        const id=decodeURIComponent(url.pathname.split("/")[4]??""); const run=scout?.get(id);response=request.method!=="GET"?json({error:"Method not allowed"},405):run?json(run):json({error:"Scout run not found"},404);
       } else if (request.method !== "GET") {
         response = json({ error: "Read-only API" }, 405);
       } else if (url.pathname === "/api/gigs") {

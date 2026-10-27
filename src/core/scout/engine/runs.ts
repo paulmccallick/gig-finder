@@ -45,46 +45,6 @@ export interface ScoutRunSummary {
   failedCount: number;
   searchProfile: ScoutSearchProfile;
 }
-export interface ScoutRunSourceDetail {
-  id: string;
-  sourceKey: string;
-  status: string;
-  candidateCount: number;
-  acceptedCount: number;
-  rejectedCount: number;
-  attempts: Array<{
-    id: string;
-    attemptNumber: number;
-    stage: string;
-    sourceReportedTotal: number | null;
-    recordsReceived: number;
-    recordsParsed: number;
-    recordsEvaluable: number;
-    recordsEvaluated: number;
-    pagesRequested: number;
-    pagesValidated: number;
-    uniqueIdentities: number;
-    validationStatus: string;
-    failureCode: string | null;
-    failureMessage: string | null;
-    diagnostics: Array<{
-      code: string;
-      category: string;
-      count: number;
-      message: string;
-    }>;
-  }>;
-}
-export interface ScoutRunDetail extends ScoutRunSummary {
-  companies: Array<{
-    id: string;
-    companyId: string;
-    status: string;
-    failureCode: string | null;
-    failureMessage: string | null;
-    sources: ScoutRunSourceDetail[];
-  }>;
-}
 export interface ScoutPositionPage {
   items: Array<{
     id: string;
@@ -93,15 +53,15 @@ export interface ScoutPositionPage {
     canonicalUrl: string;
     location: string | null;
     observedAt: string;
-    sourceStatus: string;
     descriptionArtifactId: string | null;
-    provenance: unknown;
   }>;
   offset: number;
   limit: number;
   total: number;
 }
 export interface ScoutRunStore {
+  /** Lightweight lookup for internal runtime checks; not exposed as an HTTP endpoint. */
+  get(runId: string): ScoutRunSummary | null;
   startOrReuse(
     batchSize: number,
     concurrency: number,
@@ -109,7 +69,6 @@ export interface ScoutRunStore {
     searchProfile?: ScoutSearchProfile,
   ): { run: ScoutRunSummary; created: boolean };
   list(): ScoutRunSummary[];
-  get(runId: string): ScoutRunDetail | null;
   pendingJobs(limit: number): ScoutCompanyJob[];
   nonterminalJobs(limit: number): ScoutCompanyJob[];
   markDispatched(runCompanyIds: string[], now: string): void;
@@ -207,9 +166,6 @@ export class ScoutRunService {
   }
   list() {
     return this.store.list();
-  }
-  get(id: string) {
-    return this.store.get(id);
   }
   positions(
     id: string,
