@@ -34,4 +34,15 @@ export interface Repository<T extends { id: string }> {
 }
 
 export type AuditedRepositoryPort<T extends { id: string }> = Repository<T>;
+
+export interface RepositoryTelemetry {
+  record(event: {
+    operation: string;
+    entity: string;
+    phase: "read" | "write";
+    durationMs: number;
+    success: boolean;
+    error?: unknown;
+  }): void;
+}
 export type RepositoryContext = Pick<ChangeContext, "actor"> & ChangeContext;

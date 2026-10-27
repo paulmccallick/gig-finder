@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { MutationError } from "../core/errors";
 import { AuditedRepository, fromRow, now, id, quote, type DataRecord, type HistoryOperation, type HistorySnapshot, type RepositoryConfig } from "./persistence/audited-repository";
 import { ChangeTransaction } from "./change-transaction";
+import type { RepositoryTelemetry } from "./repositories/audited-port";
 import { ReadRepository } from "./persistence/audited-repository";
 import { GigRepository, gigRepositoryConfig } from "./repositories/gig-repository";
 import { PersonRepository, personRepositoryConfig } from "./repositories/person-repository";
@@ -28,7 +29,8 @@ export class DataStore {
       error: unknown,
       document: ManagedDocumentRecord,
     ) => void = () => undefined,
-  ) { this.gigs = new GigRepository(new AuditedRepository(new ReadRepository<GigData>(database, gigRepositoryConfig)));this.people = new PersonRepository(new AuditedRepository(new ReadRepository<PersonData>(database, personRepositoryConfig)));this.gigPeople = new GigPersonRepository(new AuditedRepository(new ReadRepository<GigPersonData>(database, gigPersonRepositoryConfig))); this.tasks = new TaskRepository(new AuditedRepository(new ReadRepository<TaskData>(database, taskRepositoryConfig))); this.interactions = new InteractionRepository(new AuditedRepository(new ReadRepository<InteractionData>(database, interactionRepositoryConfig))); this.interactionParticipants = new InteractionParticipantRepository(new AuditedRepository(new ReadRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig))); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
+    private readonly telemetry?: RepositoryTelemetry,
+  ) { this.gigs = new GigRepository(new AuditedRepository(new ReadRepository<GigData>(database, gigRepositoryConfig), undefined, this.telemetry));this.people = new PersonRepository(new AuditedRepository(new ReadRepository<PersonData>(database, personRepositoryConfig), undefined, this.telemetry));this.gigPeople = new GigPersonRepository(new AuditedRepository(new ReadRepository<GigPersonData>(database, gigPersonRepositoryConfig), undefined, this.telemetry)); this.tasks = new TaskRepository(new AuditedRepository(new ReadRepository<TaskData>(database, taskRepositoryConfig), undefined, this.telemetry)); this.interactions = new InteractionRepository(new AuditedRepository(new ReadRepository<InteractionData>(database, interactionRepositoryConfig), undefined, this.telemetry)); this.interactionParticipants = new InteractionParticipantRepository(new AuditedRepository(new ReadRepository<InteractionParticipantData>(database, interactionParticipantRepositoryConfig), undefined, this.telemetry)); this.documents = new SqliteDocumentReadRepository(database);this.settings=new SqliteApplicationSettingsRepository(database); }
   synchronizeProfileDocuments(): void {
     if (!this.profileDocuments) return;
     for (const document of this.documents.list("profile", candidateProfileId)) {
@@ -44,7 +46,7 @@ export class DataStore {
     const occurredAt = now(context);
     const execute = this.database.transaction(() => {
       this.database.query("INSERT INTO changes (id, occurred_at, actor, source, summary, parent_change_id, status) VALUES (?, ?, ?, ?, ?, ?, 'committed')").run(changeId, occurredAt, context.actor, context.source, context.summary, context.parentChangeId ?? null);
-      return action(new ChangeTransaction(this.database, { ...context, occurredAt }, changeId));
+      return action(new ChangeTransaction(this.database, { ...context, occurredAt }, changeId, this.telemetry));
     });
     const value = execute();
     this.repairPendingProfileDocuments();

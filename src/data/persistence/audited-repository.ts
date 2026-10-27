@@ -1,7 +1,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { DeletedRecordError, NotFoundError, RevisionConflictError } from "../errors";
 import type { ChangeContext, EntityRecord } from "../../core/models";
-import type { RepositoryOperations } from "../repositories/audited-port";
+import type { RepositoryOperations, RepositoryTelemetry } from "../repositories/audited-port";
 
 export type Scalar = string | number | boolean | null;
 export type DataRecord = { id: string };
@@ -31,7 +31,7 @@ export function fromRow<T extends DataRecord>(row: Record<string, unknown>, conf
 }
 
 export class ReadRepository<T extends DataRecord> {
-  constructor(protected readonly database: Database, protected readonly config: RepositoryConfig<T>) {}
+  constructor(protected readonly database: Database, readonly config: RepositoryConfig<T>) {}
   get(recordId: string, options: { includeDeleted?: boolean } = {}): EntityRecord<T> | null {
     const row = this.database.query(`SELECT * FROM ${quote(this.config.table)} WHERE id = ?${options.includeDeleted ? "" : " AND is_deleted = 0"}`).get(recordId) as Record<string, unknown> | null;
     return row ? fromRow(row, this.config) : null;
@@ -169,17 +169,28 @@ export class MutationRepository<T extends DataRecord> {
 }
 
 export class AuditedRepository<T extends DataRecord> {
-  constructor(private readonly reader: ReadRepository<T>, private readonly writer?: MutationRepository<T>) {}
-  get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.reader.get(recordId, options); }
-  list(options: { includeDeleted?: boolean } = {}) { return this.reader.list(options); }
+  constructor(private readonly reader: ReadRepository<T>, private readonly writer?: MutationRepository<T>, private readonly telemetry?: RepositoryTelemetry) {}
+  get(recordId: string, options: { includeDeleted?: boolean } = {}) { return this.measure("get", "read", () => this.reader.get(recordId, options)); }
+  list(options: { includeDeleted?: boolean } = {}) { return this.measure("list", "read", () => this.reader.list(options)); }
   operation(name: keyof RepositoryOperations): string { return this.reader.operation(name); }
   private mutate() { if (!this.writer) throw new Error("mutation_repository_required"); return this.writer; }
-  create(input: T, options: { reversible?: boolean } = {}) { return this.mutate().create(input, options); }
-  update(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.mutate().update(recordId, expectedRevision, patch); }
-  touch(recordId: string, expectedRevision: number) { return this.mutate().touch(recordId, expectedRevision); }
-  revert(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>) { return this.mutate().revert(recordId, expectedRevision, snapshot); }
-  delete(recordId: string, expectedRevision: number) { return this.mutate().delete(recordId, expectedRevision); }
-  restoreSnapshot(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>) { return this.mutate().restoreSnapshot(recordId, expectedRevision, snapshot); }
-  restore(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.mutate().restore(recordId, expectedRevision, patch); }
+  create(input: T, options: { reversible?: boolean } = {}) { return this.measure("create", "write", () => this.mutate().create(input, options)); }
+  update(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.measure("update", "write", () => this.mutate().update(recordId, expectedRevision, patch)); }
+  touch(recordId: string, expectedRevision: number) { return this.measure("touch", "write", () => this.mutate().touch(recordId, expectedRevision)); }
+  revert(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>) { return this.measure("revert", "write", () => this.mutate().revert(recordId, expectedRevision, snapshot)); }
+  delete(recordId: string, expectedRevision: number) { return this.measure("delete", "write", () => this.mutate().delete(recordId, expectedRevision)); }
+  restoreSnapshot(recordId: string, expectedRevision: number, snapshot: EntityRecord<T>) { return this.measure("restoreSnapshot", "write", () => this.mutate().restoreSnapshot(recordId, expectedRevision, snapshot)); }
+  restore(recordId: string, expectedRevision: number, patch: Partial<Omit<T, "id">>) { return this.measure("restore", "write", () => this.mutate().restore(recordId, expectedRevision, patch)); }
+  private measure<R>(name: keyof RepositoryOperations, phase: "read" | "write", work: () => R): R {
+    const started = performance.now();
+    try {
+      const result = work();
+      this.telemetry?.record({ operation: this.operation(name), entity: this.reader.config.entity, phase, durationMs: performance.now() - started, success: true });
+      return result;
+    } catch (error) {
+      this.telemetry?.record({ operation: this.operation(name), entity: this.reader.config.entity, phase, durationMs: performance.now() - started, success: false, error });
+      throw error;
+    }
+  }
 }
 
