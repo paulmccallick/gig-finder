@@ -357,21 +357,25 @@ export function App() {
   }, []);
   useEffect(() => { void refreshDashboard(); }, [refreshDashboard]);
   useEffect(() => { window.scrollTo({ top: 0, left: 0 }); }, [view]);
-  if (view === "gigs" && !result) return <main className="loading-screen"><span /><p>Loading gigs…</p></main>;
-  if (view === "network" && !peopleResult) return <main className="loading-screen"><span /><p>Loading people…</p></main>;
-  if (view === "tasks" && !taskResult) return <main className="loading-screen"><span /><p>Loading tasks…</p></main>;
-  if (view === "gigs" && result && !result.ok) return <AppError error={result.error} />;
-  if (view === "network" && peopleResult && !peopleResult.ok) return <AppError error={peopleResult.error} />;
-  if (view === "tasks" && taskResult && !taskResult.ok) return <AppError error={taskResult.error} />;
-  const gigs = result?.ok ? result.data : [];
-  const people = peopleResult?.ok ? peopleResult.data : [];
-  const tasks = taskResult?.ok ? taskResult.data : [];
+  const loading = (label: string) => <main className="loading-screen"><span /><p>Loading {label}…</p></main>;
   const dashboard = view === "gigs"
-    ? <GigBoard gigs={gigs} onNavigate={setView} />
+    ? !result
+      ? loading("gigs")
+      : !result.ok
+        ? <AppError error={result.error} />
+        : <GigBoard gigs={result.data} onNavigate={setView} />
     : view === "network"
-      ? <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard people={people} /></main>
+      ? !peopleResult
+        ? loading("people")
+        : !peopleResult.ok
+          ? <AppError error={peopleResult.error} />
+          : <main className="app-shell network-shell"><Masthead today={todayInPacific()} active="network" onChange={setView} /><NetworkingBoard people={peopleResult.data} /></main>
       : view === "tasks"
-        ? <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={tasks} /></main>
+        ? !taskResult
+          ? loading("tasks")
+          : !taskResult.ok
+            ? <AppError error={taskResult.error} />
+            : <main className="app-shell task-shell"><Masthead today={todayInPacific()} active="tasks" onChange={setView} /><TaskBoard tasks={taskResult.data} /></main>
         : <main className="app-shell"><Masthead today={todayInPacific()} active="scout" onChange={setView} /><GigScoutPage onPositionOpenChange={handleScoutPositionOpenChange} /></main>;
   return (
     <>
