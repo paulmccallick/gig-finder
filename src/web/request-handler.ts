@@ -103,7 +103,7 @@ export interface WebHandlerDependencies {
     ok: boolean;
     revision: string;
     integrity: string;
-    foreignKeyViolations: number;
+    foreignKeyViolations: number | null;
   };
   staticFiles?: StaticFileHandler;
   scout?: ScoutRunService;

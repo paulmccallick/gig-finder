@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import { loadWebConfiguration } from "../app";
+import { livenessHealth, loadWebConfiguration } from "../app";
 
 const applicationRoot = path.resolve(import.meta.dir, "../../..");
 const contextRoot = path.join(applicationRoot, "tmp", "configuration-test-context");
@@ -61,6 +61,15 @@ describe("web process configuration", () => {
       providerBaseURL: "http://provider:4010",
       maxSteps: 2,
       maxOutputTokens: 128,
+    });
+  });
+
+  test("reports liveness without claiming database validation", () => {
+    expect(livenessHealth("revision-1")).toEqual({
+      ok: true,
+      revision: "revision-1",
+      integrity: "skipped",
+      foreignKeyViolations: null,
     });
   });
 

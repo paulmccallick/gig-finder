@@ -168,6 +168,15 @@ export function loadWebConfiguration(
   };
 }
 
+export function livenessHealth(revision: string) {
+  return {
+    ok: true,
+    revision,
+    integrity: "skipped",
+    foreignKeyViolations: null,
+  };
+}
+
 export async function createWebApplication(configuration: WebConfiguration) {
   const logging = createApplicationLogger({
     directory: configuration.context.logs,
@@ -261,17 +270,8 @@ export async function createWebApplication(configuration: WebConfiguration) {
     uploadHandler,
     discardStagedDocument: reference => stagedDocuments.discard(reference),
     requestLogger: logging.requestLogger,
-    healthCheck: () => {
-      // Emergency bypass: full database validation is too expensive for a
-      // ten-second container liveness probe.
-      // const validation = local.validate();
-      return {
-        ok: true,
-        revision: configuration.server.revision,
-        integrity: "skipped",
-        foreignKeyViolations: 0,
-      };
-    },
+    // Full database validation remains an explicit maintenance operation.
+    healthCheck: () => livenessHealth(configuration.server.revision),
     staticFiles: configuration.server.staticRoot
       ? createStaticFileHandler(configuration.server.staticRoot)
       : undefined,
