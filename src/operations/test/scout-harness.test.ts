@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  crediblePosting,
-  paginationEvidenceIsValid,
-} from "../scout-harness";
+import { crediblePosting, paginationEvidenceIsValid } from "../scout-harness";
 const position = {
   company: "Synthetic Company",
   sourceKey: "official",
@@ -110,3 +107,146 @@ test("pagination evidence requires proof when a source stops after one page", ()
     ),
   ).toBeTrue();
 });
+
+test("pagination evidence rejects premature success after a later total resets", () => {
+  expect(
+    paginationEvidenceIsValid(
+      [
+        {
+          stage: "listing_page_1",
+          pagesValidated: 1,
+          uniqueIdentities: 20,
+          sourceReportedTotal: 100,
+          recordsReceived: 20,
+        },
+        {
+          stage: "listing_page_2",
+          pagesValidated: 1,
+          uniqueIdentities: 20,
+          sourceReportedTotal: 0,
+          recordsReceived: 20,
+        },
+      ],
+      200,
+    ),
+  ).toBeFalse();
+});
+
+test("an empty source passes after a transient request retry succeeds", async () => {
+  const { runScoutHarness } = await import("../scout-harness");
+  let calls = 0;
+  const result = await runScoutHarness(
+    {
+      version: 1,
+      searchProfile: { terms: [], locations: [] },
+      companies: [
+        {
+          id: "synthetic",
+          name: "Synthetic",
+          active: true,
+          sources: [
+            {
+              key: "official",
+              active: true,
+              type: "json",
+              url: "https://api.example.test/jobs",
+              recordsPath: "jobs",
+              totalPath: "total",
+              fields: { id: "id", title: "title", url: "url" },
+            },
+          ],
+        },
+      ],
+    },
+    { maxPages: 200 },
+    {
+      http: {
+        async request(input) {
+          calls++;
+          return {
+            status: calls === 1 ? 503 : 200,
+            url: input.url,
+            headers: {},
+            body: JSON.stringify({ total: 0, jobs: [] }),
+          };
+        },
+      },
+    },
+  );
+  expect(calls).toBe(2);
+  expect(result.passed).toBeTrue();
+});
+
+for (const planned of [false, true]) {
+  test(`detail challenges stop further attempts and samples (planned=${planned})`, async () => {
+    const { runScoutHarness } = await import("../scout-harness");
+    let calls = 0;
+    const result = await runScoutHarness(
+      {
+        version: 1,
+        searchProfile: { terms: [], locations: [] },
+        companies: [
+          {
+            id: "synthetic",
+            name: "Synthetic",
+            active: true,
+            sources: [
+              {
+                key: "official",
+                active: true,
+                type: "json",
+                url: "https://api.example.test/jobs",
+                recordsPath: "jobs",
+                totalPath: "total",
+                fields: { id: "id", title: "title", url: "url" },
+                ...(planned
+                  ? {
+                      detailDescription: {
+                        response: "json",
+                        request: {
+                          method: "GET",
+                          urlTemplate: "{position.url}",
+                        },
+                        descriptionPath: "description",
+                        identity: { idPath: "id" },
+                      },
+                    }
+                  : {}),
+              },
+            ],
+          },
+        ],
+      },
+      { maxPages: 200 },
+      {
+        http: {
+          async request(input) {
+            calls++;
+            const headers: Record<string, string> =
+              calls === 1 ? {} : { "x-amzn-waf-action": "challenge" };
+            return {
+              status: calls === 1 ? 200 : 202,
+              url: input.url,
+              headers,
+              body:
+                calls === 1
+                  ? JSON.stringify({
+                      total: 3,
+                      jobs: [1, 2, 3].map((id) => ({
+                        id: String(id),
+                        title: `Gardener ${id}`,
+                        url: `https://api.example.test/jobs/${id}`,
+                      })),
+                    })
+                  : "",
+            };
+          },
+        },
+      },
+    );
+    expect(calls).toBe(2);
+    expect(result.reports[0]!.failureCategory).toBe("access_blocked");
+    expect(result.reports[0]!.samples).toHaveLength(1);
+    expect(result.passed).toBeFalse();
+  });
+}

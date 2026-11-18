@@ -14,7 +14,7 @@ export class AdpSessionRequestHook implements ReusableJsonRequestHook {
       method: "GET" as const,
     };
   }
-  listingRequest(_source: ReusableJsonTemplateSource, body: string) {
+  listingRequest(_source: ReusableJsonTemplateSource, body: string, _headers: Record<string, string>, page = 1) {
     const value = object(JSON.parse(body)),
       token = text(value.myJobsToken),
       origin = text(object(value.properties).myadpUrl) || "https://my.adp.com";
@@ -28,6 +28,7 @@ export class AdpSessionRequestHook implements ReusableJsonRequestHook {
       "reqId,jobTitle,publishedJobTitle,jobDescription,jobQualifications,workLocations,clientRequisitionID,requisitionLocations",
     );
     url.searchParams.set("$top", "100");
+    url.searchParams.set("$skip", String((page - 1) * 100));
     url.searchParams.set("$filter", "");
     return {
       url: url.toString(),

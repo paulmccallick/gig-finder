@@ -1,5 +1,5 @@
 import { atPath } from "./extractors/json";
-import type { GigScoutHttpPort } from "./ports";
+import { assertSourceAccess, type GigScoutHttpPort } from "./ports";
 import type { PlannedRequest } from "./source-plan";
 import {
   normalizeExtractedDescription,
@@ -64,7 +64,22 @@ async function jsonLdSelection(body:string, position:{id:string|null;title:strin
 
 export async function acquirePlannedDescription(plan:DetailDescriptionPlan,position:{id:string|null;title:string},http:GigScoutHttpPort,signal?:AbortSignal){
   if(new URL(plan.request.url).protocol!=="https:")throw new Error("Official description URLs must use HTTPS.");
-  const response=await http.request({...plan.request,timeoutMs:15_000,maxResponseBytes:1_000_000,redirect:"error",signal});
+  // Canonical job slugs may redirect within the same official source.
+  // Do not forward credentials or requests to a different origin.
+  const origin = new URL(plan.request.url).origin;
+  let request = plan.request;
+  let response = await http.request({...request, timeoutMs:15_000, maxResponseBytes:1_000_000, redirect:"manual", signal});
+  assertSourceAccess(response);
+  for (let redirects = 0; response.status >= 300 && response.status < 400; redirects++) {
+    if (redirects >= 3 || request.method !== "GET" || !response.headers.location)
+      throw new Error("description_redirect_invalid");
+    const next = new URL(response.headers.location, request.url);
+    if (next.origin !== origin || next.username || next.password)
+      throw new Error("description_redirect_invalid");
+    request = {...request, url: next.toString()};
+    response = await http.request({...request, timeoutMs:15_000, maxResponseBytes:1_000_000, redirect:"manual", signal});
+    assertSourceAccess(response);
+  }
   if(response.status<200||response.status>=300)throw new Error(`description_http_${response.status}`);
   const contentType=response.headers["content-type"]?.split(";")[0]?.trim().toLowerCase()??"";
   let extracted:unknown;

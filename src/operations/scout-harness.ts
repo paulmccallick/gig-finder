@@ -1,3 +1,11 @@
+import {
+  assertSourceAccess,
+  type GigScoutHttpPort,
+} from "../core/scout/sourcing/ports";
+import {
+  acquirePlannedDescription,
+  resolveDetailDescriptionPlan,
+} from "../core/scout/sourcing/detail-descriptions";
 import { scoutCompanyImportSchema } from "../core/scout/engine/company-import";
 import { isIP } from "node:net";
 import {
@@ -55,10 +63,9 @@ const safeOfficialHost = (url: URL) => {
 
 async function fetchOfficialDetail(
   position: NormalizedPosition,
-  http: BoundedFetchHttpPort,
+  http: GigScoutHttpPort,
 ) {
-  const detailUrl =
-    position.provenance.descriptionUrl ?? position.canonicalUrl;
+  const detailUrl = position.provenance.descriptionUrl ?? position.canonicalUrl;
   const initial = new URL(detailUrl);
   if (!safeOfficialHost(initial))
     throw new Error("Detail URL did not use a public HTTPS host.");
@@ -72,6 +79,7 @@ async function fetchOfficialDetail(
       maxResponseBytes: 6_000_000,
       redirect: "manual",
     });
+    assertSourceAccess(response);
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.location;
       if (!location) throw new Error("Detail redirect omitted its location.");
@@ -88,6 +96,7 @@ async function fetchOfficialDetail(
 export async function runScoutHarness(
   raw: unknown,
   selection: ScoutHarnessSelection,
+  dependencies: { http?: GigScoutHttpPort } = {},
 ) {
   const input = raw as { searchProfile?: unknown },
     searchProfile = scoutSearchProfileSchema.parse(input.searchProfile ?? {}),
@@ -98,7 +107,7 @@ export async function runScoutHarness(
           )
         : raw,
     ),
-    http = new BoundedFetchHttpPort(),
+    http = dependencies.http ?? new BoundedFetchHttpPort(),
     reports = [];
   for (const company of config.companies) {
     if (selection.companyId && company.id !== selection.companyId) continue;
@@ -124,6 +133,7 @@ export async function runScoutHarness(
                 selection.term === undefined
                   ? searchProfile.terms
                   : [selection.term],
+              titleVariants: searchProfile.titleVariants,
               locations:
                 selection.location === undefined
                   ? searchProfile.locations
@@ -139,11 +149,28 @@ export async function runScoutHarness(
         outcome = result.sources[0]!;
       const samples = [];
       for (const position of outcome.positions.slice(0, 3)) {
+        const identity = {
+          id: position.externalId,
+          title: position.title,
+          url: position.canonicalUrl,
+        };
+        const detailPlan = resolveDetailDescriptionPlan(
+          source,
+          identity,
+          scoutTemplateCatalog,
+        );
         let semantic = false,
           status = 0,
           failure: string | null = null;
         for (let attempt = 0; attempt < 3 && !semantic; attempt++) {
           try {
+            if (detailPlan) {
+              await acquirePlannedDescription(detailPlan, identity, http);
+              status = 200;
+              semantic = true;
+              failure = null;
+              break;
+            }
             const response = await fetchOfficialDetail(position, http);
             status = response.status;
             semantic =
@@ -153,25 +180,42 @@ export async function runScoutHarness(
                 (Boolean(position.description) &&
                   crediblePosting(position, position.description ?? "")));
             failure = null;
+            if (status === 401 || status === 403) break;
           } catch (error) {
             failure = (
               error instanceof Error ? error.message : "Detail request failed"
             ).slice(0, 500);
+            if (/access_blocked|description_http_(401|403)/.test(failure))
+              break;
           }
         }
         samples.push({
           title: position.title,
           url: position.canonicalUrl,
           displayLocation: position.location,
-          normalizedLocations: (position.locations ?? []).map(({ label }) => label),
-          workArrangements: [...new Set([
-            position.workArrangement ?? null,
-            ...(position.locations ?? []).map(({ workArrangement }) => workArrangement),
-          ].filter((value) => value !== null))],
+          normalizedLocations: (position.locations ?? []).map(
+            ({ label }) => label,
+          ),
+          workArrangements: [
+            ...new Set(
+              [
+                position.workArrangement ?? null,
+                ...(position.locations ?? []).map(
+                  ({ workArrangement }) => workArrangement,
+                ),
+              ].filter((value) => value !== null),
+            ),
+          ],
           status,
           semantic,
           failure,
         });
+        if (
+          status === 401 ||
+          status === 403 ||
+          /access_blocked|description_http_(401|403)/.test(failure ?? "")
+        )
+          break;
       }
       const attempts = outcome.attempts.map((attempt) => ({
         stage: attempt.stage,
@@ -197,6 +241,11 @@ export async function runScoutHarness(
           ? scoutTemplateCatalog.resolve(source.template).exhaustion.mode
           : undefined,
       );
+      const finalAttempts = [
+        ...new Map(
+          attempts.map((attempt) => [attempt.stage, attempt]),
+        ).values(),
+      ];
       const passed =
         outcome.status.startsWith("succeeded_") &&
         outcome.status !== "succeeded_empty_verified"
@@ -204,7 +253,7 @@ export async function runScoutHarness(
             samples.every((sample) => sample.semantic) &&
             paginationValid
           : outcome.status === "succeeded_empty_verified" &&
-            attempts.every(
+            finalAttempts.every(
               (attempt) => attempt.validationStatus === "verified",
             ) &&
             paginationValid;
@@ -218,6 +267,23 @@ export async function runScoutHarness(
             : null,
         status: outcome.status,
         passed,
+        failureCategory: passed
+          ? null
+          : attempts.some(
+                (attempt) => attempt.failureCode === "access_blocked",
+              ) ||
+              samples.some(
+                (sample) =>
+                  sample.status === 401 ||
+                  sample.status === 403 ||
+                  /access_blocked|description_http_(401|403)/.test(
+                    sample.failure ?? "",
+                  ),
+              )
+            ? "access_blocked"
+            : outcome.status === "partial"
+              ? "incomplete"
+              : "repairable",
         paginationValid,
         attempts,
         samples,
@@ -242,6 +308,21 @@ export function paginationEvidenceIsValid(
   maxPages: number,
   exhaustionMode?: "reported-total" | "single-response",
 ): boolean {
+  const totals = new Map<string, { reported: number; received: number }>();
+  for (const attempt of attempts) {
+    const term = attempt.stage.replace(/_page_\d+$/, "");
+    const current = totals.get(term) ?? { reported: 0, received: 0 };
+    current.reported = Math.max(
+      current.reported,
+      attempt.sourceReportedTotal ?? 0,
+    );
+    current.received += attempt.recordsReceived ?? 0;
+    totals.set(term, current);
+  }
+  if (
+    [...totals.values()].some(({ reported, received }) => received < reported)
+  )
+    return false;
   if (maxPages < 2) return true;
 
   const secondPageAttempts = attempts.filter((attempt) =>
@@ -261,7 +342,6 @@ export function paginationEvidenceIsValid(
   }
 
   return secondPageAttempts.some(
-    (attempt) =>
-      attempt.pagesValidated === 1 && attempt.uniqueIdentities > 0,
+    (attempt) => attempt.pagesValidated === 1 && attempt.uniqueIdentities > 0,
   );
 }

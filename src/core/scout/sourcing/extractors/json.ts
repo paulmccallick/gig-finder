@@ -57,7 +57,9 @@ export function extractJson(
   recordsReceived: number;
   nextPageUrl?: string | null;
 } {
-  const parsed: unknown = JSON.parse(body);
+  const envelope: unknown = JSON.parse(body);
+  const parsed: unknown = source.responseEncoding === "json-string" && typeof envelope === "string"
+    ? JSON.parse(envelope) : envelope;
   const records = atPath(parsed, source.recordsPath);
   if (!Array.isArray(records))
     return {
@@ -120,6 +122,9 @@ export function extractJson(
       },
     ];
   });
+  const totalValue = source.totalPath ? atPath(parsed, source.totalPath) : null;
+  const total = typeof totalValue === "number" && Number.isInteger(totalValue) && totalValue >= 0 ? totalValue : null;
+  if (source.totalPath && total === null) throw new Error("source_reported_total_invalid");
   const next = source.nextPagePath
     ? atPath(parsed, source.nextPagePath)
     : undefined;
@@ -127,7 +132,7 @@ export function extractJson(
     positions,
     hasNext: Boolean(next),
     surfaceVerified: true,
-    sourceReportedTotal: null,
+    sourceReportedTotal: total,
     recordsReceived: records.length,
     nextPageUrl:
       typeof next === "string" && next.trim()
