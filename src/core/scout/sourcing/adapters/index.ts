@@ -1,3 +1,4 @@
+import { assertSourceAccess } from "../ports";
 import type {
   SourceAttempt,
   SourceConfiguration,
@@ -437,13 +438,6 @@ export async function scanSource(
     positions: validation.accepted,
     attempts,
   };
-}
-
-function assertSourceAccess(response: HttpResponse) {
-  const challenge = response.headers["x-amzn-waf-action"] || response.headers["cf-mitigated"];
-  if (response.status === 401 || response.status === 403 ||
-      challenge === "challenge" || challenge === "captcha")
-    throw new Error(`access_blocked: HTTP ${response.status}${challenge ? ` ${challenge}` : ""}`);
 }
 
 function applyValidation(

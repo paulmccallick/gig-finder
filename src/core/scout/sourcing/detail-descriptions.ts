@@ -1,5 +1,5 @@
 import { atPath } from "./extractors/json";
-import type { GigScoutHttpPort } from "./ports";
+import { assertSourceAccess, type GigScoutHttpPort } from "./ports";
 import type { PlannedRequest } from "./source-plan";
 import {
   normalizeExtractedDescription,
@@ -69,6 +69,7 @@ export async function acquirePlannedDescription(plan:DetailDescriptionPlan,posit
   const origin = new URL(plan.request.url).origin;
   let request = plan.request;
   let response = await http.request({...request, timeoutMs:15_000, maxResponseBytes:1_000_000, redirect:"manual", signal});
+  assertSourceAccess(response);
   for (let redirects = 0; response.status >= 300 && response.status < 400; redirects++) {
     if (redirects >= 3 || request.method !== "GET" || !response.headers.location)
       throw new Error("description_redirect_invalid");
@@ -77,6 +78,7 @@ export async function acquirePlannedDescription(plan:DetailDescriptionPlan,posit
       throw new Error("description_redirect_invalid");
     request = {...request, url: next.toString()};
     response = await http.request({...request, timeoutMs:15_000, maxResponseBytes:1_000_000, redirect:"manual", signal});
+    assertSourceAccess(response);
   }
   if(response.status<200||response.status>=300)throw new Error(`description_http_${response.status}`);
   const contentType=response.headers["content-type"]?.split(";")[0]?.trim().toLowerCase()??"";

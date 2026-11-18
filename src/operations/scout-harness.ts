@@ -1,4 +1,7 @@
-import type { GigScoutHttpPort } from "../core/scout/sourcing/ports";
+import {
+  assertSourceAccess,
+  type GigScoutHttpPort,
+} from "../core/scout/sourcing/ports";
 import {
   acquirePlannedDescription,
   resolveDetailDescriptionPlan,
@@ -76,6 +79,7 @@ async function fetchOfficialDetail(
       maxResponseBytes: 6_000_000,
       redirect: "manual",
     });
+    assertSourceAccess(response);
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.location;
       if (!location) throw new Error("Detail redirect omitted its location.");
@@ -206,6 +210,12 @@ export async function runScoutHarness(
           semantic,
           failure,
         });
+        if (
+          status === 401 ||
+          status === 403 ||
+          /access_blocked|description_http_(401|403)/.test(failure ?? "")
+        )
+          break;
       }
       const attempts = outcome.attempts.map((attempt) => ({
         stage: attempt.stage,

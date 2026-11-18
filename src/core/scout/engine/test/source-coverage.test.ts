@@ -326,3 +326,40 @@ test("planned descriptions follow same-origin canonical redirects and reject cro
     ),
   ).rejects.toThrow("description_redirect_invalid");
 });
+
+test("offset pagination requires a total and rejects absent or malformed response totals", async () => {
+  const { customJsonSourceSchema } = await import("../../sourcing/contracts");
+  const custom = {
+    key: "official",
+    active: true,
+    type: "json",
+    url: "https://api.example.test/jobs",
+    recordsPath: "jobs",
+    fields: { id: "id", title: "title", url: "url" },
+    pagination: {
+      offsetParameter: "offset",
+      limitParameter: "limit",
+      pageSize: 2,
+    },
+  };
+  expect(customJsonSourceSchema.safeParse(custom).success).toBeFalse();
+  for (const total of [undefined, "unknown", -1]) {
+    const result = await scan([{ ...custom, totalPath: "total" }], {
+      async request(input) {
+        return {
+          status: 200,
+          url: input.url,
+          headers: {},
+          body: JSON.stringify({
+            total,
+            jobs: [{ id: "1", title: "Gardener", url: "/jobs/1" }],
+          }),
+        };
+      },
+    });
+    expect(result.sources[0]!.status).toBe("failed");
+    expect(result.sources[0]!.attempts[0]!.failure!.message).toContain(
+      "source_reported_total_invalid",
+    );
+  }
+});

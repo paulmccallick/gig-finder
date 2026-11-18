@@ -124,6 +124,7 @@ export function extractJson(
   });
   const totalValue = source.totalPath ? atPath(parsed, source.totalPath) : null;
   const total = typeof totalValue === "number" && Number.isInteger(totalValue) && totalValue >= 0 ? totalValue : null;
+  if (source.totalPath && total === null) throw new Error("source_reported_total_invalid");
   const next = source.nextPagePath
     ? atPath(parsed, source.nextPagePath)
     : undefined;

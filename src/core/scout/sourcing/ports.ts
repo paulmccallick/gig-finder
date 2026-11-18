@@ -89,3 +89,11 @@ export class BoundedFetchHttpPort implements GigScoutHttpPort {
     }
   }
 }
+
+export function assertSourceAccess(response: HttpResponse) {
+  const challenge = response.headers["x-amzn-waf-action"] || response.headers["cf-mitigated"];
+  if (response.status === 401 || response.status === 403 ||
+      challenge === "challenge" || challenge === "captcha")
+    throw new Error(`access_blocked: HTTP ${response.status}${challenge ? ` ${challenge}` : ""}`);
+}
+

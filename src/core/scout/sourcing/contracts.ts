@@ -118,7 +118,11 @@ export const customJsonSourceSchema = commonSource
       .strict(),
     detailDescription: detailDescriptionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((source, context) => {
+    if (source.pagination && !source.totalPath)
+      context.addIssue({code: "custom", path: ["totalPath"], message: "Offset pagination requires a reported total path."});
+  });
 
 export const reusableJsonSourceSchema = commonSource
   .extend({
