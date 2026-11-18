@@ -96,4 +96,3 @@ export function assertSourceAccess(response: HttpResponse) {
       challenge === "challenge" || challenge === "captcha")
     throw new Error(`access_blocked: HTTP ${response.status}${challenge ? ` ${challenge}` : ""}`);
 }
-
