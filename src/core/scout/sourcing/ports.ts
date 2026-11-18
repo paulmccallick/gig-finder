@@ -48,9 +48,11 @@ export class BoundedFetchHttpPort implements GigScoutHttpPort {
       abort();
     }, input.timeoutMs);
     try {
+      const headers = new Headers(input.headers);
+      if (!headers.has("user-agent")) headers.set("user-agent", "GigFinder/1.0");
       const response = await fetch(input.url, {
         method: input.method,
-        headers: input.headers,
+        headers,
         body: input.body,
         redirect: input.redirect ?? "error",
         signal: controller.signal,
@@ -71,13 +73,13 @@ export class BoundedFetchHttpPort implements GigScoutHttpPort {
         }
         chunks.push(chunk.value);
       }
-      const headers = Object.fromEntries(response.headers.entries());
+      const responseHeaders = Object.fromEntries(response.headers.entries());
       const setCookies = response.headers.getSetCookie();
-      if (setCookies.length) headers["set-cookie"] = setCookies.join(", ");
+      if (setCookies.length) responseHeaders["set-cookie"] = setCookies.join(", ");
       return {
         status: response.status,
         url: response.url,
-        headers,
+        headers: responseHeaders,
         body: new TextDecoder().decode(Buffer.concat(chunks)),
       };
     } catch (error) {
