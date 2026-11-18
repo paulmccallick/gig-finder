@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  crediblePosting,
-  paginationEvidenceIsValid,
-} from "../scout-harness";
+import { crediblePosting, paginationEvidenceIsValid } from "../scout-harness";
 const position = {
   company: "Synthetic Company",
   sourceKey: "official",
@@ -109,4 +106,73 @@ test("pagination evidence requires proof when a source stops after one page", ()
       2,
     ),
   ).toBeTrue();
+});
+
+test("pagination evidence rejects premature success after a later total resets", () => {
+  expect(
+    paginationEvidenceIsValid(
+      [
+        {
+          stage: "listing_page_1",
+          pagesValidated: 1,
+          uniqueIdentities: 20,
+          sourceReportedTotal: 100,
+          recordsReceived: 20,
+        },
+        {
+          stage: "listing_page_2",
+          pagesValidated: 1,
+          uniqueIdentities: 20,
+          sourceReportedTotal: 0,
+          recordsReceived: 20,
+        },
+      ],
+      200,
+    ),
+  ).toBeFalse();
+});
+
+test("an empty source passes after a transient request retry succeeds", async () => {
+  const { runScoutHarness } = await import("../scout-harness");
+  let calls = 0;
+  const result = await runScoutHarness(
+    {
+      version: 1,
+      searchProfile: { terms: [], locations: [] },
+      companies: [
+        {
+          id: "synthetic",
+          name: "Synthetic",
+          active: true,
+          sources: [
+            {
+              key: "official",
+              active: true,
+              type: "json",
+              url: "https://api.example.test/jobs",
+              recordsPath: "jobs",
+              totalPath: "total",
+              fields: { id: "id", title: "title", url: "url" },
+            },
+          ],
+        },
+      ],
+    },
+    { maxPages: 200 },
+    {
+      http: {
+        async request(input) {
+          calls++;
+          return {
+            status: calls === 1 ? 503 : 200,
+            url: input.url,
+            headers: {},
+            body: JSON.stringify({ total: 0, jobs: [] }),
+          };
+        },
+      },
+    },
+  );
+  expect(calls).toBe(2);
+  expect(result.passed).toBeTrue();
 });

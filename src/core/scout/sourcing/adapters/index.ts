@@ -12,9 +12,10 @@ import { sourceAdapter } from "./registry";
 import type { TemplateResolver } from "./templates/definitions";
 
 const bounded = (value: unknown, fallback: string) =>
-  (value instanceof Error ? value.message : fallback).slice(0, 500);
+  (typeof value === "string" ? value : value instanceof Error ? value.message : fallback).slice(0, 500);
 const retryable = (error: unknown) =>
   !(error instanceof DOMException && error.name === "AbortError") &&
+  !String(error).includes("access_blocked") &&
   (!String(error).match(/http_4\d\d/) || String(error).includes("http_429"));
 type SourceScanResult = Omit<SourceOutcome, "positions"> & {
   positions: Array<Omit<NormalizedPosition, "company">>;
@@ -45,6 +46,7 @@ export async function scanSource(
   for (const [termIndex, term] of terms.entries()) {
     const termIdentities = new Set<string>();
     let termRecordsReceived = 0;
+    let reportedTotal: number | null = null;
     let exhausted = false;
     for (let page = 1; ; page++) {
       if (
@@ -113,6 +115,7 @@ export async function scanSource(
             signal,
           });
           lastResponse = response;
+          assertSourceAccess(response);
           if (response.status < 200 || response.status >= 300)
             throw new Error(`http_${response.status}`);
           let requestCount = 1,
@@ -134,12 +137,20 @@ export async function scanSource(
               signal,
             });
             lastResponse = response;
+            assertSourceAccess(response);
             requestCount++;
             if (response.status < 200 || response.status >= 300)
               throw new Error(`http_${response.status}`);
             responseCount++;
           }
           const extracted = await adapter.decode(source, response.body, page);
+          if (extracted.sourceReportedTotal !== null)
+            reportedTotal = Math.max(reportedTotal ?? 0, extracted.sourceReportedTotal);
+          const moreReportedRecords = reportedTotal !== null &&
+            termRecordsReceived + extracted.recordsReceived < reportedTotal;
+          const canPaginate = source.type === "json" &&
+            ("template" in source || Boolean(source.pagination) || Boolean(source.nextPagePath));
+          const hasNext = extracted.hasNext || (moreReportedRecords && canPaginate);
           const enrichmentDiagnostics = [];
           for (const [positionIndex, position] of extracted.positions.entries()) {
             const enrichment = adapter.enrichmentRequest?.(source, position);
@@ -230,13 +241,20 @@ export async function scanSource(
               count: extracted.recordsReceived,
               message: "This page contributed no distinct position identities.",
             });
-          if (extracted.hasNext && extracted.recordsReceived === 0)
+          if (hasNext && extracted.recordsReceived === 0)
             reconciliationDiagnostics.push({
               code: "pagination_empty_before_exhaustion",
               category: "validation" as const,
               count: 1,
               message:
                 "The source advertised another page but returned no records before exhaustion.",
+            });
+          if (moreReportedRecords && !hasNext)
+            reconciliationDiagnostics.push({
+              code: "reported_total_not_reconciled",
+              category: "validation" as const,
+              count: reportedTotal! - termRecordsReceived - extracted.recordsReceived,
+              message: "The source stopped before its reported total was retrieved.",
             });
           const reconciled = reconciliationDiagnostics.length === 0;
           positions.push(...extracted.positions);
@@ -248,7 +266,7 @@ export async function scanSource(
             stage: `listing${terms.length > 1 ? `_term_${termIndex + 1}` : ""}_page_${page}`,
             requestCount,
             responseCount,
-            sourceReportedTotal: extracted.sourceReportedTotal,
+            sourceReportedTotal: reportedTotal,
             recordsReceived: extracted.recordsReceived,
             recordsParsed: extracted.positions.length,
             recordsEvaluable: extracted.positions.length,
@@ -275,7 +293,7 @@ export async function scanSource(
               positions: [],
               attempts,
             };
-          if (!extracted.hasNext) {
+          if (!hasNext) {
             exhausted = true;
             break;
           }
@@ -303,7 +321,9 @@ export async function scanSource(
             completedAt: clock.now().toISOString(),
             failure: {
               code:
-                error instanceof DOMException && error.name === "AbortError"
+                String(error).includes("access_blocked")
+                  ? "access_blocked"
+                  : String(error).includes("request_timeout") || (error instanceof DOMException && error.name === "AbortError")
                   ? "request_timeout"
                   : "source_attempt_failed",
               message: bounded(
@@ -417,6 +437,13 @@ export async function scanSource(
     positions: validation.accepted,
     attempts,
   };
+}
+
+function assertSourceAccess(response: HttpResponse) {
+  const challenge = response.headers["x-amzn-waf-action"] || response.headers["cf-mitigated"];
+  if (response.status === 401 || response.status === 403 ||
+      challenge === "challenge" || challenge === "captcha")
+    throw new Error(`access_blocked: HTTP ${response.status}${challenge ? ` ${challenge}` : ""}`);
 }
 
 function applyValidation(

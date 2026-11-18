@@ -1,3 +1,5 @@
+import oracleHcmV3 from "../../config/scout/templates/oracle-hcm.v3.json";
+import phenomV2 from "../../config/scout/templates/phenom.v2.json";
 import adp from "../../config/scout/templates/adp.v1.json";
 import ashby from "../../config/scout/templates/ashby.v1.json";
 import avature from "../../config/scout/templates/avature.v1.json";
@@ -25,6 +27,8 @@ import workdayV3 from "../../config/scout/templates/workday.v3.json";
 import { createTemplateCatalog } from "../core/scout/sourcing/adapters/templates/definitions";
 
 export const scoutTemplateCatalog = createTemplateCatalog([
+  oracleHcmV3,
+  phenomV2,
   adp,
   ashby,
   avature,

@@ -20,12 +20,18 @@ export function planSourceRequest(
   if (source.type === "json" && "template" in source)
     throw new Error("Reusable JSON sources use their template request planner.");
   const url = new URL(source.url);
-  url.searchParams.set("page", String(page));
+  if (source.type === "json" && source.pagination) {
+    url.searchParams.set(source.pagination.offsetParameter, String((page - 1) * source.pagination.pageSize));
+    url.searchParams.set(source.pagination.limitParameter, String(source.pagination.pageSize));
+  } else url.searchParams.set("page", String(page));
   return {
     url: url.toString(),
     method: source.type === "json" ? source.method : "GET",
     ...(source.type === "json" && source.method === "POST"
-      ? { body: JSON.stringify({ ...(source.body ?? {}), page }) }
+      ? { body: JSON.stringify({ ...(source.body ?? {}), ...(source.pagination ? {
+          [source.pagination.offsetParameter]: (page - 1) * source.pagination.pageSize,
+          [source.pagination.limitParameter]: source.pagination.pageSize,
+        } : { page }) }) }
       : {}),
   };
 }

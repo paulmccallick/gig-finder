@@ -81,6 +81,13 @@ export const customJsonSourceSchema = commonSource
       )
       .optional(),
     recordsPath: z.string().trim().min(1).max(200),
+    totalPath: z.string().trim().min(1).max(200).optional(),
+    responseEncoding: z.enum(["json", "json-string"]).optional(),
+    pagination: z.object({
+      offsetParameter: z.string().trim().min(1).max(100),
+      limitParameter: z.string().trim().min(1).max(100),
+      pageSize: z.number().int().min(1).max(1000),
+    }).strict().optional(),
     nextPagePath: z.string().trim().min(1).max(200).optional(),
     scriptEnvelope: z
       .object({
