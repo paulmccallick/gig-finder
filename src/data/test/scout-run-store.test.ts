@@ -1138,7 +1138,8 @@ test("screening persists bounded comments and exposes only the score explanation
   expect(database.query(`SELECT count(*) count FROM gigs WHERE id=(SELECT gig_id FROM scout_position_promotions WHERE position_id=?)`).get(review.id)).toEqual({count:1});
   expect(database.query(`SELECT entity_type entityType FROM creation_idempotency WHERE change_id='change-pursue:gig'`).get()).toEqual({entityType:"gig-posting"});
   expect(database.query(`SELECT count(*) count FROM changes WHERE id IN ('change-pursue:gig','change-pursue:document')`).get()).toEqual({count:2});
-  database.exec(`DELETE FROM managed_document_links; DELETE FROM managed_document_versions; DELETE FROM scout_position_promotions; DELETE FROM managed_documents; UPDATE scout_position_states SET state='needs_user_review',linked_gig_id=NULL,deferred_until=NULL,current_decision_id=NULL WHERE position_id<>'other-position'; DELETE FROM scout_position_notes; DELETE FROM scout_position_decisions; DELETE FROM changes WHERE id LIKE 'change-%'; DELETE FROM gigs;`);
+  // Keep audit changes referenced by revision history while resetting the fixture.
+  database.exec(`DELETE FROM managed_document_links; DELETE FROM managed_document_versions; DELETE FROM scout_position_promotions; DELETE FROM managed_documents; UPDATE scout_position_states SET state='needs_user_review',linked_gig_id=NULL,deferred_until=NULL,current_decision_id=NULL WHERE position_id<>'other-position'; DELETE FROM scout_position_notes; DELETE FROM scout_position_decisions; DELETE FROM gigs;`);
   database.query(`UPDATE scout_position_processing SET run_id=? WHERE stage='screen_relevance' AND status='completed'`).run(run.id);
   database.query(`DELETE FROM scout_position_processing_outbox WHERE processing_id IN (SELECT id FROM scout_position_processing WHERE stage='score_candidate_match')`).run();
   database.query(`DELETE FROM scout_position_processing WHERE stage='score_candidate_match'`).run();

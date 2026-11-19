@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14 AS install
+FROM oven/bun:1.4.4 AS install
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -9,7 +9,7 @@ FROM install AS build
 COPY . .
 RUN bun run build
 
-FROM oven/bun:1.3.14 AS release
+FROM oven/bun:1.4.4 AS release
 
 ARG GIT_REVISION
 ENV HOST=0.0.0.0 \
