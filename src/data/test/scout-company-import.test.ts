@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { openDatabase, migrateDatabase } from "../database";
 import { SqliteScoutCompanyImportStore } from "../scout-company-import-store";
@@ -7,6 +7,9 @@ import { importScoutCompanies } from "../../core/scout/engine/company-import";
 import { scoutTemplateCatalog } from "../../operations/scout-template-catalog";
 
 const roots: string[] = [];
+beforeEach(() => {
+  mkdirSync("tmp", { recursive: true });
+});
 afterEach(() =>
   roots
     .splice(0)
