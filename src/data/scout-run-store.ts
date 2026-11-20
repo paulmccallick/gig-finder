@@ -850,8 +850,9 @@ export class SqliteScoutRunStore implements ScoutRunStore,ScoutPositionStore,Sco
     const extractionStrategy=nullableText(descriptionProvenance.extractionStrategy)??nullableText(descriptionProvenance.strategyVersion)??"listing-description-v1";
     const converterVersion=nullableText(descriptionProvenance.converterVersion)??nullableText(source.converterVersion);
     if(!converterVersion)throw new Error("Reviewed Scout description converter provenance is unavailable.");
-    const sourceDescription=JSON.stringify({scoutDescriptionId:String(source.descriptionId),officialSourceUrl:String(source.sourceUrl),retrievedAt:String(source.retrievedAt),sourceKey:String(source.sourceKey),configurationVersionId:String(source.configurationVersionId),extractionStrategy,converterVersion});
-    if(sourceDescription.length>500)throw new Error("Reviewed Scout description provenance exceeds the managed-document source limit.");
+    const fullSourceDescription=JSON.stringify({scoutDescriptionId:String(source.descriptionId),officialSourceUrl:String(source.sourceUrl),retrievedAt:String(source.retrievedAt),sourceKey:String(source.sourceKey),configurationVersionId:String(source.configurationVersionId),extractionStrategy,converterVersion});
+    // Full source evidence remains in sourceProvenance; bound only the display summary.
+    const sourceDescription=fullSourceDescription.length<=500?fullSourceDescription:JSON.stringify({scoutDescriptionId:String(source.descriptionId),truncated:true});
     const locations=Array.isArray(storedLocations)?storedLocations:[];
     const workArrangement=typeof storedWorkArrangement==="string"?storedWorkArrangement:null;
     return{
