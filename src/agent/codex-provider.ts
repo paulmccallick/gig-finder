@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createOpenAI } from "@ai-sdk/openai";
+import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import {
   defaultAgentModelId,
   parseAgentModelId,
@@ -48,6 +49,21 @@ async function loadCodexCredential() {
   return { accessToken, accountId };
 }
 
+function configuredModel(provider: ReturnType<typeof createOpenAI>, modelId: AgentModelId) {
+  const model = provider.responses(modelId);
+  if (modelId !== "gpt-6-astra") return model;
+  return wrapLanguageModel({
+    model,
+    middleware: defaultSettingsMiddleware({
+      settings: {
+        providerOptions: {
+          openai: { reasoningEffort: "medium", forceReasoning: true },
+        },
+      },
+    }),
+  });
+}
+
 export async function createCodexLanguageModel(
   modelId: AgentModelId = defaultAgentModelId,
   options: { smokeBaseURL?: string; surfaceLiveSmokeErrors?: boolean } = {},
@@ -59,7 +75,7 @@ export async function createCodexLanguageModel(
       baseURL: options.smokeBaseURL,
       apiKey: "smoke-provider-does-not-use-authentication",
     });
-    return provider.responses(selectedModel);
+    return configuredModel(provider, selectedModel);
   }
   const credential = await loadCodexCredential();
   const codexFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -85,5 +101,5 @@ export async function createCodexLanguageModel(
     apiKey: "managed-by-codex-provider",
     fetch: codexFetch,
   });
-  return provider.responses(selectedModel);
+  return configuredModel(provider, selectedModel);
 }

@@ -437,10 +437,10 @@ test("GigFinderAgent streams guidance and remains available across dashboard vie
   const modelUpdate = page.waitForResponse(response =>
     response.url().endsWith("/api/settings/agent-model")
     && response.request().method() === "PUT");
-  await modelSelector.selectOption("gpt-5.6-terra");
+  await modelSelector.selectOption("gpt-6-astra");
   expect((await modelUpdate).status()).toBe(200);
   await page.reload();
-  await expect(panel.getByLabel("Agent model")).toHaveValue("gpt-5.6-terra");
+  await expect(panel.getByLabel("Agent model")).toHaveValue("gpt-6-astra");
   await expect(panel.getByRole("button", { name: "Dock agent to side" })).toHaveAttribute("aria-pressed", "true");
   await expect(panel.locator(".agent-boundary")).toHaveCount(0);
   const resizeHandle = panel.getByRole("separator", { name: "Resize agent panel" });

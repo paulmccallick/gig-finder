@@ -1,5 +1,5 @@
 import {
-  generateText,
+  streamText as streamModelText,
   type AssistantContent,
   type LanguageModel,
   type ModelMessage,
@@ -300,7 +300,7 @@ export class GigFinderConversationRuntime implements ConversationAgentRuntime {
 
   async title(input: Parameters<ConversationAgentRuntime["title"]>[0]) {
     const selectedModel = this.options.selectModel?.() ?? defaultAgentModelId;
-    const result = await generateText({
+    const result = streamModelText({
       model: await (this.options.modelFactory ?? createCodexLanguageModel)(selectedModel),
       system: "Create a concise title for a job-search assistant conversation. Return only the title, with at most eight words.",
       prompt: `User: ${text(input.userMessage)}\nAssistant: ${text(input.assistantMessage)}`,
@@ -308,6 +308,6 @@ export class GigFinderConversationRuntime implements ConversationAgentRuntime {
       maxRetries: 1,
       providerOptions: { openai: { store: false } },
     });
-    return result.text;
+    return await result.text;
   }
 }
