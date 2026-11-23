@@ -365,11 +365,17 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 .agent-message { margin-bottom: 22px; animation: column-arrival .24s ease-out; }
 .agent-message header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--dim); font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; }
 .agent-message header i { height: 1px; flex: 1; background: var(--line); }
-.agent-message p { margin: 0; white-space: pre-wrap; color: var(--ink); font-size: 12px; line-height: 1.62; }
-.agent-message-parts { display: grid; gap: 10px; }
+.agent-message p { margin: 0; white-space: pre-wrap; color: var(--ink); font-size: 16px; line-height: 1.7; }
+.agent-message-parts { display: grid; min-width: 0; gap: 10px; }
+.agent-answer { min-width: 0; overflow-wrap: anywhere; }
+.agent-answer .document-markdown { font-size: 16px; line-height: 1.7; }
+.agent-answer .document-markdown p { margin: 0 0 1em; white-space: normal; }
+.agent-answer .document-markdown > :last-child { margin-bottom: 0; }
+.agent-answer .document-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.agent-answer .document-markdown th, .agent-answer .document-markdown td { padding: 8px 10px; text-align: left; border: 1px solid var(--line); }
 .agent-reasoning { padding: 10px 12px; border-left: 2px solid rgba(154,91,21,.34); background: rgba(154,91,21,.045); }
 .agent-reasoning strong { display: block; margin-bottom: 6px; color: var(--amber); text-transform: uppercase; font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; }
-.agent-reasoning p { color: var(--muted); font-size: 10px; }
+.agent-reasoning p { color: var(--muted); font-size: 16px; }
 .agent-tool-activity { display: flex; align-items: center; gap: 7px; color: var(--dim); font: 8px/1.3 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; }
 .agent-tool-activity i { width: 7px; height: 7px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; }
 .agent-tool-activity.is-success { color: var(--signal); }
@@ -414,7 +420,7 @@ body.is-resizing-agent .dashboard-with-agent { transition: none; }
 .agent-upload-error { border-color: rgba(179,63,57,.42); color: #84423e; }
 .agent-upload-error button { color: var(--red); }
 .agent-composer label { display: block; margin-bottom: 8px; color: var(--amber); text-transform: uppercase; font: 7px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; }
-.agent-composer textarea { width: 100%; resize: none; padding: 11px 12px; color: var(--ink); border: 1px solid var(--line); outline: 0; background: #fff; font-size: 11px; line-height: 1.45; }
+.agent-composer textarea { width: 100%; resize: none; padding: 11px 12px; color: var(--ink); border: 1px solid var(--line); outline: 0; background: #fff; font-size: 16px; line-height: 1.5; }
 .agent-composer textarea:focus { border-color: rgba(154,91,21,.55); box-shadow: 0 0 0 1px rgba(154,91,21,.12); }
 
 @media (prefers-reduced-motion: reduce) {

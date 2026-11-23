@@ -402,7 +402,7 @@ test("GigFinderAgent streams guidance and remains available across dashboard vie
     'data: {"type":"start","messageId":"assistant-1"}',
     'data: {"type":"start-step"}',
     'data: {"type":"text-start","id":"text-1"}',
-    'data: {"type":"text-delta","id":"text-1","delta":"Prioritize Senior Director and VP engineering roles with credible organizational scope."}',
+    'data: {"type":"text-delta","id":"text-1","delta":"Prioritize **Senior Director** and VP engineering roles with credible organizational scope."}',
     'data: {"type":"text-end","id":"text-1"}',
     'data: {"type":"finish-step"}',
     'data: {"type":"finish"}',
@@ -460,6 +460,7 @@ test("GigFinderAgent streams guidance and remains available across dashboard vie
     getComputedStyle(element).marginRight)).toBe("600px");
   await panel.getByRole("button", { name: "What kinds of roles should I prioritize?" }).click();
   await expect(panel).toContainText("Prioritize Senior Director and VP engineering roles");
+  await expect(panel.locator(".agent-answer strong")).toHaveText("Senior Director");
   expect(diagnostics.some(message => message.includes("agent.ui.request.submitted"))).toBe(true);
   expect(diagnostics.some(message => message.includes("agent.ui.status.changed"))).toBe(true);
   expect(diagnostics.some(message => message.includes("agent.ui.response.finished"))).toBe(true);
@@ -861,7 +862,7 @@ test("GigFinderAgent reopens and switches persisted conversations", async ({ pag
           { id: `assistant-${id}`, role: "assistant", parts: [
             { type: "reasoning", text: `Reasoning for ${conversation.title}` },
             { type: "tool-list_gigs", toolCallId: "restored-secret-call", state: "output-available", input: { id: "restored-secret-input" }, output: { id: "restored-secret-output" } },
-            { type: "text", text: `Answer for ${conversation.title}` },
+            { type: "text", text: `## Answer for ${conversation.title}\n\nA **readable** reply with [details](https://example.com).\n\n- First step\n- Second step\n\n| Role | Fit |\n| --- | --- |\n| Director | Strong |\n\n~~~text\nexample code\n~~~` },
           ] },
         ],
       }),
@@ -872,6 +873,18 @@ test("GigFinderAgent reopens and switches persisted conversations", async ({ pag
   const selector = panel.getByLabel("Conversation");
   await expect(selector).toHaveValue("conversation-latest");
   await expect(panel).toContainText("Answer for Latest strategy");
+  const answer = panel.locator(".agent-answer");
+  await expect(answer.getByRole("heading", { name: "Answer for Latest strategy" })).toBeVisible();
+  await expect(answer.locator("strong")).toHaveText("readable");
+  await expect(answer.locator("li")).toHaveCount(2);
+  await expect(answer.getByRole("cell", { name: "Strong", exact: true })).toBeVisible();
+  await expect(answer.locator("pre code")).toHaveText("example code\n");
+  await expect(answer.getByRole("link", { name: "details" })).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(answer.locator("p").first()).toHaveCSS("font-size", "16px");
+  await expect(panel.getByLabel("Message GigFinderAgent")).toHaveCSS("font-size", "16px");
+  await panel.getByRole("button", { name: "Expand agent to full screen" }).click();
+  await expect(answer.locator("p").first()).toHaveCSS("font-size", "16px");
+
   await expect(panel.locator(".agent-message.is-user")).toContainText("Attached document");
   await expect(panel).not.toContainText("Attached staged document");
   await expect(panel).toContainText("Reasoning for Latest strategy");

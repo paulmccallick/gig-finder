@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react";
+import { MarkdownRenderer } from "../MarkdownRenderer";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 import {
   Fragment,
@@ -163,7 +164,7 @@ function MessageParts({ message }: { message: UIMessage }) {
   return <div className="agent-message-parts">
     {message.parts.map((part, index) => {
       const content: ReactNode = part.type === "text" && part.text
-        ? <p className="agent-answer">{part.text}</p>
+        ? <div className="agent-answer"><MarkdownRenderer>{part.text}</MarkdownRenderer></div>
         : part.type === "reasoning" && part.text
           ? <section className="agent-reasoning" aria-label="Agent reasoning">
               <strong>Reasoning</strong>
