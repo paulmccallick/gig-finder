@@ -28,16 +28,17 @@ describe("application settings", () => {
       repository,
       "gpt-5.6-terra",
     );
-    expect(settings.setAgentModel("gpt-5.6-luna"))
-      .toEqual({ agentModel: "gpt-5.6-luna" });
+    expect(settings.setAgentModel("gpt-6-astra"))
+      .toEqual({ agentModel: "gpt-6-astra" });
     expect(new ApplicationSettingsService(
       repository,
       "gpt-5.6-sol",
-    ).get()).toEqual({ agentModel: "gpt-5.6-luna" });
+    ).get()).toEqual({ agentModel: "gpt-6-astra" });
   });
 
   test("rejects values outside the shared model catalog", () => {
     expect(agentModelCatalog.map(model => model.id)).toEqual([
+      "gpt-6-astra",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-5.6-luna",

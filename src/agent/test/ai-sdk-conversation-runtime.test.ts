@@ -1,6 +1,11 @@
+import { simulateReadableStream } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
+import pino from "pino";
+import { testCandidateProfile } from "./fixtures";
 import { describe, expect, test } from "bun:test";
 import type { ConversationMessage } from "../../core/conversation-service";
 import {
+  GigFinderConversationRuntime,
   conversationStream,
   safeAgentError,
   toModelMessages,
@@ -91,4 +96,32 @@ describe("AI SDK conversation adapter", () => {
       },
     });
   });
+});
+
+
+test("conversation titles use streaming with the selected model", async () => {
+  const model = new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: simulateReadableStream({ chunks: [
+        { type: "stream-start", warnings: [] },
+        { type: "text-start", id: "title" },
+        { type: "text-delta", id: "title", delta: "Role strategy" },
+        { type: "text-end", id: "title" },
+        { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 2, text: 2, reasoning: undefined },
+        } },
+      ] }),
+    }),
+  });
+  const runtime = new GigFinderConversationRuntime({
+    profile: testCandidateProfile,
+    logger: pino({ enabled: false }),
+    selectModel: () => "gpt-6-astra",
+    modelFactory: async id => { expect(id).toBe("gpt-6-astra"); return model; },
+  });
+  expect(await runtime.title({
+    userMessage: { id: "user", role: "user", parts: [{ type: "text", text: "Help with roles" }] },
+    assistantMessage: { id: "assistant", role: "assistant", parts: [{ type: "text", text: "Prioritize leadership" }] },
+  })).toBe("Role strategy");
 });

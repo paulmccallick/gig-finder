@@ -551,7 +551,7 @@ describe("agent model settings API", () => {
     );
     expect(invalid.status).toBe(422);
     expect(await invalid.json()).toEqual({
-      error: "Agent model must be one of: gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna.",
+      error: "Agent model must be one of: gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna.",
       code: "domain_validation_failed",
     });
 
